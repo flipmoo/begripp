@@ -14,7 +14,7 @@ export async function initializeDatabase() {
 
     // Open database connection
     db = await open({
-        filename: 'data.db',
+        filename: join(__dirname, 'database.sqlite'),
         driver: sqlite3.Database
     });
 

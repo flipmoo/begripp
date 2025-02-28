@@ -38,6 +38,22 @@ getDatabase().then(async database => {
     )
   `);
 
+  // Initialize hours table
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS hours (
+      id INTEGER PRIMARY KEY,
+      employee_id INTEGER NOT NULL,
+      date DATE NOT NULL,
+      amount REAL NOT NULL,
+      description TEXT,
+      status_id INTEGER,
+      status_name TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (employee_id) REFERENCES employees(id)
+    )
+  `);
+
   // Insert default holidays for 2024
   const holidays2024 = [
     ['2024-01-01', 'Nieuwjaarsdag'],
@@ -263,7 +279,7 @@ app.get('/api/employees', async (req, res) => {
       JOIN employees e ON ar.employee_id = e.id
       WHERE 
         e.active = 1 AND
-        ar.status_id = 2 AND
+        (ar.status_id = 1 OR ar.status_id = 2) AND
         ((ar.startdate <= ? AND ar.enddate >= ?) OR
          (ar.startdate >= ? AND ar.startdate <= ?))
     `, [
@@ -274,6 +290,30 @@ app.get('/api/employees', async (req, res) => {
     ]);
 
     console.log('Found absence data for week', week, ':', absenceData.length, 'records');
+
+    // Get written hours data for the period
+    const writtenHoursData = await db.all(`
+      SELECT 
+        h.employee_id,
+        SUM(h.amount) as total_hours
+      FROM hours h
+      JOIN employees e ON h.employee_id = e.id
+      WHERE 
+        e.active = 1 AND
+        h.date >= ? AND h.date <= ?
+      GROUP BY h.employee_id
+    `, [
+      startDate.toISOString().split('T')[0],
+      endDate.toISOString().split('T')[0]
+    ]);
+
+    console.log('Found written hours data for week', week, ':', writtenHoursData.length, 'records');
+
+    // Create a map of employee ID to written hours for quick lookup
+    const writtenHoursMap = new Map();
+    writtenHoursData.forEach(record => {
+      writtenHoursMap.set(record.employee_id, record.total_hours);
+    });
 
     // Calculate holiday hours for each employee
     const enrichedEmployees = employees.map(employee => {
@@ -375,6 +415,10 @@ app.get('/api/employees', async (req, res) => {
 
       console.log(`Employee ${employee.name}: contract_hours=${contractHours}, holiday_hours=${holidayHours}, leave_hours=${leaveHours}`);
 
+      // Get written hours for this employee from the map, default to 0 if not found
+      const writtenHours = writtenHoursMap.get(employee.id) || 0;
+      console.log(`Employee ${employee.name}: written_hours=${writtenHours}`);
+
       return {
         id: employee.id,
         name: employee.name,
@@ -384,8 +428,8 @@ app.get('/api/employees', async (req, res) => {
         holiday_hours: holidayHours,
         expected_hours: Math.max(0, contractHours - holidayHours),
         leave_hours: leaveHours,
-        written_hours: 0,
-        actual_hours: leaveHours
+        written_hours: writtenHours,
+        actual_hours: writtenHours + leaveHours
       };
     });
 
@@ -670,6 +714,125 @@ app.post('/api/holidays', async (req, res) => {
   } catch (error) {
     console.error('Error adding holiday:', error);
     res.status(500).json({ error: 'Failed to add holiday' });
+  }
+});
+
+// Sync hours data endpoint
+app.post('/api/sync/hours', async (req, res) => {
+  try {
+    console.log('Starting hours sync process...');
+    
+    // Get active employees
+    const activeEmployees = await db.all(`
+      SELECT id, firstname, lastname FROM employees WHERE active = true
+    `);
+
+    if (!activeEmployees.length) {
+      return res.status(404).json({ error: 'No active employees found' });
+    }
+
+    const { startDate, endDate } = req.body;
+    
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'Start date and end date are required' });
+    }
+
+    console.log(`Syncing hours data from ${startDate} to ${endDate} for ${activeEmployees.length} employees`);
+
+    // Get employee IDs
+    const employeeIds = activeEmployees.map(emp => emp.id);
+
+    // Clear existing hours data for the period
+    await db.run(`
+      DELETE FROM hours 
+      WHERE date BETWEEN ? AND ?
+    `, [startDate, endDate]);
+
+    // Process employees in smaller batches to avoid rate limiting
+    const BATCH_SIZE = 5;
+    const batches = [];
+    
+    for (let i = 0; i < employeeIds.length; i += BATCH_SIZE) {
+      batches.push(employeeIds.slice(i, i + BATCH_SIZE));
+    }
+    
+    console.log(`Processing ${batches.length} batches of employees for hours data`);
+    
+    let totalHours = 0;
+    let insertedHours = 0;
+    
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      console.log(`Processing batch ${batchIndex + 1}/${batches.length} with ${batch.length} employees`);
+      
+      try {
+        // Fetch hours data with backoff
+        const hoursResponses = await makeRequestWithBackoff(async () => {
+          console.log(`Fetching hours data for batch ${batchIndex + 1}...`);
+          return await hourService.getByEmployeeIdsAndPeriod(
+            batch,
+            startDate,
+            endDate
+          );
+        }, 10, 2000); // More retries and longer initial delay
+        
+        // Process each response
+        for (const response of hoursResponses) {
+          if (!response.result?.length) continue;
+          
+          totalHours += response.result.length;
+          
+          for (const hour of response.result) {
+            try {
+              await db.run(`
+                INSERT INTO hours (
+                  id, employee_id, date, amount,
+                  description, status_id, status_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+              `, [
+                hour.id,
+                hour.employee.id,
+                hour.date.date.split(' ')[0], // Extract date part only
+                hour.amount,
+                hour.description,
+                hour.status.id,
+                hour.status.searchname
+              ]);
+              
+              insertedHours++;
+            } catch (error) {
+              console.error(`Error inserting hour record:`, error);
+              // Continue with next record
+              continue;
+            }
+          }
+        }
+        
+        // Add a delay between batches to avoid rate limiting
+        if (batchIndex < batches.length - 1) {
+          console.log(`Waiting 3 seconds before processing next batch...`);
+          await delay(3000);
+        }
+      } catch (error) {
+        console.error(`Error processing batch ${batchIndex + 1}:`, error);
+        // Continue with next batch instead of failing the entire sync
+        continue;
+      }
+    }
+
+    console.log(`Hours sync completed: ${insertedHours} of ${totalHours} records inserted`);
+    res.json({ 
+      success: true, 
+      totalHours,
+      insertedHours
+    });
+  } catch (error) {
+    console.error('Hours sync failed:', error);
+    res.status(500).json({ 
+      error: 'Hours sync failed', 
+      message: error instanceof Error ? error.message : 'Unknown error',
+      details: error
+    });
   }
 });
 

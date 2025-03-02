@@ -28,23 +28,34 @@ interface ApiEmployee {
     written_hours?: number;
 }
 
-const API_BASE = '/api';
+// Use direct API URL instead of relying on proxy
+const API_BASE = 'http://localhost:3002/api';
 
 export async function getEmployeeStats(year: number, week: number, timestamp?: number): Promise<EmployeeWithStats[]> {
     try {
         // Always use a timestamp to prevent caching issues
         const currentTimestamp = timestamp || new Date().getTime();
-        const url = `/api/employees?year=${year}&week=${week}&_=${currentTimestamp}`;
+        const url = `${API_BASE}/employees?year=${year}&week=${week}&_=${currentTimestamp}`;
         
+        console.log(`Fetching employee stats for year=${year}, week=${week}`);
         const response = await fetch(url);
+        
         if (!response.ok) {
+            console.error('API response not OK:', response.status, response.statusText);
             throw new Error('Failed to fetch employee data');
         }
         
         const data: ApiEmployee[] = await response.json();
         console.log('Raw API response:', data);
         
-        return data.map(employee => ({
+        // Log holiday hours specifically to debug
+        console.log('Holiday hours from API:', data.map(emp => ({ 
+            name: emp.name, 
+            holiday_hours: emp.holiday_hours,
+            contract_period: emp.contract_period
+        })));
+        
+        const mappedData = data.map(employee => ({
             id: employee.id,
             name: employee.name,
             function: employee.function,
@@ -56,9 +67,12 @@ export async function getEmployeeStats(year: number, week: number, timestamp?: n
             writtenHours: employee.written_hours || 0,
             actualHours: employee.actual_hours || (employee.written_hours || 0)
         }));
+        
+        console.log('Mapped employee data:', mappedData);
+        return mappedData;
     } catch (error) {
         console.error('Error fetching employee stats:', error);
-        return [];
+        throw error;
     }
 }
 

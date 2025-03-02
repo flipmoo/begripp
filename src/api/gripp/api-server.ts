@@ -7,6 +7,7 @@ import { employeeService } from './services/employee';
 import { contractService } from './services/contract';
 import { hourService } from './services/hour';
 import { absenceService, AbsenceRequest } from './services/absence';
+import { startOfWeek, setWeek } from 'date-fns';
 
 const app = express();
 const port = 3002;
@@ -20,6 +21,13 @@ const limiter = rateLimit({
 app.use(cors());
 app.use(express.json());
 app.use(limiter);
+
+// Add CORS headers to allow requests from any origin
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  next();
+});
 
 let db = null;
 
@@ -35,22 +43,6 @@ getDatabase().then(async database => {
       name TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  // Initialize hours table
-  await db.run(`
-    CREATE TABLE IF NOT EXISTS hours (
-      id INTEGER PRIMARY KEY,
-      employee_id INTEGER NOT NULL,
-      date DATE NOT NULL,
-      amount REAL NOT NULL,
-      description TEXT,
-      status_id INTEGER,
-      status_name TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (employee_id) REFERENCES employees(id)
     )
   `);
 
@@ -173,47 +165,12 @@ app.get('/api/employees', async (req, res) => {
     
     console.log('After parsing:', { yearNum, weekNum });
     
-    // Get the date for the specified ISO week
-    // ISO weeks start on Monday and week 1 is the week containing the first Thursday of the year
-    function getDateOfISOWeek(weekNum, yearNum) {
-      console.log(`getDateOfISOWeek called with weekNum=${weekNum} (${typeof weekNum}), yearNum=${yearNum} (${typeof yearNum})`);
-      
-      // Ensure weekNum and yearNum are numbers
-      const week = Number(weekNum);
-      const year = Number(yearNum);
-      
-      if (isNaN(week) || isNaN(year)) {
-        throw new Error('Invalid time value');
-      }
-      
-      // Find the first day of the year
-      const firstDayOfYear = new Date(Date.UTC(year, 0, 1));
-      console.log(`First day of year ${year}: ${firstDayOfYear.toISOString()}`);
-      
-      // Get the day of the week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
-      const dayOfWeek = firstDayOfYear.getUTCDay();
-      console.log(`Day of week for first day: ${dayOfWeek}`);
-      
-      // Find the nearest Thursday (ISO weeks are defined by the Thursday)
-      const nearestThursday = new Date(firstDayOfYear);
-      nearestThursday.setUTCDate(firstDayOfYear.getUTCDate() + (dayOfWeek <= 4 ? 4 - dayOfWeek : 11 - dayOfWeek));
-      console.log(`Nearest Thursday: ${nearestThursday.toISOString()}`);
-      
-      // Get the first week of the year
-      const firstWeek = new Date(nearestThursday);
-      firstWeek.setUTCDate(nearestThursday.getUTCDate() - 3); // Go back to Monday
-      console.log(`First week (Monday): ${firstWeek.toISOString()}`);
-      
-      // Add the required number of weeks
-      const targetWeek = new Date(firstWeek);
-      targetWeek.setUTCDate(firstWeek.getUTCDate() + (week - 1) * 7);
-      console.log(`Target week (result): ${targetWeek.toISOString()}`);
-      
-      return targetWeek;
-    }
-    
-    // Calculate start date (Monday of the week)
-    const startDate = getDateOfISOWeek(weekNum, yearNum);
+    // Calculate start date (Monday of the week) using date-fns
+    // This uses the same options as the frontend: { weekStartsOn: 1, firstWeekContainsDate: 4 }
+    const startDate = startOfWeek(
+      setWeek(new Date(yearNum, 0, 1), weekNum, { weekStartsOn: 1, firstWeekContainsDate: 4 }),
+      { weekStartsOn: 1 }
+    );
     startDate.setUTCHours(0, 0, 0, 0);
     
     // Calculate end date (Sunday of the week)
@@ -279,7 +236,7 @@ app.get('/api/employees', async (req, res) => {
       JOIN employees e ON ar.employee_id = e.id
       WHERE 
         e.active = 1 AND
-        (ar.status_id = 1 OR ar.status_id = 2) AND
+        ar.status_id = 2 AND
         ((ar.startdate <= ? AND ar.enddate >= ?) OR
          (ar.startdate >= ? AND ar.startdate <= ?))
     `, [
@@ -291,30 +248,6 @@ app.get('/api/employees', async (req, res) => {
 
     console.log('Found absence data for week', week, ':', absenceData.length, 'records');
 
-    // Get written hours data for the period
-    const writtenHoursData = await db.all(`
-      SELECT 
-        h.employee_id,
-        SUM(h.amount) as total_hours
-      FROM hours h
-      JOIN employees e ON h.employee_id = e.id
-      WHERE 
-        e.active = 1 AND
-        h.date >= ? AND h.date <= ?
-      GROUP BY h.employee_id
-    `, [
-      startDate.toISOString().split('T')[0],
-      endDate.toISOString().split('T')[0]
-    ]);
-
-    console.log('Found written hours data for week', week, ':', writtenHoursData.length, 'records');
-
-    // Create a map of employee ID to written hours for quick lookup
-    const writtenHoursMap = new Map();
-    writtenHoursData.forEach(record => {
-      writtenHoursMap.set(record.employee_id, record.total_hours);
-    });
-
     // Calculate holiday hours for each employee
     const enrichedEmployees = employees.map(employee => {
       let holidayHours = 0;
@@ -325,6 +258,28 @@ app.get('/api/employees', async (req, res) => {
       // Check if employee has a valid contract for this period
       const contractStartDate = employee.contract_startdate ? new Date(employee.contract_startdate) : null;
       const contractEndDate = employee.contract_enddate ? new Date(employee.contract_enddate) : null;
+      
+      // Check if the contract is active during this week
+      const isContractActive = 
+        (!contractStartDate || contractStartDate <= endDate) && 
+        (!contractEndDate || contractEndDate >= startDate);
+      
+      // If contract is not active during this week, set contract hours to 0
+      if (!isContractActive) {
+        console.log(`Employee ${employee.firstname} ${employee.lastname} has no active contract for this week`);
+        return {
+          id: employee.id,
+          name: employee.name,
+          function: employee.function,
+          contract_period: employee.contract_period,
+          contract_hours: 0,
+          holiday_hours: 0,
+          expected_hours: 0,
+          leave_hours: 0,
+          written_hours: 0,
+          actual_hours: 0
+        };
+      }
       
       // Calculate contract hours for the week
       const contractHours = isEvenWeek
@@ -346,8 +301,8 @@ app.get('/api/employees', async (req, res) => {
       while (currentDate <= endDate) {
         const dateStr = currentDate.toISOString().split('T')[0];
         
-        // Fix: Ensure proper date comparison by explicitly comparing date strings
-        const isHoliday = holidays.some(h => h.date === dateStr);
+        // Fix: Use string comparison to check if the date is a holiday
+        const isHoliday = holidays.some(h => normalizeDate(h.date) === dateStr);
         const dayOfWeek = currentDate.getUTCDay(); // 0 = Sunday, 1 = Monday, etc.
         
         // Check if the current date is within the contract period
@@ -371,11 +326,11 @@ app.get('/api/employees', async (req, res) => {
           dailyContractHours = isEvenWeek ? (employee.hours_friday_even || 0) : (employee.hours_friday_odd || 0);
         }
 
-        // Only count holidays if the day is within the contract period and the employee has hours on that day
-        if (isHoliday && dayOfWeek >= 1 && dayOfWeek <= 5 && isWithinContractPeriod && dailyContractHours > 0) {
-          // Use the employee's actual contract hours for that day instead of a fixed 8 hours
-          console.log(`Found holiday on ${dateStr} (${dayOfWeek}): adding ${dailyContractHours} hours`);
-          holidayHours += dailyContractHours;
+        // Count holidays for all employees who are within their contract period, regardless of daily hours
+        if (isHoliday && dayOfWeek >= 1 && dayOfWeek <= 5 && isWithinContractPeriod) {
+          // Use a fixed 8 hours for holiday days
+          console.log(`Found holiday on ${dateStr} (${dayOfWeek}): adding 8 hours for ${employee.firstname || ''} ${employee.lastname || ''}`);
+          holidayHours += 8; // Fixed 8 hours per holiday day
         }
 
         // Initialize daily leave hours
@@ -415,10 +370,6 @@ app.get('/api/employees', async (req, res) => {
 
       console.log(`Employee ${employee.name}: contract_hours=${contractHours}, holiday_hours=${holidayHours}, leave_hours=${leaveHours}`);
 
-      // Get written hours for this employee from the map, default to 0 if not found
-      const writtenHours = writtenHoursMap.get(employee.id) || 0;
-      console.log(`Employee ${employee.name}: written_hours=${writtenHours}`);
-
       return {
         id: employee.id,
         name: employee.name,
@@ -428,8 +379,8 @@ app.get('/api/employees', async (req, res) => {
         holiday_hours: holidayHours,
         expected_hours: Math.max(0, contractHours - holidayHours),
         leave_hours: leaveHours,
-        written_hours: writtenHours,
-        actual_hours: writtenHours + leaveHours
+        written_hours: 0,
+        actual_hours: leaveHours
       };
     });
 
@@ -714,125 +665,6 @@ app.post('/api/holidays', async (req, res) => {
   } catch (error) {
     console.error('Error adding holiday:', error);
     res.status(500).json({ error: 'Failed to add holiday' });
-  }
-});
-
-// Sync hours data endpoint
-app.post('/api/sync/hours', async (req, res) => {
-  try {
-    console.log('Starting hours sync process...');
-    
-    // Get active employees
-    const activeEmployees = await db.all(`
-      SELECT id, firstname, lastname FROM employees WHERE active = true
-    `);
-
-    if (!activeEmployees.length) {
-      return res.status(404).json({ error: 'No active employees found' });
-    }
-
-    const { startDate, endDate } = req.body;
-    
-    if (!startDate || !endDate) {
-      return res.status(400).json({ error: 'Start date and end date are required' });
-    }
-
-    console.log(`Syncing hours data from ${startDate} to ${endDate} for ${activeEmployees.length} employees`);
-
-    // Get employee IDs
-    const employeeIds = activeEmployees.map(emp => emp.id);
-
-    // Clear existing hours data for the period
-    await db.run(`
-      DELETE FROM hours 
-      WHERE date BETWEEN ? AND ?
-    `, [startDate, endDate]);
-
-    // Process employees in smaller batches to avoid rate limiting
-    const BATCH_SIZE = 5;
-    const batches = [];
-    
-    for (let i = 0; i < employeeIds.length; i += BATCH_SIZE) {
-      batches.push(employeeIds.slice(i, i + BATCH_SIZE));
-    }
-    
-    console.log(`Processing ${batches.length} batches of employees for hours data`);
-    
-    let totalHours = 0;
-    let insertedHours = 0;
-    
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex];
-      console.log(`Processing batch ${batchIndex + 1}/${batches.length} with ${batch.length} employees`);
-      
-      try {
-        // Fetch hours data with backoff
-        const hoursResponses = await makeRequestWithBackoff(async () => {
-          console.log(`Fetching hours data for batch ${batchIndex + 1}...`);
-          return await hourService.getByEmployeeIdsAndPeriod(
-            batch,
-            startDate,
-            endDate
-          );
-        }, 10, 2000); // More retries and longer initial delay
-        
-        // Process each response
-        for (const response of hoursResponses) {
-          if (!response.result?.length) continue;
-          
-          totalHours += response.result.length;
-          
-          for (const hour of response.result) {
-            try {
-              await db.run(`
-                INSERT INTO hours (
-                  id, employee_id, date, amount,
-                  description, status_id, status_name
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-              `, [
-                hour.id,
-                hour.employee.id,
-                hour.date.date.split(' ')[0], // Extract date part only
-                hour.amount,
-                hour.description,
-                hour.status.id,
-                hour.status.searchname
-              ]);
-              
-              insertedHours++;
-            } catch (error) {
-              console.error(`Error inserting hour record:`, error);
-              // Continue with next record
-              continue;
-            }
-          }
-        }
-        
-        // Add a delay between batches to avoid rate limiting
-        if (batchIndex < batches.length - 1) {
-          console.log(`Waiting 3 seconds before processing next batch...`);
-          await delay(3000);
-        }
-      } catch (error) {
-        console.error(`Error processing batch ${batchIndex + 1}:`, error);
-        // Continue with next batch instead of failing the entire sync
-        continue;
-      }
-    }
-
-    console.log(`Hours sync completed: ${insertedHours} of ${totalHours} records inserted`);
-    res.json({ 
-      success: true, 
-      totalHours,
-      insertedHours
-    });
-  } catch (error) {
-    console.error('Hours sync failed:', error);
-    res.status(500).json({ 
-      error: 'Hours sync failed', 
-      message: error instanceof Error ? error.message : 'Unknown error',
-      details: error
-    });
   }
 });
 

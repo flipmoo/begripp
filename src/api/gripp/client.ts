@@ -1,198 +1,189 @@
 import axios from 'axios';
-import { GRIPP_API_HEADERS, GRIPP_API_KEY } from './config';
+import * as dotenv from 'dotenv';
 
-// Create axios instance with base configuration
-const client = axios.create({
-  baseURL: '/api',  // This will be rewritten by the proxy
-  headers: {
-    ...GRIPP_API_HEADERS,
-    'Authorization': `Bearer ${GRIPP_API_KEY}`,
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
-  timeout: 60000, // 60 second timeout
-  validateStatus: (status) => {
-    return status >= 200 && status < 300; // Only treat 2xx as success
-  },
-});
+// Load environment variables in Node.js environment
+if (typeof process !== 'undefined' && process.env) {
+  try {
+    dotenv.config();
+    console.log('Dotenv loaded successfully');
+  } catch (error) {
+    console.error('Error loading dotenv:', error);
+  }
+}
 
-// Request queue for rate limiting
-const requestQueue: Array<() => Promise<unknown>> = [];
-let isProcessingQueue = false;
-const currentRequests = new Set<string>();
+const API_URL = 'https://api.gripp.com/public/api3.php';
+const API_KEY = 'mi3Pq0Pfw6CtuFAtEoQ6gXIT7cra2c';
+
+console.log('Using API key:', API_KEY);
+
+// Rate limiting configuration
+const MIN_REQUEST_INTERVAL = 500; // Minimum time between requests in ms
+const MAX_CONCURRENT_REQUESTS = 2; // Maximum number of concurrent requests
+let lastRequestTime = 0;
+let activeRequests = 0;
+
+const requestQueue: Array<{
+    execute: () => Promise<unknown>;
+    resolve: (value: unknown) => void;
+    reject: (error: unknown) => void;
+}> = [];
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const processQueue = async () => {
-  if (isProcessingQueue || requestQueue.length === 0) return;
-  isProcessingQueue = true;
-
-  while (requestQueue.length > 0) {
-    const request = requestQueue.shift();
-    if (request) {
-      try {
-        await request();
-        // Wait 200ms between requests to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 200));
-      } catch (error) {
-        console.error('Queue processing error:', error);
-      }
+    if (requestQueue.length === 0) return;
+    
+    while (requestQueue.length > 0) {
+        // Check if we can make a request
+        const now = Date.now();
+        const timeToWait = Math.max(0, MIN_REQUEST_INTERVAL - (now - lastRequestTime));
+        
+        if (activeRequests >= MAX_CONCURRENT_REQUESTS) {
+            await delay(100); // Short delay before checking again
+            continue;
+        }
+        
+        // Wait if needed
+        if (timeToWait > 0) {
+            await delay(timeToWait);
+        }
+        
+        // Process next request
+        const request = requestQueue.shift();
+        if (request) {
+            activeRequests++;
+            lastRequestTime = Date.now();
+            
+            try {
+                const result = await request.execute();
+                request.resolve(result);
+            } catch (error) {
+                if (axios.isAxiosError(error) && error.response?.status === 503) {
+                    // Get retry-after time and add request back to queue
+                    const retryAfter = parseFloat(error.response.headers['retry-after'] || '1');
+                    const delayMs = Math.max(MIN_REQUEST_INTERVAL, retryAfter * 1000);
+                    console.log(`Rate limited. Retrying after ${delayMs}ms...`);
+                    await delay(delayMs);
+                    requestQueue.unshift(request);
+                } else {
+                    request.reject(error);
+                }
+            } finally {
+                activeRequests--;
+            }
+        }
     }
-  }
-
-  isProcessingQueue = false;
 };
 
-// Request interceptor
-client.interceptors.request.use(
-  (config) => {
-    // Create request identifier
-    const requestId = `${config.method}-${config.url}-${JSON.stringify(config.data)}`;
-    
-    // Log request details
-    console.log('Outgoing request:', {
-      id: requestId,
-      method: config.method,
-      url: config.url,
-      baseURL: config.baseURL,
-      headers: config.headers,
-      data: config.data
-    });
-    
-    return config;
-  },
-  (error) => {
-    console.error('Request interceptor error:', error);
-    return Promise.reject(error);
-  }
-);
-
-// Response interceptor
-client.interceptors.response.use(
-  (response) => {
-    console.log('Response received:', {
-      status: response.status,
-      url: response.config.url,
-      data: response.data
-    });
-    return response;
-  },
-  (error) => {
-    if (axios.isAxiosError(error)) {
-      console.error('API Error:', {
-        message: error.message,
-        status: error.response?.status,
-        data: error.response?.data,
-        config: {
-          url: error.config?.url,
-          method: error.config?.method,
-          baseURL: error.config?.baseURL,
-          headers: error.config?.headers
-        }
-      });
-    }
-    return Promise.reject(error);
-  }
-);
-
 export type GrippRequest = {
-  method: string;
-  params: [Record<string, unknown>[], Record<string, unknown>];
-  id: number;
+    method: string;
+    params: [Record<string, unknown>[], Record<string, unknown>];
+    id: number;
 };
 
 export type GrippResponse<T> = {
-  id: number;
-  thread: string;
-  result: {
-    rows: T[];
-    count: number;
-    start: number;
-    limit: number;
-    next_start: number;
-    more_items_in_collection: boolean;
-  };
-  error: null | {
-    code: number;
-    message: string;
-  };
+    id: number;
+    thread: string;
+    result: {
+        rows: T[];
+        count: number;
+        start: number;
+        limit: number;
+        next_start: number;
+        more_items_in_collection: boolean;
+    };
+    error: null | {
+        code: number;
+        message: string;
+    };
 };
 
 export const createRequest = (
-  method: string,
-  filters: Record<string, unknown>[] = [],
-  options: Record<string, unknown> = {}
-): GrippRequest => ({
-  method,
-  params: [filters, options],
-  id: Date.now(),
-});
-
-export const executeRequest = async <T>(request: GrippRequest): Promise<GrippResponse<T>> => {
-  return new Promise((resolve, reject) => {
-    const execute = async () => {
-      try {
-        console.log('Executing request:', {
-          method: request.method,
-          params: request.params,
-          id: request.id
-        });
-
-        const response = await client.post('/public/api3.php', [request]);
-        
-        console.log('Raw API Response:', response.data);
-
-        // Check if we got a valid response
-        if (!response.data || !Array.isArray(response.data) || response.data.length === 0) {
-          console.error('Invalid response format:', response.data);
-          reject(new Error('Invalid response format from API'));
-          return;
-        }
-
-        const result = response.data[0];
-        
-        // Check for API error response
-        if (result.error) {
-          console.error('API error:', result.error);
-          reject(new Error(result.error.message || 'Unknown API error'));
-          return;
-        }
-
-        // Validate result format
-        if (!result.result || typeof result.result !== 'object') {
-          console.error('Invalid result format:', result);
-          reject(new Error('Invalid result format from API'));
-          return;
-        }
-
-        console.log('Request successful:', {
-          id: result.id,
-          method: request.method,
-          resultCount: result.result.count,
-          rowsCount: result.result.rows?.length
-        });
-
-        resolve(result);
-      } catch (error) {
-        if (axios.isAxiosError(error)) {
-          console.error('API Request failed:', {
-            status: error.response?.status,
-            statusText: error.response?.statusText,
-            data: error.response?.data,
-            config: {
-              url: error.config?.url,
-              method: error.config?.method,
-              baseURL: error.config?.baseURL,
-              headers: error.config?.headers,
-              data: error.config?.data
-            }
-          });
-        }
-        reject(error);
-      }
+    method: string,
+    params: any[] = [],
+    options: any = {}
+): GrippRequest => {
+    const id = Math.floor(Math.random() * 10000000000);
+    
+    console.log(`Created Gripp request: ${JSON.stringify({
+        method,
+        params: [params, options],
+        id
+    }, null, 2)}`);
+    
+    return {
+        method,
+        params: [params, options],
+        id
     };
-
-    requestQueue.push(execute as () => Promise<unknown>);
-    void processQueue();
-  });
 };
 
-export default client; 
+export const executeRequest = async <T>(request: GrippRequest): Promise<GrippResponse<T>> => {
+    return new Promise((resolve, reject) => {
+        const execute = async () => {
+            try {
+                console.log('Making API request to:', API_URL);
+                console.log('Request headers:', {
+                    'Authorization': `Bearer ${API_KEY}`,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                });
+                console.log('Request body:', JSON.stringify([request], null, 2));
+
+                const response = await axios.post(API_URL, [request], {
+                    headers: {
+                        'Authorization': `Bearer ${API_KEY}`,
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                console.log('API response status:', response.status);
+                console.log('API response headers:', JSON.stringify(response.headers, null, 2));
+                console.log('API response data:', JSON.stringify(response.data, null, 2));
+
+                const result = response.data[0];
+                if (result.error) {
+                    console.error('API error:', result.error);
+                    throw new Error(result.error.message);
+                }
+                
+                return result;
+            } catch (error) {
+                if (axios.isAxiosError(error)) {
+                    console.error('API request failed:', {
+                        message: error.message,
+                        status: error.response?.status,
+                        data: error.response?.data,
+                        headers: error.response?.headers
+                    });
+                } else {
+                    console.error('API request failed:', error);
+                }
+                throw error;
+            }
+        };
+
+        requestQueue.push({ execute, resolve, reject });
+        processQueue().catch(error => {
+            console.error('Queue processing error:', error);
+            reject(error);
+        });
+    });
+};
+
+export class GrippClient {
+    async executeRequest<T>(request: GrippRequest): Promise<GrippResponse<T>> {
+        return executeRequest<T>(request);
+    }
+
+    createRequest(
+        method: string,
+        params: any[] = [],
+        options: any = {}
+    ): GrippRequest {
+        return createRequest(method, params, options);
+    }
+}
+
+export const grippClient = new GrippClient(); 

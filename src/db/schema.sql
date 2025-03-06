@@ -51,19 +51,43 @@ CREATE TABLE IF NOT EXISTS hours (
 -- Absence requests table
 CREATE TABLE IF NOT EXISTS absence_requests (
     id INTEGER PRIMARY KEY,
-    employee_id INTEGER NOT NULL,
-    startdate DATE NOT NULL,
-    enddate DATE NOT NULL,
-    type_id INTEGER NOT NULL,
-    type_name TEXT NOT NULL,
-    hours_per_day REAL NOT NULL,
     description TEXT,
-    status_id INTEGER NOT NULL,
-    status_name TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    comment TEXT,
+    createdon TEXT,
+    updatedon TEXT,
+    searchname TEXT DEFAULT 'NOT SET',
+    extendedproperties TEXT,
+    employee_id INTEGER NOT NULL,
+    employee_searchname TEXT,
+    employee_discr TEXT DEFAULT 'medewerker',
+    absencetype_id INTEGER NOT NULL,
+    absencetype_searchname TEXT NOT NULL,
     FOREIGN KEY (employee_id) REFERENCES employees(id)
 );
+
+-- Create index for faster lookups
+CREATE INDEX IF NOT EXISTS idx_absence_employee ON absence_requests (employee_id);
+
+-- Absence request lines table
+CREATE TABLE IF NOT EXISTS absence_request_lines (
+    id INTEGER PRIMARY KEY,
+    absencerequest_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    amount REAL NOT NULL,
+    description TEXT,
+    startingtime TEXT,
+    status_id INTEGER NOT NULL,
+    status_name TEXT NOT NULL,
+    createdon TEXT DEFAULT CURRENT_TIMESTAMP,
+    updatedon TEXT,
+    searchname TEXT,
+    extendedproperties TEXT,
+    FOREIGN KEY (absencerequest_id) REFERENCES absence_requests(id) ON DELETE CASCADE
+);
+
+-- Create index for faster lookups
+CREATE INDEX IF NOT EXISTS idx_absence_line_request ON absence_request_lines (absencerequest_id);
+CREATE INDEX IF NOT EXISTS idx_absence_line_date ON absence_request_lines (date);
 
 -- Holidays table
 CREATE TABLE IF NOT EXISTS holidays (

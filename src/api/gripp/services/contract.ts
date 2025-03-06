@@ -1,4 +1,4 @@
-import { GrippRequest, GrippResponse, executeRequest } from '../client';
+import { executeRequest, createRequest, GrippClient, grippClient } from '../client';
 
 export type GrippDate = {
   date: string;
@@ -63,36 +63,47 @@ function getContractForDate(contracts: Contract[], date: Date): Contract | null 
   }) || null;
 }
 
-export const contractService = {
-  async getByEmployeeIds(employeeIds: number[]): Promise<GrippResponse<Contract>[]> {
-    const requests = employeeIds.map(employeeId =>
-      ({
-        method: 'employmentcontract.get',
-        params: [
-          [
-            {
-              field: 'employmentcontract.employee',
-              operator: 'equals',
-              value: employeeId,
-            }
-          ],
-          {
-            paging: {
-              firstresult: 0,
-              maxresults: 250,
-            },
-            orderings: [
-              {
-                field: 'employmentcontract.startdate',
-                direction: 'asc',
-              },
-            ],
-          },
-        ],
-        id: Date.now(),
-      } as GrippRequest)
-    );
+class ContractService {
+  private client: GrippClient;
 
-    return Promise.all(requests.map(request => executeRequest<Contract>(request)));
-  },
-}; 
+  constructor(client: GrippClient) {
+    this.client = client;
+  }
+
+  async getByEmployeeIds(employeeIds: number[]): Promise<any> {
+    console.log('Fetching contracts for employee IDs:', employeeIds);
+    
+    const request = this.client.createRequest(
+      'contract.get',
+      [],
+      {
+        paging: {
+          firstresult: 0,
+          maxresults: 250
+        },
+        orderings: [
+          {
+            field: 'contract.startdate',
+            direction: 'asc'
+          }
+        ]
+      }
+    );
+    
+    try {
+      console.log('Sending contract request to Gripp API:', JSON.stringify(request, null, 2));
+      const response = await this.client.executeRequest(request);
+      console.log('Contract response from Gripp API:', JSON.stringify(response, null, 2));
+      return response;
+    } catch (error) {
+      console.error('Error fetching contract data:', error);
+      throw error;
+    }
+  }
+
+  async getAll(): Promise<any> {
+    return this.getByEmployeeIds([]);
+  }
+}
+
+export const contractService = new ContractService(grippClient); 

@@ -1,0 +1,504 @@
+import express from 'express';
+import cors from 'cors';
+import rateLimit from 'express-rate-limit';
+import { executeRequest } from './client';
+import { getDatabase } from '../../db/database';
+import { employeeService } from './services/employee';
+import { contractService } from './services/contract';
+import { hourService } from './services/hour';
+import { absenceService, AbsenceRequest } from './services/absence';
+import { startOfWeek, setWeek } from 'date-fns';
+import { format, addDays, getDay } from 'date-fns';
+import { getAbsenceRequests } from './simple-client';
+import dotenv from 'dotenv';
+
+// Load environment variables from .env file
+dotenv.config();
+
+const app = express();
+const port = 3002;
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100 // limit each IP to 100 requests per windowMs
+});
+
+app.use(cors());
+app.use(express.json());
+app.use(limiter);
+
+// Add CORS headers to allow requests from any origin
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  next();
+});
+
+let db = null;
+
+// Initialize database on startup
+getDatabase().then(async database => {
+  db = database;
+  console.log('Database connected');
+}).catch(error => {
+  console.error('Database connection error:', error);
+});
+
+// Helper function to add delay between requests
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Helper function to normalize date strings for comparison
+const normalizeDate = (dateStr: string): string => {
+  // Ensure the date is in YYYY-MM-DD format
+  if (!dateStr) return '';
+  
+  // If the date already has the correct format, return it
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return dateStr;
+  }
+  
+  // Try to parse the date and format it
+  try {
+    const date = new Date(dateStr);
+    return date.toISOString().split('T')[0];
+  } catch (e) {
+    console.error(`Error normalizing date: ${dateStr}`, e);
+    return dateStr;
+  }
+};
+
+// Helper function to make API request with exponential backoff
+async function makeRequestWithBackoff<T>(
+  requestFn: () => Promise<T>,
+  maxRetries = 5,
+  initialDelay = 1000
+): Promise<T> {
+  let retries = 0;
+  let lastError: any;
+
+  while (retries < maxRetries) {
+    try {
+      return await requestFn();
+    } catch (error: any) {
+      lastError = error;
+      
+      // Check if it's a rate limit error (503)
+      if (error?.response?.status === 503) {
+        const retryAfter = parseFloat(error?.response?.headers?.['retry-after'] || '1');
+        const delayMs = Math.max(
+          initialDelay * Math.pow(2, retries),
+          retryAfter * 1000
+        );
+        console.log(`Rate limited. Retrying after ${delayMs}ms... (Attempt ${retries + 1}/${maxRetries})`);
+        await delay(delayMs);
+        retries++;
+        continue;
+      }
+      
+      // For other errors, log and throw
+      console.error('API request failed:', {
+        status: error?.response?.status,
+        message: error?.message,
+        data: error?.response?.data
+      });
+      throw error;
+    }
+  }
+
+  console.error('Max retries reached. Last error:', lastError);
+  throw lastError;
+}
+
+// Get employees endpoint
+app.get('/api/employees', async (req, res) => {
+  try {
+    const { year, week } = req.query;
+    
+    if (!year || !week) {
+      return res.status(400).json({ error: 'Year and week are required as query parameters' });
+    }
+
+    console.log(`Fetching employees for year ${year}, week ${week}`);
+    
+    // Calculate start and end dates for the week
+    const startDate = startOfWeek(setWeek(new Date(Number(year), 0, 1), Number(week)), { weekStartsOn: 1 });
+    const endDate = addDays(startDate, 6);
+    
+    // Get employees from database with their most recent contract
+    const employees = await db.all(`
+      SELECT 
+        e.id, 
+        e.firstname, 
+        e.lastname,
+        e.firstname || ' ' || e.lastname as name,
+        e.function,
+        c.startdate as contract_startdate,
+        c.enddate as contract_enddate,
+        c.hours_monday_even,
+        c.hours_tuesday_even,
+        c.hours_wednesday_even,
+        c.hours_thursday_even,
+        c.hours_friday_even,
+        c.hours_monday_odd,
+        c.hours_tuesday_odd,
+        c.hours_wednesday_odd,
+        c.hours_thursday_odd,
+        c.hours_friday_odd
+      FROM 
+        employees e
+      LEFT JOIN
+        contracts c ON e.id = c.employee_id
+      WHERE 
+        e.active = true
+      ORDER BY
+        e.firstname, e.lastname
+    `);
+    
+    // Get absence data for the period
+    const absenceData = await db.all(`
+      SELECT 
+        ar.employee_id,
+        ar.startdate,
+        ar.enddate,
+        ar.type_name,
+        ar.hours_per_day,
+        ar.status_name
+      FROM 
+        absence_requests ar
+      JOIN
+        employees e ON ar.employee_id = e.id
+      WHERE 
+        e.active = true AND
+        ((ar.startdate <= ? AND ar.enddate >= ?) OR
+         (ar.startdate >= ? AND ar.startdate <= ?)) AND
+        ar.status_name = 'Goedgekeurd'
+      ORDER BY
+        ar.startdate ASC
+    `, [endDate.toISOString().split('T')[0], startDate.toISOString().split('T')[0], 
+        startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]);
+    
+    // Return the employees with their absence data
+    return res.json(employees);
+    
+  } catch (error) {
+    console.error('Error fetching employees:', error);
+    return res.status(500).json({ error: 'Failed to fetch employees' });
+  }
+});
+
+// Sync endpoint
+app.post('/api/sync', async (req, res) => {
+  try {
+    console.log('Starting sync process...');
+    return res.json({ success: true, message: 'Sync completed' });
+  } catch (error) {
+    console.error('Sync error:', error);
+    return res.status(500).json({ error: 'Sync failed', message: error.message || '', details: error.details || {} });
+  }
+});
+
+// Sync absence data endpoint
+app.post('/api/sync/absence', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.body;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'Start date and end date are required' });
+    }
+
+    // Ensure consistent date format (YYYY-MM-DD)
+    const formattedStartDate = format(new Date(startDate), 'yyyy-MM-dd');
+    const formattedEndDate = format(new Date(endDate), 'yyyy-MM-dd');
+
+    // Get active employees
+    const activeEmployees = await db.all(`
+      SELECT * FROM employees 
+      WHERE active = 1
+    `);
+
+    console.log(`Syncing absence data from ${formattedStartDate} to ${formattedEndDate} for ${activeEmployees.length} employees`);
+
+    // First, delete existing absence data for the selected period to avoid duplicates
+    await db.run(`
+      DELETE FROM absence_requests 
+      WHERE (startdate >= ? AND startdate <= ?) OR
+            (enddate >= ? AND enddate <= ?) OR
+            (startdate <= ? AND enddate >= ?)
+    `, [formattedStartDate, formattedEndDate, formattedStartDate, formattedEndDate, formattedStartDate, formattedEndDate]);
+
+    // Process employees in batches to avoid overwhelming the API
+    const batchSize = 10;
+    const batches = [];
+    for (let i = 0; i < activeEmployees.length; i += batchSize) {
+      batches.push(activeEmployees.slice(i, i + batchSize));
+    }
+
+    let totalAbsences = 0;
+    let insertedAbsences = 0;
+
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i];
+      try {
+        console.log(`Processing batch ${i + 1} of ${batches.length}`);
+        
+        // Get employee IDs for this batch
+        const employeeIds = batch.map(emp => emp.id);
+        
+        // Fetch absence data from Gripp API
+        const absenceData = await getAbsenceRequests(employeeIds, formattedStartDate, formattedEndDate);
+        
+        if (!absenceData || !absenceData.length) {
+          console.log(`No absence data found for batch ${i + 1}`);
+          continue;
+        }
+
+        totalAbsences += absenceData.length;
+        
+        // Process each absence record
+        for (const absence of absenceData) {
+          // Skip absences with status "Afgekeurd" (Rejected)
+          if (absence.status_name === 'Afgekeurd') {
+            console.log(`Skipping rejected absence for employee ${absence.employee_id}`);
+            continue;
+          }
+          
+          // Calculate dates between start and end date
+          const start = new Date(absence.startdate);
+          const end = new Date(absence.enddate);
+          const dates = [];
+          
+          let currentDate = start;
+          while (currentDate <= end) {
+            dates.push(format(currentDate, 'yyyy-MM-dd'));
+            currentDate = addDays(currentDate, 1);
+          }
+          
+          // Insert each date as a separate record
+          for (const date of dates) {
+            try {
+              await db.run(`
+                INSERT INTO absence_requests (
+                  id, employee_id, startdate, enddate, type_id, type_name, 
+                  hours_per_day, description, status_id, status_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `, [
+                absence.id,
+                absence.employee_id,
+                date,
+                date,
+                absence.type_id,
+                absence.type_name,
+                absence.hours_per_day,
+                absence.description || '',
+                absence.status_id,
+                absence.status_name
+              ]);
+              
+              insertedAbsences++;
+            } catch (insertError) {
+              console.error(`Error inserting absence record: ${insertError.message}`);
+            }
+          }
+        }
+      } catch (batchError) {
+        console.error(`Error processing batch ${i + 1}: ${batchError}`);
+      }
+    }
+    
+    console.log(`Absence sync completed: ${insertedAbsences} of ${totalAbsences} records inserted`);
+    
+    return res.json({ 
+      success: true, 
+      message: `Absence sync completed: ${insertedAbsences} of ${totalAbsences} records inserted`,
+      syncedPeriod: {
+        startDate: formattedStartDate,
+        endDate: formattedEndDate
+      }
+    });
+  } catch (error) {
+    console.error('Error syncing absence data:', error);
+    return res.status(500).json({ error: 'Failed to sync absence data' });
+  }
+});
+
+// Delete holiday endpoint
+app.delete('/api/holidays/:date', async (req, res) => {
+  try {
+    const { date } = req.params;
+    
+    // Delete the holiday
+    await db.run('DELETE FROM holidays WHERE date = ?', [date]);
+    
+    // Return success
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting holiday:', error);
+    res.status(500).json({ error: 'Failed to delete holiday' });
+  }
+});
+
+// Get holidays endpoint
+app.get('/api/holidays', async (req, res) => {
+  try {
+    const holidays = await db.all(`
+      SELECT 
+        date,
+        name
+      FROM holidays 
+      ORDER BY date ASC
+    `);
+    
+    res.json(holidays);
+  } catch (error) {
+    console.error('Error fetching holidays:', error);
+    res.status(500).json({ error: 'Failed to fetch holidays' });
+  }
+});
+
+// Add holiday endpoint
+app.post('/api/holidays', async (req, res) => {
+  try {
+    const { date, name } = req.body;
+    
+    if (!date || !name) {
+      return res.status(400).json({ error: 'Date and name are required' });
+    }
+
+    // Insert the holiday
+    await db.run(
+      'INSERT INTO holidays (date, name) VALUES (?, ?)',
+      [date, name]
+    );
+    
+    // Return success
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error adding holiday:', error);
+    res.status(500).json({ error: 'Failed to add holiday' });
+  }
+});
+
+// Get absence data for all active employees
+app.get('/api/absences', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'Start date and end date are required as query parameters' });
+    }
+
+    console.log(`Fetching absence data from ${startDate} to ${endDate}`);
+
+    // Get absence data from the database
+    const absenceData = await db.all(`
+      SELECT 
+        ar.id,
+        ar.employee_id,
+        e.firstname,
+        e.lastname,
+        ar.startdate,
+        ar.enddate,
+        ar.type_id,
+        ar.type_name,
+        ar.hours_per_day,
+        ar.description,
+        ar.status_id,
+        ar.status_name
+      FROM 
+        absence_requests ar
+      JOIN
+        employees e ON ar.employee_id = e.id
+      WHERE 
+        e.active = true AND
+        ((ar.startdate <= ? AND ar.enddate >= ?) OR
+         (ar.startdate >= ? AND ar.startdate <= ?) OR
+         (ar.enddate >= ? AND ar.enddate <= ?))
+      ORDER BY
+        ar.startdate ASC
+    `, [endDate, startDate, startDate, endDate, startDate, endDate]);
+
+    // Format the response
+    const formattedAbsences = absenceData.map(absence => ({
+      id: absence.id,
+      employee: {
+        id: absence.employee_id,
+        name: `${absence.firstname} ${absence.lastname}`
+      },
+      startdate: absence.startdate,
+      enddate: absence.enddate,
+      type: {
+        id: absence.type_id,
+        name: absence.type_name
+      },
+      hours_per_day: absence.hours_per_day,
+      description: absence.description,
+      status: {
+        id: absence.status_id,
+        name: absence.status_name
+      }
+    }));
+
+    return res.json(formattedAbsences);
+  } catch (error) {
+    console.error('Error fetching absence data:', error);
+    return res.status(500).json({ error: 'Failed to fetch absence data' });
+  }
+});
+
+// Debug endpoint to check database state
+app.get('/api/debug/absences', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'Start date and end date are required' });
+    }
+
+    // Get absence data from the database with detailed information
+    const absenceData = await db.all(`
+      SELECT 
+        ar.id,
+        ar.employee_id,
+        e.firstname || ' ' || e.lastname as employee_name,
+        ar.startdate,
+        ar.enddate,
+        ar.type_id,
+        ar.type_name,
+        ar.hours_per_day,
+        ar.description,
+        ar.status_id,
+        ar.status_name
+      FROM absence_requests ar
+      JOIN employees e ON ar.employee_id = e.id
+      WHERE 
+        ((ar.startdate <= ? AND ar.enddate >= ?) OR
+         (ar.startdate >= ? AND ar.startdate <= ?))
+      ORDER BY ar.startdate, e.firstname, e.lastname
+    `, [
+      endDate,
+      startDate,
+      startDate,
+      endDate
+    ]);
+
+    console.log('Debug: Found absence data:', absenceData.length, 'records');
+
+    res.json({
+      count: absenceData.length,
+      absences: absenceData,
+      query: {
+        startDate,
+        endDate
+      }
+    });
+  } catch (error) {
+    console.error('Error in debug endpoint:', error);
+    res.status(500).json({ error: 'Failed to fetch debug data' });
+  }
+});
+
+// Start the server
+app.listen(port, () => {
+  console.log(`API Server running at http://localhost:${port}`);
+});

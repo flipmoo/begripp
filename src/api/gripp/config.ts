@@ -1,12 +1,23 @@
 // Get API key from environment variables
-const getApiKey = () => {
-  if (typeof process !== 'undefined' && process.env) {
-    return process.env.VITE_GRIPP_API_KEY;
-  }
+export const getApiKey = () => {
+  let apiKey = '';
+  
+  // Browser environment
   if (typeof import.meta !== 'undefined' && import.meta.env) {
-    return import.meta.env.VITE_GRIPP_API_KEY;
+    apiKey = import.meta.env.VITE_GRIPP_API_KEY;
   }
-  return undefined;
+  
+  // Node.js environment
+  if (typeof process !== 'undefined' && process.env) {
+    apiKey = process.env.VITE_GRIPP_API_KEY;
+  }
+  
+  if (!apiKey) {
+    console.error('No API key found in environment variables');
+    throw new Error('API key is required');
+  }
+  
+  return apiKey;
 };
 
 export const GRIPP_API_KEY = getApiKey();
@@ -18,14 +29,20 @@ export const GRIPP_API_HEADERS = {
 };
 
 // Headers are handled by the proxy server
-export const API_CONFIG = {};
+export const API_CONFIG = {
+  baseUrl: '/api'
+};
 
 export const config = {
+  apiKey: getApiKey(),
   apiUrl: 'https://api.gripp.com/public/api3.php',
-  apiKey: GRIPP_API_KEY,
+  headers: {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  }
 };
 
 // Only throw error if we're in Node.js environment and key is missing
-if (typeof process !== 'undefined' && process.env && !GRIPP_API_KEY) {
-  throw new Error('VITE_GRIPP_API_KEY is required but not set in environment variables');
+if (typeof process !== 'undefined' && process.env && !config.apiKey) {
+  console.warn('Warning: VITE_GRIPP_API_KEY is not set in environment variables, using fallback value');
 } 

@@ -1,0 +1,131 @@
+Found 30 employees
+Found 25 contracts for the period
+Found 0 holidays for the period
+Querying absences with parameters: endDate=2025-05-17, startDate=2025-05-11
+SQL parameters: [2025-05-17, 2025-05-11, 2025-05-11, 2025-05-17]
+Date formats - startDate: 2025-05-11 (string), endDate: 2025-05-17 (string)
+Test absence query result: []
+Test week 19 query result: []
+Found 0 absences for the period
+Absences: []
+All absences in database: []
+Found 30 employees
+Found 25 contracts for the period
+Found 0 holidays for the period
+Querying absences with parameters: endDate=2025-05-17, startDate=2025-05-11
+SQL parameters: [2025-05-17, 2025-05-11, 2025-05-11, 2025-05-17]
+Date formats - startDate: 2025-05-11 (string), endDate: 2025-05-17 (string)
+Test absence query result: [{"id":1,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:12","updated_at":"2025-03-05 18:23:12"}]
+Test week 19 query result: [{"id":1,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:12","updated_at":"2025-03-05 18:23:12"},{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:29","updated_at":"2025-03-05 18:23:29"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:45","updated_at":"2025-03-05 18:23:45"}]
+Found 3 absences for the period
+Absences: [{"id":1,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","hours_per_day":8,"type_name":"Vakantie","description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd"},{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","hours_per_day":8,"type_name":"Vakantie","description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","hours_per_day":8,"type_name":"Vakantie","description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd"}]
+All absences in database: [{"id":1,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:12","updated_at":"2025-03-05 18:23:12"},{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:29","updated_at":"2025-03-05 18:23:29"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:45","updated_at":"2025-03-05 18:23:45"}]
+Found 30 employees
+Found 25 contracts for the period
+Found 0 holidays for the period
+Querying absences with parameters: endDate=2025-05-24, startDate=2025-05-18
+SQL parameters: [2025-05-24, 2025-05-18, 2025-05-18, 2025-05-24]
+Date formats - startDate: 2025-05-18 (string), endDate: 2025-05-24 (string)
+Test absence query result: [{"id":1,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:12","updated_at":"2025-03-05 18:23:12"}]
+Test week 19 query result: [{"id":1,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:12","updated_at":"2025-03-05 18:23:12"},{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:29","updated_at":"2025-03-05 18:23:29"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:45","updated_at":"2025-03-05 18:23:45"}]
+Found 1 absences for the period
+Absences: [{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","hours_per_day":8,"type_name":"Vakantie","description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd"}]
+All absences in database: [{"id":1,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:12","updated_at":"2025-03-05 18:23:12"},{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:29","updated_at":"2025-03-05 18:23:29"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:45","updated_at":"2025-03-05 18:23:45"}]
+Found 30 employees
+Found 30 contracts for the period
+Found 0 holidays for the period
+Querying absences with parameters: endDate=2025-01-18, startDate=2025-01-12
+SQL parameters: [2025-01-18, 2025-01-12, 2025-01-12, 2025-01-18]
+Date formats - startDate: 2025-01-12 (string), endDate: 2025-01-18 (string)
+Test absence query result: [{"id":1,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:12","updated_at":"2025-03-05 18:23:12"}]
+Test week 19 query result: [{"id":1,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:12","updated_at":"2025-03-05 18:23:12"},{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:29","updated_at":"2025-03-05 18:23:29"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:45","updated_at":"2025-03-05 18:23:45"}]
+Found 0 absences for the period
+Absences: []
+All absences in database: [{"id":1,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:12","updated_at":"2025-03-05 18:23:12"},{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:29","updated_at":"2025-03-05 18:23:29"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:45","updated_at":"2025-03-05 18:23:45"}]
+Found 30 employees
+Found 25 contracts for the period
+Found 0 holidays for the period
+Querying absences with parameters: endDate=2025-05-17, startDate=2025-05-11
+SQL parameters: [2025-05-17, 2025-05-11, 2025-05-11, 2025-05-17]
+Date formats - startDate: 2025-05-11 (string), endDate: 2025-05-17 (string)
+Test absence query result: [{"id":1,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:12","updated_at":"2025-03-05 18:23:12"}]
+Test week 19 query result: [{"id":1,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:12","updated_at":"2025-03-05 18:23:12"},{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:29","updated_at":"2025-03-05 18:23:29"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:45","updated_at":"2025-03-05 18:23:45"}]
+Found 3 absences for the period
+Absences: [{"id":1,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","hours_per_day":8,"type_name":"Vakantie","description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd"},{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","hours_per_day":8,"type_name":"Vakantie","description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","hours_per_day":8,"type_name":"Vakantie","description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd"}]
+All absences in database: [{"id":1,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:12","updated_at":"2025-03-05 18:23:12"},{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:29","updated_at":"2025-03-05 18:23:29"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 18:23:45","updated_at":"2025-03-05 18:23:45"}]
+Found 30 employees
+Found 25 contracts for the period
+Found 0 holidays for the period
+Querying absences with parameters: endDate=2025-05-17, startDate=2025-05-11
+SQL parameters: [2025-05-17, 2025-05-11, 2025-05-11, 2025-05-17]
+Date formats - startDate: 2025-05-11 (string), endDate: 2025-05-17 (string)
+Test absence query result: []
+Test week 19 query result: []
+Found 0 absences for the period
+Absences: []
+All absences in database: []
+Fetching absence data from Gripp API...
+Employee IDs: [99622,99623,99624,99625,99627,99631,99657,99658,99662,99672,101613,101640,101667,101725,101835,101840,101883,101911,101934,101994,102011,102012,102025,102026,102044,102049,102055,102056,102057,102064]
+Found 0 absence records in Gripp API
+Absence data: []
+Fetching absence data from Gripp API...
+Employee IDs: [99622,99623,99624,99625,99627,99631,99657,99658,99662,99672,101613,101640,101667,101725,101835,101840,101883,101911,101934,101994,102011,102012,102025,102026,102044,102049,102055,102056,102057,102064]
+Found 0 absence records in Gripp API
+Absence data: []
+Found 30 employees
+Found 25 contracts for the period
+Found 0 holidays for the period
+Querying absences with parameters: endDate=2025-05-17, startDate=2025-05-11
+SQL parameters: [2025-05-17, 2025-05-11, 2025-05-11, 2025-05-17]
+Date formats - startDate: 2025-05-11 (string), endDate: 2025-05-17 (string)
+Test absence query result: [{"id":4,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:54:37","updated_at":"2025-03-05 19:54:37"}]
+Test week 19 query result: [{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:53:59","updated_at":"2025-03-05 19:53:59"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:54:18","updated_at":"2025-03-05 19:54:18"},{"id":4,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:54:37","updated_at":"2025-03-05 19:54:37"}]
+Found 3 absences for the period
+Absences: [{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","hours_per_day":8,"type_name":"Vakantie","description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","hours_per_day":8,"type_name":"Vakantie","description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd"},{"id":4,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","hours_per_day":8,"type_name":"Vakantie","description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd"}]
+All absences in database: [{"id":1,"employee_id":99622,"startdate":"2025-05-10","enddate":"2025-05-10","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Another test absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:53:43","updated_at":"2025-03-05 19:53:43"},{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:53:59","updated_at":"2025-03-05 19:53:59"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:54:18","updated_at":"2025-03-05 19:54:18"},{"id":4,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:54:37","updated_at":"2025-03-05 19:54:37"}]
+Found 30 employees
+Found 30 contracts for the period
+Found 0 holidays for the period
+Querying absences with parameters: endDate=2025-01-25, startDate=2025-01-19
+SQL parameters: [2025-01-25, 2025-01-19, 2025-01-19, 2025-01-25]
+Date formats - startDate: 2025-01-19 (string), endDate: 2025-01-25 (string)
+Test absence query result: [{"id":4,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:54:37","updated_at":"2025-03-05 19:54:37"}]
+Test week 19 query result: [{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:53:59","updated_at":"2025-03-05 19:53:59"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:54:18","updated_at":"2025-03-05 19:54:18"},{"id":4,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:54:37","updated_at":"2025-03-05 19:54:37"}]
+Found 0 absences for the period
+Absences: []
+All absences in database: [{"id":1,"employee_id":99622,"startdate":"2025-05-10","enddate":"2025-05-10","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Another test absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:53:43","updated_at":"2025-03-05 19:53:43"},{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:53:59","updated_at":"2025-03-05 19:53:59"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:54:18","updated_at":"2025-03-05 19:54:18"},{"id":4,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:54:37","updated_at":"2025-03-05 19:54:37"}]
+Found 30 employees
+Found 25 contracts for the period
+Found 0 holidays for the period
+Querying absences with parameters: endDate=2025-05-17, startDate=2025-05-11
+SQL parameters: [2025-05-17, 2025-05-11, 2025-05-11, 2025-05-17]
+Date formats - startDate: 2025-05-11 (string), endDate: 2025-05-17 (string)
+Test absence query result: [{"id":4,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:54:37","updated_at":"2025-03-05 19:54:37"}]
+Test week 19 query result: [{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:53:59","updated_at":"2025-03-05 19:53:59"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:54:18","updated_at":"2025-03-05 19:54:18"},{"id":4,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:54:37","updated_at":"2025-03-05 19:54:37"}]
+Found 3 absences for the period
+Absences: [{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","hours_per_day":8,"type_name":"Vakantie","description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","hours_per_day":8,"type_name":"Vakantie","description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd"},{"id":4,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","hours_per_day":8,"type_name":"Vakantie","description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd"}]
+All absences in database: [{"id":1,"employee_id":99622,"startdate":"2025-05-10","enddate":"2025-05-10","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Another test absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:53:43","updated_at":"2025-03-05 19:53:43"},{"id":2,"employee_id":99622,"startdate":"2025-05-12","enddate":"2025-05-14","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Week 19 absence","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:53:59","updated_at":"2025-03-05 19:53:59"},{"id":3,"employee_id":99622,"startdate":"2025-05-16","enddate":"2025-05-20","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Cross-week absence (week 19-20)","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:54:18","updated_at":"2025-03-05 19:54:18"},{"id":4,"employee_id":99622,"startdate":"2025-05-13","enddate":"2025-05-13","type_id":1,"type_name":"Vakantie","hours_per_day":8,"description":"Test absence for week 19","status_id":2,"status_name":"Goedgekeurd","created_at":"2025-03-05 19:54:37","updated_at":"2025-03-05 19:54:37"}]
+Fetching absence data from Gripp for 132 employees
+Period: 2025-01-01 to 2025-12-31
+Found 0 absence records from Gripp API
+Absence data: []
+Cleared existing absence data
+Absence data synced successfully
+Fetching absence data from Gripp for 132 employees
+Period: 2025-05-01 to 2025-05-31
+Found 0 absence records from Gripp API
+Absence data: []
+Cleared existing absence data
+Absence data synced successfully
+Fetching absence data from Gripp for 132 employees
+Period: 2025-05-01 to 2025-05-31
+Found 0 absence records from Gripp API
+Absence data: []
+Cleared existing absence data
+Absence data synced successfully
+Fetching absence data from Gripp for 132 employees
+Period: 2025-01-01 to 2025-12-31
+Found 0 absence records from Gripp API
+Absence data: []
+Cleared existing absence data
+Absence data synced successfully

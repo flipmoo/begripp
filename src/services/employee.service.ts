@@ -28,8 +28,8 @@ interface ApiEmployee {
     written_hours?: number;
 }
 
-// Use direct API URL instead of relying on proxy
-const API_BASE = 'http://localhost:3002/api';
+// Use proxy URL instead of direct API URL
+const API_BASE = '/api';
 
 export async function getEmployeeStats(year: number, week: number, timestamp?: number): Promise<EmployeeWithStats[]> {
     try {
@@ -37,25 +37,15 @@ export async function getEmployeeStats(year: number, week: number, timestamp?: n
         const currentTimestamp = timestamp || new Date().getTime();
         const url = `${API_BASE}/employees?year=${year}&week=${week}&_=${currentTimestamp}`;
         
-        console.log(`Fetching employee stats for year=${year}, week=${week}`);
         const response = await fetch(url);
-        
         if (!response.ok) {
-            console.error('API response not OK:', response.status, response.statusText);
             throw new Error('Failed to fetch employee data');
         }
         
         const data: ApiEmployee[] = await response.json();
         console.log('Raw API response:', data);
         
-        // Log holiday hours specifically to debug
-        console.log('Holiday hours from API:', data.map(emp => ({ 
-            name: emp.name, 
-            holiday_hours: emp.holiday_hours,
-            contract_period: emp.contract_period
-        })));
-        
-        const mappedData = data.map(employee => ({
+        return data.map(employee => ({
             id: employee.id,
             name: employee.name,
             function: employee.function,
@@ -67,9 +57,6 @@ export async function getEmployeeStats(year: number, week: number, timestamp?: n
             writtenHours: employee.written_hours || 0,
             actualHours: employee.actual_hours || (employee.written_hours || 0)
         }));
-        
-        console.log('Mapped employee data:', mappedData);
-        return mappedData;
     } catch (error) {
         console.error('Error fetching employee stats:', error);
         throw error;

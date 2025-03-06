@@ -1,6 +1,84 @@
 import { getDatabase, updateSyncStatus } from '../db/database';
 import { executeRequest } from '../api/gripp/client';
-import type { GrippRequest } from '../api/gripp/client';
+import type { GrippRequest, GrippResponse } from '../api/gripp/client';
+
+interface Employee {
+    id: number;
+    firstname: string;
+    lastname: string;
+    email: string;
+    active: boolean;
+    function?: {
+        searchname: string;
+    };
+    department?: {
+        id: number;
+        searchname: string;
+    };
+}
+
+interface Contract {
+    id: number;
+    employee: {
+        id: number;
+    };
+    hours_monday_even: number;
+    hours_tuesday_even: number;
+    hours_wednesday_even: number;
+    hours_thursday_even: number;
+    hours_friday_even: number;
+    hours_monday_odd: number;
+    hours_tuesday_odd: number;
+    hours_wednesday_odd: number;
+    hours_thursday_odd: number;
+    hours_friday_odd: number;
+    startdate: {
+        date: string;
+    };
+    enddate?: {
+        date: string;
+    };
+    internal_price_per_hour?: string;
+}
+
+interface Hour {
+    id: number;
+    employee: {
+        id: number;
+    };
+    date: {
+        date: string;
+    };
+    amount: number;
+    description: string;
+    status: {
+        id: number;
+        searchname: string;
+    };
+}
+
+interface Absence {
+    id: number;
+    employee: {
+        id: number;
+    };
+    startdate: {
+        date: string;
+    };
+    enddate: {
+        date: string;
+    };
+    type: {
+        id: number;
+        searchname: string;
+    };
+    hours_per_day: number;
+    description: string;
+    status: {
+        id: number;
+        searchname: string;
+    };
+}
 
 export async function syncEmployees() {
     const db = await getDatabase();
@@ -19,8 +97,11 @@ export async function syncEmployees() {
             id: Date.now()
         };
 
-        const response = await executeRequest(request);
-        const employees = response.result;
+        const response = await executeRequest<Employee>(request);
+        if (!response?.result?.rows) {
+            throw new Error('No employees found in response');
+        }
+        const employees = response.result.rows;
 
         // Begin transaction
         await db.run('BEGIN TRANSACTION');
@@ -53,7 +134,11 @@ export async function syncEmployees() {
         await updateSyncStatus('employee.get', 'success');
     } catch (error) {
         await db.run('ROLLBACK');
-        await updateSyncStatus('employee.get', 'error', error.message);
+        if (error instanceof Error) {
+            await updateSyncStatus('employee.get', 'error', error.message);
+        } else {
+            await updateSyncStatus('employee.get', 'error', 'Unknown error occurred');
+        }
         throw error;
     }
 }
@@ -75,8 +160,11 @@ export async function syncContracts() {
             id: Date.now()
         };
 
-        const response = await executeRequest(request);
-        const contracts = response.result;
+        const response = await executeRequest<Contract>(request);
+        if (!response?.result?.rows) {
+            throw new Error('No contracts found in response');
+        }
+        const contracts = response.result.rows;
 
         await db.run('BEGIN TRANSACTION');
         await db.run('DELETE FROM contracts');
@@ -115,7 +203,11 @@ export async function syncContracts() {
         await updateSyncStatus('employmentcontract.get', 'success');
     } catch (error) {
         await db.run('ROLLBACK');
-        await updateSyncStatus('employmentcontract.get', 'error', error.message);
+        if (error instanceof Error) {
+            await updateSyncStatus('employmentcontract.get', 'error', error.message);
+        } else {
+            await updateSyncStatus('employmentcontract.get', 'error', 'Unknown error occurred');
+        }
         throw error;
     }
 }

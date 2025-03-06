@@ -1,7 +1,8 @@
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { EmployeesPage } from './pages/employees';
+import { TooltipProvider } from './components/ui/tooltip';
+import EmployeesPage from './pages/employees';
 import { SettingsPage } from './pages/settings';
 import { Layout } from './components/common/Layout';
 import './App.css';
@@ -12,10 +13,10 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 5 * 60 * 1000, // 5 minutes
       gcTime: 30 * 60 * 1000, // 30 minutes
-      retry: 3, // Retry failed requests 3 times
-      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff
-      refetchOnWindowFocus: false, // Disable refetch on window focus
-      refetchOnReconnect: false, // Disable refetch on reconnect
+      retry: 1, // Only retry once
+      retryDelay: 1000, // Wait 1 second before retrying
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
     },
   },
 });
@@ -23,14 +24,18 @@ const queryClient = new QueryClient({
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <Router>
-        <Routes>
-          <Route path="/" element={<Navigate to="/employees" replace />} />
-          <Route path="/employees" element={<EmployeesPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/employees" replace />} />
-        </Routes>
-      </Router>
+      <TooltipProvider>
+        <Router>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<Navigate to="/employees" replace />} />
+              <Route path="/employees" element={<EmployeesPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="*" element={<Navigate to="/employees" replace />} />
+            </Routes>
+          </Layout>
+        </Router>
+      </TooltipProvider>
     </QueryClientProvider>
   );
 }

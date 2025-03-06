@@ -1,4 +1,4 @@
-import { GrippRequest, GrippResponse, executeRequest } from '../client';
+import { GrippRequest, GrippResponse, executeRequest } from '../client.ts';
 
 export type Employee = {
   id: number;
@@ -36,6 +36,8 @@ export type GetEmployeesOptions = {
 
 export const employeeService = {
   async getAll(): Promise<GrippResponse<Employee>> {
+    console.log('Fetching all employees from Gripp API');
+    
     const request: GrippRequest = {
       method: 'employee.get',
       params: [
@@ -56,10 +58,16 @@ export const employeeService = {
       id: Date.now(),
     };
 
-    return executeRequest<Employee>(request);
+    console.log('Sending employee request to Gripp API:', JSON.stringify(request, null, 2));
+    const response = await executeRequest<Employee>(request);
+    console.log(`Received ${response?.result?.rows?.length || 0} employees from Gripp API`);
+    
+    return response;
   },
 
   async get(options: GetEmployeesOptions = {}): Promise<GrippResponse<Employee>> {
+    console.log('Fetching employees with options:', JSON.stringify(options, null, 2));
+    
     const request: GrippRequest = {
       method: 'employee.get',
       params: [
@@ -80,6 +88,10 @@ export const employeeService = {
       id: Date.now(),
     };
 
-    return executeRequest<Employee>(request);
+    console.log('Sending employee request to Gripp API:', JSON.stringify(request, null, 2));
+    const response = await executeRequest<Employee>(request);
+    console.log(`Received ${response?.result?.rows?.length || 0} employees from Gripp API`);
+    
+    return response;
   },
 }; 

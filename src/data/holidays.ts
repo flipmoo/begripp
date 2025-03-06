@@ -50,7 +50,12 @@ export function getWorkingHoursForDay(
     hours_friday_odd?: number;
   },
   isEvenWeek: boolean,
-  holidays: Holiday[] = defaultHolidays
+  holidays: Holiday[] = defaultHolidays,
+  absenceForDay?: {
+    hours: number;
+    type: string;
+    description: string;
+  }
 ): number {
   // Create a new date object to avoid mutating input
   const dateToCheck = new Date(date);
@@ -69,20 +74,38 @@ export function getWorkingHoursForDay(
 
   const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
   
-  // Return hours based on the day and whether it's an even/odd week
-  // Use nullish coalescing to handle undefined values
+  // Get the base working hours for the day
+  let workingHours = 0;
   switch (dayOfWeek) {
     case 1: // Monday
-      return isEvenWeek ? (contract.hours_monday_even ?? 0) : (contract.hours_monday_odd ?? 0);
+      workingHours = isEvenWeek ? (contract.hours_monday_even ?? 0) : (contract.hours_monday_odd ?? 0);
+      break;
     case 2: // Tuesday
-      return isEvenWeek ? (contract.hours_tuesday_even ?? 0) : (contract.hours_tuesday_odd ?? 0);
+      workingHours = isEvenWeek ? (contract.hours_tuesday_even ?? 0) : (contract.hours_tuesday_odd ?? 0);
+      break;
     case 3: // Wednesday
-      return isEvenWeek ? (contract.hours_wednesday_even ?? 0) : (contract.hours_wednesday_odd ?? 0);
+      workingHours = isEvenWeek ? (contract.hours_wednesday_even ?? 0) : (contract.hours_wednesday_odd ?? 0);
+      break;
     case 4: // Thursday
-      return isEvenWeek ? (contract.hours_thursday_even ?? 0) : (contract.hours_thursday_odd ?? 0);
+      workingHours = isEvenWeek ? (contract.hours_thursday_even ?? 0) : (contract.hours_thursday_odd ?? 0);
+      break;
     case 5: // Friday
-      return isEvenWeek ? (contract.hours_friday_even ?? 0) : (contract.hours_friday_odd ?? 0);
+      workingHours = isEvenWeek ? (contract.hours_friday_even ?? 0) : (contract.hours_friday_odd ?? 0);
+      break;
     default: // Weekend days (Saturday = 6, Sunday = 0)
-      return 0;
+      workingHours = 0;
   }
+
+  // If there's an absence for this day, subtract the absence hours
+  if (absenceForDay) {
+    // If the absence hours are greater than or equal to the working hours,
+    // the person is fully absent
+    if (absenceForDay.hours >= workingHours) {
+      return 0;
+    }
+    // Otherwise, subtract the absence hours from working hours
+    workingHours = Math.max(0, workingHours - absenceForDay.hours);
+  }
+
+  return workingHours;
 } 

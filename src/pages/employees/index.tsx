@@ -1,458 +1,275 @@
-import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Layout } from '../../components/common/Layout';
-import { employeeService, contractService, hourService } from '../../api/gripp/services';
-import type { Employee } from '../../api/gripp/services/employee';
-import type { Contract } from '../../api/gripp/services/contract';
-import type { Hour } from '../../api/gripp/services/hour';
-import type { GrippResponse } from '../../api/gripp/client';
-import { getWorkingHoursForDay, defaultHolidays } from '../../data/holidays';
+import React, { useState, useEffect } from 'react';
+import { format, getWeek, getYear, startOfWeek, endOfWeek, parseISO } from 'date-fns';
+import { getEmployeeStats, type EmployeeWithStats } from '@/services/employee.service';
+import { useSyncStore } from '@/stores/sync';
+import { useAbsenceSyncStore } from '@/stores/absence-sync';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from "@/components/ui/skeleton";
+import { ReloadIcon, InfoCircledIcon } from '@radix-ui/react-icons';
+import { DateSelector } from '@/components/DateSelector';
+import { EmployeeAbsenceModal } from '@/components/EmployeeAbsenceModal';
+import { Tooltip } from '@/components/ui/tooltip';
 
-type ViewType = 'week' | 'month' | 'year';
+export default function EmployeesPage() {
+  const initialDate = new Date();
+  const [selectedDate, setSelectedDate] = useState(initialDate);
+  const [employees, setEmployees] = useState<EmployeeWithStats[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const { sync, isSyncing, lastSync, syncError } = useSyncStore();
+  const { syncAbsence, isSyncing: isAbsenceSyncing } = useAbsenceSyncStore();
+  const [selectedEmployee, setSelectedEmployee] = useState<EmployeeWithStats | null>(null);
 
-const getDateRangeForView = (viewType: ViewType, selectedDate: { year: number; month?: number; week?: number }) => {
-  const { year, month, week } = selectedDate;
-  
-  if (viewType === 'week' && week) {
-    // Get January 4th for the selected year (always in week 1 by ISO)
-    const jan4th = new Date(Date.UTC(year, 0, 4));
-    
-    // Get Monday of week 1
-    const firstWeekMonday = new Date(jan4th);
-    firstWeekMonday.setUTCDate(jan4th.getUTCDate() - (jan4th.getUTCDay() || 7) + 1);
-    
-    // Calculate start date by adding weeks
-    const startDate = new Date(firstWeekMonday);
-    startDate.setUTCDate(firstWeekMonday.getUTCDate() + (week - 1) * 7);
-    startDate.setUTCHours(0, 0, 0, 0);
-    
-    // Calculate end date (6 days after start date)
-    const endDate = new Date(startDate);
-    endDate.setUTCDate(startDate.getUTCDate() + 6);
-    endDate.setUTCHours(23, 59, 59, 999);
-    
-    return {
-      start: startDate.toISOString().split('T')[0],
-      end: endDate.toISOString().split('T')[0],
-    };
-  }
-  
-  if (viewType === 'month' && month !== undefined) {
-    const startDate = new Date(Date.UTC(year, month, 1));
-    startDate.setUTCHours(0, 0, 0, 0);
-    
-    const endDate = new Date(Date.UTC(year, month + 1, 0));
-    endDate.setUTCHours(23, 59, 59, 999);
-    
-    return {
-      start: startDate.toISOString().split('T')[0],
-      end: endDate.toISOString().split('T')[0],
-    };
-  }
-  
-  // Year view
-  const startDate = new Date(Date.UTC(year, 0, 1));
-  startDate.setUTCHours(0, 0, 0, 0);
-  
-  const endDate = new Date(Date.UTC(year, 11, 31));
-  endDate.setUTCHours(23, 59, 59, 999);
-  
-  return {
-    start: startDate.toISOString().split('T')[0],
-    end: endDate.toISOString().split('T')[0],
-  };
-};
+  const selectedWeek = getWeek(selectedDate, { weekStartsOn: 1, firstWeekContainsDate: 4 });
+  const selectedYear = getYear(selectedDate);
 
-const getCurrentWeek = () => {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), 0, 1);
-  const days = Math.floor((now.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
-  const week = Math.ceil(days / 7);
-  return week;
-};
-
-function getContractForDate(contracts: Contract[], date: Date): Contract | null {
-  return contracts.find(contract => {
-    const startDate = new Date(contract.startdate.date);
-    const endDate = contract.enddate ? new Date(contract.enddate.date) : null;
-    
-    if (endDate) {
-      return date >= startDate && date <= endDate;
+  const loadEmployees = async () => {
+    setIsLoading(true);
+    try {
+      console.log(`Loading employees for year=${selectedYear}, week=${selectedWeek}`);
+      const data = await getEmployeeStats(selectedYear, selectedWeek);
+      console.log('Employee data loaded:', data);
+      
+      // Log holiday hours specifically
+      console.log('Holiday hours in loaded data:', data.map(emp => ({ 
+        name: emp.name, 
+        holidayHours: emp.holidayHours,
+        contractPeriod: emp.contractPeriod
+      })));
+      
+      // Merge employee data to handle multiple contracts
+      const mergedData = mergeEmployeeData(data);
+      setEmployees(mergedData);
+    } catch (error) {
+      console.error('Error loading employees:', error);
+    } finally {
+      setIsLoading(false);
     }
-    return date >= startDate;
-  }) || null;
-}
-
-function calculateExpectedHours(contracts: Contract[], viewType: ViewType, selectedDate: { year: number; month?: number; week?: number }): number {
-  if (!contracts.length) return 0;
-
-  // Helper function to get ISO week number using a more reliable calculation
-  const getISOWeek = (date: Date) => {
-    // Create a new date object and set to UTC midnight
-    const target = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-    
-    // Set to nearest Thursday: current date + 4 - current day number
-    // Make Sunday's day number 7
-    const dayNumber = target.getUTCDay() || 7;
-    target.setUTCDate(target.getUTCDate() + 4 - dayNumber);
-    
-    // Get first day of year
-    const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
-    
-    // Calculate full weeks to nearest Thursday
-    const weekNumber = Math.ceil((((target.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-    
-    return weekNumber;
   };
 
-  // Helper function to determine if a week is even or odd based on contract schedule
-  const isEvenWeekForContract = (date: Date, contract: Contract) => {
-    const weekNum = getISOWeek(date);
+  useEffect(() => {
+    loadEmployees();
+  }, [selectedDate]);
+
+  const handleSync = async () => {
+    const start = startOfWeek(selectedDate, { weekStartsOn: 1 });
+    const end = endOfWeek(selectedDate, { weekStartsOn: 1 });
     
-    // Check if the contract has any even/odd schedule by comparing the hours
-    const hasEvenOddSchedule = [
-      ['monday', contract.hours_monday_even, contract.hours_monday_odd],
-      ['tuesday', contract.hours_tuesday_even, contract.hours_tuesday_odd],
-      ['wednesday', contract.hours_wednesday_even, contract.hours_wednesday_odd],
-      ['thursday', contract.hours_thursday_even, contract.hours_thursday_odd],
-      ['friday', contract.hours_friday_even, contract.hours_friday_odd]
-    ].some(([_, even, odd]) => {
-      // If both are defined and different, it's an even/odd schedule
-      if (even !== undefined && odd !== undefined) {
-        return even !== odd;
+    const startDate = format(start, 'yyyy-MM-dd');
+    const endDate = format(end, 'yyyy-MM-dd');
+    
+    console.log(`Syncing data for period: ${startDate} to ${endDate}`);
+    
+    // Sync both employees/contracts and absences
+    await sync(startDate, endDate);
+    await syncAbsence(startDate, endDate);
+    await loadEmployees();
+  };
+
+  const getLastSyncText = () => {
+    if (!lastSync) return 'Never synced';
+    return `Last synced: ${format(lastSync, 'dd/MM/yyyy HH:mm')}`;
+  };
+
+  const calculatePercentage = (actual: number, expected: number) => {
+    if (expected === 0) return 0;
+    return Math.round((actual / expected) * 100);
+  };
+
+  // Format dates for the absence modal
+  const startDate = format(startOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+  const endDate = format(endOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+
+  // Helper function to merge employee data
+  const mergeEmployeeData = (employees: EmployeeWithStats[]): EmployeeWithStats[] => {
+    const employeeMap = new Map<number, EmployeeWithStats>();
+
+    employees.forEach((employee) => {
+      const existingEmployee = employeeMap.get(employee.id);
+      
+      if (!existingEmployee) {
+        // For new employees, just add them to the map
+        employeeMap.set(employee.id, { ...employee });
+        return;
       }
-      // If only one is defined, it's not an even/odd schedule
-      return false;
+
+      // If we have contract periods, compare them to keep the most recent one
+      if (employee.contractPeriod && existingEmployee.contractPeriod) {
+        const currentDate = new Date();
+        const existingEndDate = existingEmployee.contractPeriod.split(' - ')[1];
+        const newEndDate = employee.contractPeriod.split(' - ')[1];
+        
+        const existingDate = existingEndDate === 'heden' ? currentDate : existingEndDate ? parseISO(existingEndDate) : new Date(2000, 0, 1);
+        const newDate = newEndDate === 'heden' ? currentDate : newEndDate ? parseISO(newEndDate) : new Date(2000, 0, 1);
+
+        if (newDate > existingDate) {
+          // Keep the new contract data but sum up leave and holiday hours
+          employeeMap.set(employee.id, {
+            ...employee,
+            leaveHours: (employee.leaveHours || 0) + (existingEmployee.leaveHours || 0),
+            holidayHours: (employee.holidayHours || 0) + (existingEmployee.holidayHours || 0)
+          });
+        } else {
+          // Keep existing contract but sum up leave and holiday hours
+          employeeMap.set(employee.id, {
+            ...existingEmployee,
+            leaveHours: (employee.leaveHours || 0) + (existingEmployee.leaveHours || 0),
+            holidayHours: (employee.holidayHours || 0) + (existingEmployee.holidayHours || 0)
+          });
+        }
+      } else if (!existingEmployee.contractPeriod && employee.contractPeriod) {
+        // If the new employee has a contract period and the existing one doesn't, use the new one
+        // but keep summing leave and holiday hours
+        employeeMap.set(employee.id, {
+          ...employee,
+          leaveHours: (employee.leaveHours || 0) + (existingEmployee.leaveHours || 0),
+          holidayHours: (employee.holidayHours || 0) + (existingEmployee.holidayHours || 0)
+        });
+      } else {
+        // If neither has a contract period or the existing one is more recent, keep the existing one
+        // but sum up leave and holiday hours
+        employeeMap.set(employee.id, {
+          ...existingEmployee,
+          leaveHours: (employee.leaveHours || 0) + (existingEmployee.leaveHours || 0),
+          holidayHours: (employee.holidayHours || 0) + (existingEmployee.holidayHours || 0)
+        });
+      }
     });
 
-    // If there's no even/odd schedule, use odd week hours for consistency
-    if (!hasEvenOddSchedule) {
-      return false;
-    }
-    
-    return weekNum % 2 === 0;
+    return Array.from(employeeMap.values());
   };
-
-  // Get date range for the selected period
-  const { start, end } = getDateRangeForView(viewType, selectedDate);
-  const startDate = new Date(start);
-  const endDate = new Date(end);
-
-  // Filter holidays for the selected period - use UTC dates for comparison
-  const periodHolidays = defaultHolidays.filter(holiday => {
-    const holidayDate = new Date(holiday.date);
-    const periodStart = new Date(startDate);
-    const periodEnd = new Date(endDate);
-    
-    // Set all dates to UTC midnight for comparison
-    holidayDate.setUTCHours(0, 0, 0, 0);
-    periodStart.setUTCHours(0, 0, 0, 0);
-    periodEnd.setUTCHours(0, 0, 0, 0);
-    
-    // Compare dates using UTC time
-    return holidayDate >= periodStart && holidayDate <= periodEnd;
-  });
-
-  let totalHours = 0;
-  const currentDate = new Date(startDate);
-
-  // Loop through each day of the period
-  while (currentDate <= endDate) {
-    // Find the contract valid for this specific date
-    const validContract = getContractForDate(contracts, currentDate);
-
-    if (validContract) {
-      // Create a new Date object to avoid mutation
-      const dateForCalculation = new Date(currentDate);
-      // Calculate isEvenWeek specifically for this contract
-      const isEvenWeek = isEvenWeekForContract(dateForCalculation, validContract);
-
-      // Pass the filtered holidays array to getWorkingHoursForDay
-      totalHours += getWorkingHoursForDay(
-        dateForCalculation,
-        validContract,
-        isEvenWeek,
-        periodHolidays
-      );
-    }
-
-    currentDate.setDate(currentDate.getDate() + 1);
-  }
-
-  return totalHours;
-}
-
-export function EmployeesPage() {
-  const [viewType, setViewType] = useState<ViewType>('week');
-  const [selectedDate, setSelectedDate] = useState({
-    year: new Date().getFullYear(),
-    month: new Date().getMonth(),
-    week: getCurrentWeek(),
-  });
-
-  const dateRange = getDateRangeForView(viewType, selectedDate);
-
-  const { data: employeesData, isLoading: isLoadingEmployees, error: employeesError } = useQuery({
-    queryKey: ['employees'],
-    queryFn: async () => {
-      const response = await employeeService.getAll();
-      return response as GrippResponse<Employee>;
-    },
-    staleTime: Infinity,
-    gcTime: 24 * 60 * 60 * 1000,
-  });
-
-  const activeEmployees = employeesData?.result?.rows?.filter((employee: Employee) => employee.active) || [];
-  const employeeIds = activeEmployees.map((employee: Employee) => employee.id);
-
-  const { data: contractsData, isLoading: isLoadingContracts, error: contractsError } = useQuery({
-    queryKey: ['contracts', employeeIds],
-    queryFn: async () => {
-      const response = await contractService.getByEmployeeIds(employeeIds);
-      return response as GrippResponse<Contract>[];
-    },
-    enabled: employeeIds.length > 0,
-    staleTime: Infinity,
-    gcTime: 24 * 60 * 60 * 1000,
-  });
-
-  const { data: hoursData, isLoading: isLoadingHours, error: hoursError } = useQuery({
-    queryKey: ['hours', employeeIds, dateRange.start, dateRange.end],
-    queryFn: async () => {
-      const response = await hourService.getByEmployeeIdsAndPeriod(
-        employeeIds,
-        dateRange.start,
-        dateRange.end
-      );
-      return response as GrippResponse<Hour>[];
-    },
-    enabled: employeeIds.length > 0,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
-  });
-
-  const getEmployeeData = (employee: Employee) => {
-    // Get all contracts for this employee
-    const employeeContracts = contractsData
-      ?.find((response) => 
-        response?.result?.rows?.some(row => row.employee?.id === employee.id)
-      )
-      ?.result?.rows || [];
-
-    const employeeHours = hoursData
-      ?.find((response) => 
-        response?.result?.rows?.some(row => row.employee?.id === employee.id)
-      )
-      ?.result?.rows || [];
-
-    // Get the date range for the current view
-    const { start: periodStart, end: periodEnd } = getDateRangeForView(viewType, selectedDate);
-    const startDate = new Date(periodStart);
-    const endDate = new Date(periodEnd);
-
-    // Sort all contracts by start date in ascending order
-    const allContracts = [...employeeContracts].sort((a, b) => {
-      const dateA = new Date(a.startdate.date);
-      const dateB = new Date(b.startdate.date);
-      return dateA.getTime() - dateB.getTime();
-    });
-
-    // Filter contracts that are valid during the selected period
-    const validContracts = allContracts.filter(contract => {
-      const contractStart = new Date(contract.startdate.date);
-      const contractEnd = contract.enddate ? new Date(contract.enddate.date) : null;
-
-      // A contract is valid if it overlaps with the selected period:
-      // 1. Contract starts before or during the period AND
-      // 2. Either has no end date OR ends after the start of the period
-      return (contractStart <= endDate) && (!contractEnd || contractEnd >= startDate);
-    });
-
-    // Calculate expected hours based on valid contracts for the selected period
-    const expectedHours = calculateExpectedHours(validContracts, viewType, selectedDate);
-    const actualHours = employeeHours.reduce((sum: number, hour: Hour) => 
-      sum + (hour.amount || 0), 0
-    );
-
-    const percentage = expectedHours > 0 ? (actualHours / expectedHours) * 100 : 0;
-
-    return {
-      expectedHours,
-      actualHours,
-      percentage,
-      contracts: validContracts,
-      allContracts,
-    };
-  };
-
-  const isLoading = isLoadingEmployees || isLoadingContracts || isLoadingHours;
-  const error = employeesError || contractsError || hoursError;
-
-  if (error) {
-    return (
-      <Layout>
-        <div className="rounded-lg bg-red-50 p-4">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-red-800">Er is een fout opgetreden bij het ophalen van de gegevens</h3>
-              <div className="mt-2 text-sm text-red-700">
-                <p>De Gripp API is momenteel niet beschikbaar. We proberen het automatisch opnieuw. Als het probleem aanhoudt, neem dan contact op met de beheerder.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Layout>
-    );
-  }
 
   return (
-    <Layout>
-      <div className="flex flex-col space-y-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold text-gray-900">Employee Hours Overview</h1>
-          <div className="flex items-center space-x-4">
-            <select
-              className="block rounded-md border-gray-200 py-2 pl-3 pr-10 text-base focus:border-primary focus:outline-none focus:ring-primary sm:text-sm"
-              value={viewType}
-              onChange={(e) => setViewType(e.target.value as ViewType)}
-            >
-              <option value="week">Week View</option>
-              <option value="month">Month View</option>
-              <option value="year">Year View</option>
-            </select>
-
-            {viewType === 'week' && (
-              <select
-                className="block rounded-md border-gray-200 py-2 pl-3 pr-10 text-base focus:border-primary focus:outline-none focus:ring-primary sm:text-sm"
-                value={selectedDate.week}
-                onChange={(e) => setSelectedDate(prev => ({ ...prev, week: Number(e.target.value) }))}
-              >
-                {Array.from({ length: 52 }, (_, i) => (
-                  <option key={i + 1} value={i + 1}>Week {i + 1}</option>
-                ))}
-              </select>
-            )}
-
-            {viewType === 'month' && (
-              <select
-                className="block rounded-md border-gray-200 py-2 pl-3 pr-10 text-base focus:border-primary focus:outline-none focus:ring-primary sm:text-sm"
-                value={selectedDate.month}
-                onChange={(e) => setSelectedDate(prev => ({ ...prev, month: Number(e.target.value) }))}
-              >
-                {Array.from({ length: 12 }, (_, i) => (
-                  <option key={i} value={i}>
-                    {new Date(2024, i, 1).toLocaleString('default', { month: 'long' })}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            <select
-              className="block rounded-md border-gray-200 py-2 pl-3 pr-10 text-base focus:border-primary focus:outline-none focus:ring-primary sm:text-sm"
-              value={selectedDate.year}
-              onChange={(e) => setSelectedDate(prev => ({ ...prev, year: Number(e.target.value) }))}
-            >
-              {Array.from({ length: 3 }, (_, i) => {
-                const year = new Date().getFullYear() - 1 + i;
-                return (
-                  <option key={year} value={year}>{year}</option>
-                );
-              })}
-            </select>
-          </div>
+    <div className="w-full px-8 py-12">
+      <div className="flex justify-between items-center mb-8 border-b border-gray-200 pb-6">
+        <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Employee Hours Overview</h1>
+        <div className="flex items-center gap-6">
+          <DateSelector selectedDate={selectedDate} onDateChange={setSelectedDate} />
+          <span className="text-sm text-gray-500">{getLastSyncText()}</span>
+          <Button 
+            onClick={handleSync} 
+            disabled={isSyncing || isAbsenceSyncing}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium shadow-sm transition-colors duration-200"
+          >
+            {(isSyncing || isAbsenceSyncing) && <ReloadIcon className="mr-2 h-4 w-4 animate-spin" />}
+            Sync Data
+          </Button>
         </div>
+      </div>
 
-        <div className="rounded-lg bg-white shadow">
-          <div className="overflow-x-auto">
-            <table className="min-w-full">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th scope="col" className="px-6 py-4 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                    Employee
-                  </th>
-                  <th scope="col" className="px-6 py-4 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                    Function
-                  </th>
-                  <th scope="col" className="px-6 py-4 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                    Contract Period
-                  </th>
-                  <th scope="col" className="px-6 py-4 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                    Contract Hours
-                  </th>
-                  <th scope="col" className="px-6 py-4 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                    Actual Hours
-                  </th>
-                  <th scope="col" className="px-6 py-4 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                    Percentage
-                  </th>
+      {syncError && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+          {syncError}
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[200px]">Employee</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[150px]">Function</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-[150px]">Contract Period</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Contract Hours</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Holiday Hours</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Expected Hours</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Leave Hours</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Written Hours</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actual Hours</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Difference %</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {isLoading ? (
+                <tr>
+                  <td colSpan={10} className="px-6 py-4">
+                    <div className="space-y-3">
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-full" />
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">
-                      <div className="flex items-center justify-center">
-                        <svg className="h-5 w-5 animate-spin text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        <span className="ml-2">Loading data...</span>
-                      </div>
-                    </td>
-                  </tr>
-                ) : activeEmployees.map(employee => {
-                  const { expectedHours, actualHours, percentage, allContracts } = getEmployeeData(employee);
-                  const hasIncompleteData = actualHours === 0;
+              ) : (
+                employees.map((employee) => {
+                  const percentage = calculatePercentage(employee.actualHours, employee.expectedHours);
+                  const percentageClass = percentage < 100 ? 'text-red-600' : 'text-green-600';
 
                   return (
-                    <tr key={employee.id} className="bg-white hover:bg-gray-50">
-                      <td className="px-6 py-4">
-                        <div className="text-sm font-medium text-gray-900">
-                          {employee.firstname} {employee.lastname}
-                        </div>
+                    <tr 
+                      key={employee.id} 
+                      className="hover:bg-gray-50 cursor-pointer"
+                      onClick={() => setSelectedEmployee(employee)}
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {employee.name}
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="text-sm text-gray-500">{employee.function}</div>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {employee.function || '-'}
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="text-sm text-gray-500">
-                          {allContracts.length > 0 ? (
-                            <>
-                              {new Date(allContracts[0].startdate.date).toLocaleDateString()}
-                              {' - '}
-                              {allContracts[allContracts.length - 1]?.enddate?.date 
-                                ? new Date(allContracts[allContracts.length - 1].enddate.date).toLocaleDateString() 
-                                : 'Present'}
-                            </>
-                          ) : (
-                            'No contract found'
-                          )}
-                        </div>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {employee.contractPeriod || '-'}
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="text-sm text-gray-900">{expectedHours.toFixed(1)} hours</div>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
+                        {employee.contractHours?.toFixed(1) || '0.0'}
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="text-sm text-gray-900">{actualHours.toFixed(1)} hours</div>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
+                        {employee.holidayHours?.toFixed(1) || '0.0'}
                       </td>
-                      <td className="px-6 py-4">
-                        <div className={`text-sm ${hasIncompleteData ? 'text-status-critical' : percentage >= 100 ? 'text-status-normal' : 'text-gray-900'}`}>
-                          {percentage.toFixed(1)}%
-                        </div>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        {employee.expectedHours.toFixed(1)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
+                        <Tooltip
+                          content={
+                            employee.leaveHours > 0 ? (
+                              <div className="p-2">
+                                <p className="font-semibold mb-1">Leave Hours Breakdown:</p>
+                                <p>Total: {employee.leaveHours.toFixed(1)} hours</p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  (Includes vacation, sick leave, and other absences)
+                                </p>
+                              </div>
+                            ) : "No leave hours"
+                          }
+                        >
+                          <span className="cursor-help">
+                            {employee.leaveHours.toFixed(1)}
+                            {employee.leaveHours > 0 && (
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                <InfoCircledIcon className="h-3 w-3 inline" />
+                              </span>
+                            )}
+                          </span>
+                        </Tooltip>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
+                        {employee.writtenHours.toFixed(1)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        {employee.actualHours.toFixed(1)}
+                      </td>
+                      <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium text-right ${percentageClass}`}>
+                        {percentage}%
                       </td>
                     </tr>
                   );
-                })}
-              </tbody>
-            </table>
-          </div>
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
-    </Layout>
+
+      {selectedEmployee && (
+        <EmployeeAbsenceModal
+          employee={selectedEmployee}
+          isOpen={!!selectedEmployee}
+          onClose={() => setSelectedEmployee(null)}
+          startDate={startDate}
+          endDate={endDate}
+        />
+      )}
+    </div>
   );
 } 

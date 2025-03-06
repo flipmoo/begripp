@@ -1,4 +1,4 @@
-import { GrippRequest, GrippResponse, executeRequest } from '../client';
+import { GrippRequest, GrippResponse, executeRequest } from '../client.ts';
 
 export type Hour = {
   id: number;

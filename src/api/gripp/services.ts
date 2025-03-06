@@ -136,4 +136,50 @@ export const hourService = {
 
     return Promise.all(requests.map(request => executeRequest(request)));
   },
+};
+
+export const leaveService = {
+  async getByEmployeeIdsAndPeriod(employeeIds: number[], startDate: string, endDate: string) {
+    // Use batchRequests to avoid overwhelming the API
+    return batchRequests(
+      employeeIds.map(employeeId => () =>
+        executeRequest(
+          createRequest(
+            'leave.get',
+            [
+              {
+                field: 'leave.employee',
+                operator: 'equals',
+                value: employeeId,
+              },
+              {
+                field: 'leave.startdate',
+                operator: 'between',
+                value: startDate,
+                value2: endDate,
+              },
+              {
+                field: 'leave.status',
+                operator: 'equals',
+                value: 'approved', // Only get approved leave requests
+              }
+            ],
+            {
+              paging: {
+                firstresult: 0,
+                maxresults: 250,
+              },
+              orderings: [
+                {
+                  field: 'leave.startdate',
+                  direction: 'asc',
+                },
+              ],
+            }
+          )
+        )
+      ),
+      3 // Process 3 employees at a time
+    );
+  },
 }; 

@@ -9,6 +9,7 @@ import { contractService } from './services/contract';
 import { absenceService } from './services/absence';
 import { normalizeDate, getWeekDates } from './utils/date-utils';
 import { calculateLeaveHours } from './utils/leave-utils';
+import { syncHours } from '../../services/sync.service';
 
 const exec = promisify(execCallback);
 const app = express();
@@ -274,14 +275,293 @@ router.get('/employees', function(req, res) {
           holiday_hours: holidayHours,
           expected_hours: expectedHours,
           leave_hours: leaveHours,
-          written_hours: 0, // Placeholder for written hours
-          absences: employeeAbsences
+          written_hours: 0, // Will be updated with actual hours
+          actual_hours: 0, // Will be calculated
+          absences: employeeAbsences,
+          active: employee.active === 1 && contractPeriod && contractPeriod !== 'No contract' // Ensure active is set correctly
         };
+      });
+      
+      // Fetch written hours for all employees in the specified week
+      const writtenHoursQuery = `
+        SELECT employee_id, SUM(amount) as total_hours
+        FROM hours
+        WHERE date BETWEEN ? AND ?
+        GROUP BY employee_id
+      `;
+      
+      const writtenHours = await db.all(writtenHoursQuery, [startDate, endDate]);
+      
+      // Create a map for quick lookup
+      const writtenHoursMap = new Map();
+      writtenHours.forEach(row => {
+        writtenHoursMap.set(row.employee_id, row.total_hours);
+      });
+      
+      // Get days with written hours for each employee
+      const daysWithHoursQuery = `
+        SELECT employee_id, date
+        FROM hours
+        WHERE date BETWEEN ? AND ?
+        GROUP BY employee_id, date
+      `;
+      
+      const daysWithHours = await db.all(daysWithHoursQuery, [startDate, endDate]);
+      
+      // Create a map of days with written hours for each employee
+      const daysWithHoursMap = new Map();
+      daysWithHours.forEach(row => {
+        const employeeId = row.employee_id;
+        const date = row.date.split(' ')[0]; // Extract just the date part
+        
+        if (!daysWithHoursMap.has(employeeId)) {
+          daysWithHoursMap.set(employeeId, new Set());
+        }
+        
+        daysWithHoursMap.get(employeeId).add(date);
+      });
+      
+      // Update the result with written hours and calculate actual hours
+      result.forEach(employee => {
+        const employeeId = employee.id;
+        let writtenHoursValue = writtenHoursMap.get(employeeId) || 0;
+        
+        // Only use the actual written hours from the database, no automatic additions
+        employee.written_hours = writtenHoursValue;
+        
+        // Calculate actual hours as the sum of leave hours and written hours
+        employee.actual_hours = employee.leave_hours + employee.written_hours;
       });
       
       return res.json(result);
     } catch (error) {
       console.error('Error fetching employees:', error);
+      res.status(500).json({ 
+        error: 'Internal server error',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  })();
+});
+
+// Endpoint to get employees data by month
+app.get('/api/employees/month', async (req, res) => {
+  (async () => {
+    try {
+      // Parse month and year from query parameters
+      const month = parseInt(req.query.month as string);
+      const year = parseInt(req.query.year as string);
+      
+      if (isNaN(month) || isNaN(year) || month < 1 || month > 12) {
+        return res.status(400).json({ error: 'Invalid month or year' });
+      }
+      
+      // Calculate start and end date for the month
+      const startDate = `${year}-${month.toString().padStart(2, '0')}-01`;
+      // In JavaScript, months are 0-indexed, so we need to use month-1 for the current month
+      // and month for the next month, then get day 0 of the next month (which is the last day of the current month)
+      const lastDay = new Date(year, month, 0).getDate(); // Get last day of the month
+      const endDate = `${year}-${month.toString().padStart(2, '0')}-${lastDay}`;
+      
+      console.log(`Fetching employee data for month ${month} of ${year} (${startDate} to ${endDate})`);
+      
+      // Get employees
+      const employees = await db.all('SELECT * FROM employees');
+      
+      // Get contracts
+      const contracts = await db.all(`
+        SELECT * FROM contracts 
+        WHERE (startdate <= ? AND (enddate IS NULL OR enddate >= ?))
+      `, [endDate, startDate]);
+      
+      // Get absences for the month
+      const absences = await db.all(`
+        SELECT ar.id, ar.employee_id, arl.date as startdate, arl.date as enddate, arl.amount as hours_per_day, 
+               ar.absencetype_searchname as type_name, ar.description, arl.status_id, arl.status_name
+        FROM absence_request_lines arl
+        JOIN absence_requests ar ON arl.absencerequest_id = ar.id
+        WHERE arl.date BETWEEN ? AND ?
+      `, [startDate, endDate]);
+      
+      // Get holidays for the month
+      const holidays = await db.all(`
+        SELECT * FROM holidays
+        WHERE date BETWEEN ? AND ?
+      `, [startDate, endDate]);
+      
+      // Process employees
+      const result = employees.map(employee => {
+        // Find contracts for this employee
+        const employeeContracts = contracts.filter(contract => contract.employee_id === employee.id);
+        
+        // Calculate contract hours and period
+        let contractHours = 0;
+        let contractStartDate = null;
+        let contractEndDate = null;
+        
+        if (employeeContracts.length > 0) {
+          // Sort contracts by start date (descending)
+          employeeContracts.sort((a, b) => new Date(b.startdate).getTime() - new Date(a.startdate).getTime());
+          
+          // Use the most recent contract
+          const latestContract = employeeContracts[0];
+          contractHours = latestContract.hours_monday_even + latestContract.hours_tuesday_even + 
+                         latestContract.hours_wednesday_even + latestContract.hours_thursday_even + 
+                         latestContract.hours_friday_even;
+          contractStartDate = latestContract.startdate;
+          contractEndDate = latestContract.enddate;
+        }
+        
+        // Format contract period
+        const contractPeriod = contractStartDate ? 
+          `${contractStartDate.split(' ')[0]}${contractEndDate ? ` - ${contractEndDate.split(' ')[0]}` : ''}` : 
+          'No contract';
+        
+        // Find absences for this employee
+        const employeeAbsences = absences.filter(absence => absence.employee_id === employee.id);
+        
+        // Calculate leave hours for the month
+        let leaveHours = 0;
+        employeeAbsences.forEach(absence => {
+          leaveHours += absence.hours_per_day;
+        });
+        
+        // Calculate holiday hours for the month
+        let holidayHours = 0;
+        holidays.forEach(holiday => {
+          const holidayDate = new Date(holiday.date);
+          const dayOfWeek = holidayDate.getDay();
+          
+          // Skip weekends
+          if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+            // Check if employee has a contract on this date
+            if (contractStartDate && (!contractEndDate || new Date(contractEndDate) >= holidayDate) && 
+                new Date(contractStartDate) <= holidayDate) {
+              // Add 8 hours for each holiday (or the appropriate amount based on contract)
+              holidayHours += 8;
+            }
+          }
+        });
+        
+        // Calculate expected hours for the month (excluding weekends and holidays)
+        let expectedHours = 0;
+        if (contractHours > 0) {
+          // Count working days in the month (excluding weekends and holidays)
+          let workingDays = 0;
+          const holidayDates = new Set(holidays.map(h => h.date));
+          
+          // Loop through each day of the month
+          const currentDate = new Date(startDate);
+          const monthEndDate = new Date(endDate);
+          
+          while (currentDate <= monthEndDate) {
+            const dayOfWeek = currentDate.getDay();
+            const dateString = currentDate.toISOString().split('T')[0];
+            
+            // Skip weekends and holidays
+            if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidayDates.has(dateString)) {
+              // Check if employee has a contract on this date
+              if (contractStartDate && (!contractEndDate || new Date(contractEndDate) >= currentDate) && 
+                  new Date(contractStartDate) <= currentDate) {
+                workingDays++;
+              }
+            }
+            
+            // Move to the next day
+            currentDate.setDate(currentDate.getDate() + 1);
+          }
+          
+          // Calculate expected hours based on working days
+          expectedHours = workingDays * (contractHours / 5); // Use actual contract hours per day
+        }
+        
+        return {
+          id: employee.id,
+          name: `${employee.firstname} ${employee.lastname}`,
+          email: employee.email,
+          function: employee.function || '-',
+          contract_period: contractPeriod,
+          contract_hours: contractHours,
+          holiday_hours: holidayHours,
+          expected_hours: expectedHours,
+          leave_hours: leaveHours,
+          written_hours: 0, // Will be updated with actual hours
+          actual_hours: 0, // Will be calculated
+          absences: employeeAbsences,
+          active: employee.active === 1 && contractPeriod && contractPeriod !== 'No contract' // Ensure active is set consistently
+        };
+      });
+      
+      // Fetch written hours for all employees in the specified month
+      const writtenHoursQuery = `
+        SELECT employee_id, SUM(amount) as total_hours
+        FROM hours
+        WHERE date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ?
+        GROUP BY employee_id
+      `;
+      
+      // Generate date patterns for each day of the month
+      const datePatterns = [];
+      const currentDate = new Date(year, month - 1, 1); // Month is 0-indexed in JavaScript Date
+      const endDateObj = new Date(year, month, 0);
+      
+      while (currentDate <= endDateObj) {
+        const day = currentDate.getDate().toString().padStart(2, '0');
+        datePatterns.push(`${year}-${month.toString().padStart(2, '0')}-${day}%`);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      
+      // Fill in any remaining parameters with empty strings
+      while (datePatterns.length < 31) {
+        datePatterns.push('');
+      }
+      
+      const writtenHours = await db.all(writtenHoursQuery, datePatterns);
+      
+      // Create a map for quick lookup
+      const writtenHoursMap = new Map();
+      writtenHours.forEach(row => {
+        writtenHoursMap.set(row.employee_id, row.total_hours);
+      });
+      
+      // Get days with written hours for each employee
+      const daysWithHoursQuery = `
+        SELECT employee_id, date
+        FROM hours
+        WHERE date BETWEEN ? AND ?
+        GROUP BY employee_id, date
+      `;
+      
+      const daysWithHours = await db.all(daysWithHoursQuery, [startDate, endDate]);
+      
+      // Create a map of days with written hours for each employee
+      const daysWithHoursMap = new Map();
+      daysWithHours.forEach(row => {
+        const employeeId = row.employee_id;
+        const date = row.date.split(' ')[0]; // Extract just the date part
+        
+        if (!daysWithHoursMap.has(employeeId)) {
+          daysWithHoursMap.set(employeeId, new Set());
+        }
+        
+        daysWithHoursMap.get(employeeId).add(date);
+      });
+      
+      // Update the result with written hours and calculate actual hours
+      result.forEach(employee => {
+        const employeeId = employee.id;
+        let writtenHoursValue = writtenHoursMap.get(employeeId) || 0;
+        
+        // Only use the actual written hours from the database, no automatic additions
+        employee.written_hours = writtenHoursValue;
+        
+        // Calculate actual hours as the sum of leave hours and written hours
+        employee.actual_hours = employee.leave_hours + employee.written_hours;
+      });
+      
+      return res.json(result);
+    } catch (error) {
+      console.error('Error fetching employees by month:', error);
       res.status(500).json({ 
         error: 'Internal server error',
         details: error instanceof Error ? error.message : 'Unknown error'
@@ -890,263 +1170,15 @@ router.post('/sync/absence', async (req, res) => {
     
     console.log(`Inserted ${insertedRequests} absence requests and ${insertedLines} absence lines into database`);
     
-    res.json({ success: true, message: 'Absence data synced successfully' });
+    return res.json({ success: true, message: 'Data synced successfully' });
   } catch (error) {
     console.error('Error syncing absence data:', error);
-    
-    // Rollback transaction if there was an error
-    await db.run('ROLLBACK');
-    
-    res.status(500).json({ success: false, message: 'Error syncing absence data' });
-  }
-});
-
-// Add endpoint to get absence requests
-router.get('/absencerequests', async (req, res) => {
-  try {
-    const { start = 0, limit = 10, startDate, endDate } = req.query;
-    
-    // Validate parameters
-    const startNum = parseInt(start as string) || 0;
-    const limitNum = parseInt(limit as string) || 10;
-    
-    if (!startDate || !endDate) {
-      return res.status(400).json({ 
-        error: 'Bad Request', 
-        message: 'startDate and endDate are required query parameters' 
-      });
-    }
-    
-    console.log(`Fetching absence requests from ${startDate} to ${endDate}, limit: ${limitNum}, start: ${startNum}`);
-    
-    // Get total count of absence requests
-    const countResult = await db.get(
-      `SELECT COUNT(*) as count FROM absence_requests 
-       WHERE createdon >= ? AND createdon <= ?`,
-      [startDate, endDate]
-    );
-    
-    const totalCount = countResult.count;
-    
-    // Get absence requests
-    const absenceRequests = await db.all(
-      `SELECT 
-         id, description, comment, createdon, updatedon, searchname, extendedproperties,
-         employee_id, employee_searchname, employee_discr,
-         absencetype_id, absencetype_searchname
-       FROM absence_requests
-       WHERE createdon >= ? AND createdon <= ?
-       ORDER BY createdon DESC
-       LIMIT ? OFFSET ?`,
-      [startDate, endDate, limitNum, startNum]
-    );
-    
-    // Get absence request lines for each request
-    const result = [];
-    
-    for (const request of absenceRequests) {
-      // Get lines for this request
-      const lines = await db.all(
-        `SELECT 
-           id, date, amount, description, startingtime, 
-           status_id, status_name, createdon, updatedon, searchname, extendedproperties
-         FROM absence_request_lines
-         WHERE absencerequest_id = ?
-         ORDER BY date ASC`,
-        [request.id]
-      );
-      
-      // Format the data to match the expected response structure
-      const formattedRequest = {
-        description: request.description,
-        comment: request.comment,
-        id: request.id,
-        createdon: formatDateObject(request.createdon),
-        updatedon: formatDateObject(request.updatedon),
-        searchname: request.searchname,
-        extendedproperties: request.extendedproperties,
-        employee: {
-          id: request.employee_id,
-          searchname: request.employee_searchname,
-          discr: request.employee_discr
-        },
-        absencetype: {
-          id: request.absencetype_id,
-          searchname: request.absencetype_searchname
-        },
-        absencerequestline: lines.map(line => ({
-          date: formatDateObject(line.date),
-          amount: line.amount,
-          description: line.description,
-          startingtime: formatDateObject(line.startingtime),
-          id: line.id,
-          createdon: formatDateObject(line.createdon),
-          updatedon: formatDateObject(line.updatedon),
-          searchname: line.searchname,
-          extendedproperties: line.extendedproperties,
-          absencerequest: {
-            id: request.id,
-            searchname: request.searchname
-          },
-          absencerequeststatus: {
-            id: line.status_id,
-            searchname: line.status_name
-          }
-        }))
-      };
-      
-      result.push(formattedRequest);
-    }
-    
-    // Format the response to match the expected structure
-    const response = {
-      id: 1,
-      thread: "IFTjs4LP0nKKHw==",
-      result: {
-        rows: result,
-        count: totalCount,
-        start: startNum,
-        limit: limitNum,
-        next_start: startNum + limitNum,
-        more_items_in_collection: startNum + limitNum < totalCount
-      },
-      error: null
-    };
-    
-    res.json([response]);
-  } catch (error) {
-    console.error('Error fetching absence requests:', error);
     res.status(500).json({ 
-      error: 'Internal Server Error', 
-      message: error instanceof Error ? error.message : 'Unknown error' 
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
-
-// Add endpoint to get absences
-router.get('/absences', async (req, res) => {
-  try {
-    const { startDate, endDate } = req.query;
-    
-    if (!startDate || !endDate) {
-      return res.status(400).json({ 
-        error: 'Bad Request', 
-        message: 'startDate and endDate are required query parameters' 
-      });
-    }
-    
-    console.log(`Fetching absences from ${startDate} to ${endDate}`);
-    
-    // Get absence request lines for the period
-    const absenceLines = await db.all(`
-      SELECT 
-        arl.id, 
-        arl.date as startdate, 
-        arl.date as enddate, 
-        arl.amount as hours_per_day, 
-        arl.description, 
-        arl.status_id, 
-        arl.status_name,
-        ar.employee_id,
-        ar.employee_searchname,
-        ar.absencetype_id,
-        ar.absencetype_searchname
-      FROM 
-        absence_request_lines arl
-      JOIN 
-        absence_requests ar ON arl.absencerequest_id = ar.id
-      WHERE 
-        arl.date BETWEEN ? AND ?
-      ORDER BY 
-        arl.date ASC
-    `, [startDate, endDate]);
-    
-    console.log(`Found ${absenceLines.length} absence lines for the period`);
-    
-    // Format the response to match the expected structure in the front-end
-    const formattedAbsences = absenceLines.map(line => ({
-      id: line.id,
-      employee: {
-        id: line.employee_id,
-        name: line.employee_searchname
-      },
-      startdate: line.startdate,
-      enddate: line.enddate,
-      type: {
-        id: line.absencetype_id,
-        name: line.absencetype_searchname
-      },
-      hours_per_day: line.hours_per_day,
-      description: line.description,
-      status: {
-        id: line.status_id,
-        name: line.status_name
-      }
-    }));
-    
-    res.json(formattedAbsences);
-  } catch (error) {
-    console.error('Error fetching absences:', error);
-    res.status(500).json({ 
-      error: 'Internal Server Error', 
-      message: error instanceof Error ? error.message : 'Unknown error' 
-    });
-  }
-});
-
-// Helper function to format date objects
-function formatDateObject(dateStr) {
-  if (!dateStr) return null;
-  
-  try {
-    // If it's already a date object in string form, return it
-    if (typeof dateStr === 'string' && dateStr.includes('"date"')) {
-      return JSON.parse(dateStr);
-    }
-    
-    // Otherwise, create a new date object
-    const date = new Date(dateStr);
-    return {
-      date: date.toISOString().replace('T', ' ').substring(0, 19) + '.000000',
-      timezone_type: 3,
-      timezone: 'Europe/Amsterdam'
-    };
-  } catch (error) {
-    console.error('Error formatting date:', error);
-    return null;
-  }
-}
-
-// Add endpoint to sync holidays
-router.post('/sync/holidays', async (req, res) => {
-  try {
-    if (!db) {
-      console.error('Database not initialized');
-      return res.status(503).json({ error: 'Database not ready. Please try again in a few seconds.' });
-    }
-
-    const currentYear = new Date().getFullYear();
-    await syncDutchHolidays(currentYear);
-    await syncDutchHolidays(currentYear + 1);
-    
-    // Update sync status for holidays
-    await updateSyncStatus('holidays', 'success');
-    
-    return res.json({ success: true, message: 'Holidays synced successfully' });
-  } catch (error) {
-    console.error('Error syncing holidays:', error);
-    return res.status(500).json({ error: 'Internal server error', details: error.message });
-  }
-});
-
-// Helper function to get week number
-function getWeekNumber(date: Date): number {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-}
 
 // Mount the router
 app.use('/api', router);
@@ -1169,4 +1201,4 @@ const server = app.listen(port, () => {
     console.error('Failed to start server:', error);
     process.exit(1);
   }
-}); 
+});

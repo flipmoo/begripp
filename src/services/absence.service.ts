@@ -1,5 +1,8 @@
 import { format } from 'date-fns';
 
+// Use the same API base URL as in employee.service.ts
+const API_BASE = 'http://localhost:3002/api';
+
 export interface Absence {
   id: number;
   employee: {
@@ -49,7 +52,7 @@ export async function getAbsences(year: number, week: number): Promise<Absence[]
     
     console.log(`Fetching absences for week ${week} of ${year} (${formattedStartDate} to ${formattedEndDate})`);
     
-    const response = await fetch(`/api/absences?startDate=${formattedStartDate}&endDate=${formattedEndDate}`);
+    const response = await fetch(`${API_BASE}/absences?startDate=${formattedStartDate}&endDate=${formattedEndDate}`);
     
     if (!response.ok) {
       throw new Error('Failed to fetch absence data');

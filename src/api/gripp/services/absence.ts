@@ -41,27 +41,16 @@ export class AbsenceService {
     
     let allAbsenceLines: any[] = [];
     let currentPage = 0;
-    const pageSize = 250;
+    const pageSize = 250; // Maximum allowed by the API
     let hasMoreResults = true;
     
+    // Haal alle afwezigheidsgegevens op zonder filters
     while (hasMoreResults) {
       const firstResult = currentPage * pageSize;
       
-      // Create filters for the request
-      const filters = [];
-      
-      // Add employee filter if employeeIds is not empty
-      if (employeeIds && employeeIds.length > 0) {
-        filters.push({
-          field: 'absencerequest.employee',
-          operator: 'in',
-          value: employeeIds
-        });
-      }
-      
       const request = this.client.createRequest(
         'absencerequest.get',
-        filters,
+        [], // Geen filters
         {
           paging: {
             firstresult: firstResult,
@@ -75,6 +64,7 @@ export class AbsenceService {
         const response = await this.client.executeRequest(request);
         
         if (!response?.result?.rows || response.result.rows.length === 0) {
+          console.log('No absence requests found or end of results reached');
           hasMoreResults = false;
           break;
         }
@@ -88,16 +78,28 @@ export class AbsenceService {
             continue;
           }
           
-          // Filter the lines by date
-          const filteredLines = request.absencerequestline.filter(line => {
+          // Controleer of de medewerker in de lijst zit
+          const employeeId = request.employee?.id;
+          const employeeMatch = employeeIds.length === 0 || 
+            (employeeId && employeeIds.includes(employeeId));
+          
+          // Als de medewerker niet in de lijst zit, sla deze aanvraag over
+          if (!employeeMatch) {
+            continue;
+          }
+          
+          // Filter de regels op datum
+          const filteredLines = request.absencerequestline.filter((line: any) => {
             if (!line.date || !line.date.date) return false;
             
             const lineDate = line.date.date.split(' ')[0]; // Format: YYYY-MM-DD
+            
+            // Filter op datum
             return lineDate >= startDate && lineDate <= endDate;
           });
           
           // Add the request data to each line
-          const processedLines = filteredLines.map(line => ({
+          const processedLines = filteredLines.map((line: any) => ({
             ...line,
             absencerequest: {
               id: request.id,
@@ -120,7 +122,8 @@ export class AbsenceService {
         }
       } catch (error) {
         console.error('Error fetching absence data:', error);
-        throw error;
+        hasMoreResults = false;
+        break;
       }
     }
     

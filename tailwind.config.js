@@ -5,21 +5,18 @@ module.exports = {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
+  safelist: [
+    'bg-gray-50',
+    'border-gray-200',
+    'text-gray-900',
+    'text-gray-700',
+    'text-gray-600',
+    'hover:bg-gray-50',
+    'shadow-lg',
+    'rounded-xl'
+  ],
   theme: {
-    container: {
-      center: true,
-      padding: {
-        DEFAULT: '1rem',
-        sm: '1.5rem',
-        lg: '2rem'
-      },
-      screens: {
-        DEFAULT: '1200px',
-        '2xl': '1500px',
-        '3xl': '2000px',
-        '4xl': '4000px',
-      },
-    },
+    container: false,
     extend: {
       colors: {
         background: 'hsl(0, 0%, 100%)',
@@ -30,6 +27,9 @@ module.exports = {
         accent: 'hsl(210, 40%, 96.1%)',
         destructive: 'hsl(0, 84.2%, 60.2%)',
         border: 'hsl(214.3, 31.8%, 91.4%)',
+        popover: 'hsl(0, 0%, 100%)',
+        'popover-foreground': 'hsl(222.2, 84%, 4.9%)',
+        command: 'hsl(0, 0%, 100%)',
         status: {
           warning: '#2563eb',
           critical: '#f97316',

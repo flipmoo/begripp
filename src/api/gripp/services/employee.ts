@@ -6,7 +6,10 @@ export type Employee = {
   lastname: string;
   email: string;
   active: boolean;
-  function: string;
+  function?: {
+    id: number;
+    searchname: string;
+  };
   department: {
     id: number;
     zoeknaam: string;

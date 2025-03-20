@@ -9,7 +9,10 @@ import { contractService } from './services/contract';
 import { absenceService } from './services/absence';
 import { normalizeDate, getWeekDates } from './utils/date-utils';
 import { calculateLeaveHours } from './utils/leave-utils';
-import { syncHours } from '../../services/sync.service';
+import { syncHours, syncAllData, syncAbsenceRequests } from '../../services/sync.service';
+import { projectService, ProjectService } from './services/project';
+import { cacheService, CACHE_KEYS } from './cache-service';
+import { GrippRequest, executeRequest } from './client';
 
 const exec = promisify(execCallback);
 const app = express();
@@ -29,6 +32,8 @@ app.use((_, res, next) => {
 });
 
 let db: SqliteDatabase | null = null;
+let autoSyncInterval: NodeJS.Timeout | null = null;
+let isAutoSyncEnabled = false;
 
 // Initialize database on startup
 getDatabase().then(async database => {
@@ -46,7 +51,15 @@ getDatabase().then(async database => {
   // Log the number of contracts
   const contractCount = await db.get("SELECT COUNT(*) as count FROM contracts");
   console.log('Number of contracts:', contractCount.count);
-  
+
+  // Controleer of de projects tabel bestaat
+  try {
+    const projectCount = await db.get("SELECT COUNT(*) as count FROM projects");
+    console.log('Number of projects:', projectCount.count);
+  } catch (_error) {
+    console.log('Projects table not found or error counting projects');
+  }
+
   // Log the number of absences
   const absenceCount = await db.get("SELECT COUNT(*) as count FROM absence_requests");
   console.log('Number of absences:', absenceCount.count);
@@ -54,9 +67,159 @@ getDatabase().then(async database => {
   // Log the number of holidays
   const holidayCount = await db.get("SELECT COUNT(*) as count FROM holidays");
   console.log('Number of holidays:', holidayCount.count);
+
+  // Check if auto-sync was previously enabled
+  const syncStatus = await db.get("SELECT value FROM settings WHERE key = 'auto_sync_enabled'");
+  if (syncStatus && syncStatus.value === 'true') {
+    startAutoSync();
+  }
+
+  // Create the project service if it doesn't exist yet
+  let projectServiceInstance = projectService;
+  if (!projectServiceInstance) {
+    projectServiceInstance = new ProjectService();
+  }
 }).catch(error => {
   console.error('Failed to connect to database:', error);
 });
+
+// Function to start auto-sync
+async function startAutoSync() {
+  if (autoSyncInterval) {
+    clearInterval(autoSyncInterval);
+  }
+
+  isAutoSyncEnabled = true;
+  
+  // Save auto-sync status to database
+  if (db) {
+    await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('auto_sync_enabled', 'true')");
+  }
+
+  // Run initial sync
+  await runAutoSync();
+  
+  // Set up interval for auto-sync (every hour)
+  autoSyncInterval = setInterval(runAutoSync, 60 * 60 * 1000);
+  console.log('Auto-sync started. Will sync every hour.');
+}
+
+// Function to stop auto-sync
+async function stopAutoSync() {
+  if (autoSyncInterval) {
+    clearInterval(autoSyncInterval);
+    autoSyncInterval = null;
+  }
+
+  isAutoSyncEnabled = false;
+  
+  // Save auto-sync status to database
+  if (db) {
+    await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('auto_sync_enabled', 'false')");
+  }
+  
+  console.log('Auto-sync stopped.');
+}
+
+// Function to run auto-sync
+async function runAutoSync() {
+  try {
+    console.log('Running auto-sync...');
+    
+    // Update function titles from Gripp
+    try {
+      console.log('Updating function titles from Gripp...');
+      
+      const request: GrippRequest = {
+        method: 'employee.get',
+        params: [
+          [], // No filters, get all employees
+          {
+            paging: {
+              firstresult: 0,
+              maxresults: 250
+            }
+          }
+        ],
+        id: Date.now()
+      };
+
+      const response = await executeRequest<any>(request);
+      
+      if (response?.result?.rows && response.result.rows.length > 0) {
+        console.log(`Received ${response.result.rows.length} employees from Gripp API for function title update`);
+        
+        let updatedCount = 0;
+        
+        // Begin transaction
+        if (db) {
+          await db.run('BEGIN TRANSACTION');
+          
+          for (const employee of response.result.rows) {
+            // Check if the employee has a function
+            if (employee.function) {
+              // Update the function title in the database
+              await db.run(
+                `UPDATE employees SET function = ? WHERE id = ?`,
+                [typeof employee.function === 'string' ? employee.function.trim() : employee.function.searchname?.trim() || '', employee.id]
+              );
+              updatedCount++;
+            }
+          }
+          
+          // Commit transaction
+          await db.run('COMMIT');
+          
+          console.log(`Updated function titles for ${updatedCount} employees during auto-sync`);
+        }
+      }
+    } catch (error) {
+      console.error('Error updating function titles during auto-sync:', error);
+      // Continue with the rest of the sync process even if function title update fails
+    }
+    
+    // Get current date
+    const now = new Date();
+    
+    // Sync data for the current month and the previous month
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // JavaScript months are 0-indexed
+    
+    // Calculate previous month
+    let previousMonth = currentMonth - 1;
+    let previousYear = currentYear;
+    if (previousMonth === 0) {
+      previousMonth = 12;
+      previousYear--;
+    }
+    
+    // Format dates for current month
+    const currentMonthStart = `${currentYear}-${currentMonth.toString().padStart(2, '0')}-01`;
+    const lastDay = new Date(currentYear, currentMonth, 0).getDate();
+    const currentMonthEnd = `${currentYear}-${currentMonth.toString().padStart(2, '0')}-${lastDay}`;
+    
+    // Format dates for previous month
+    const previousMonthStart = `${previousYear}-${previousMonth.toString().padStart(2, '0')}-01`;
+    const previousLastDay = new Date(previousYear, previousMonth, 0).getDate();
+    const previousMonthEnd = `${previousYear}-${previousMonth.toString().padStart(2, '0')}-${previousLastDay}`;
+    
+    // Sync data for both months
+    console.log(`Syncing data for current month: ${currentMonthStart} to ${currentMonthEnd}`);
+    await syncAllData(currentMonthStart, currentMonthEnd);
+    
+    console.log(`Syncing data for previous month: ${previousMonthStart} to ${previousMonthEnd}`);
+    await syncAllData(previousMonthStart, previousMonthEnd);
+    
+    // Update last sync time
+    if (db) {
+      await db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_auto_sync', ?)", [new Date().toISOString()]);
+    }
+    
+    console.log('Auto-sync completed successfully.');
+  } catch (error) {
+    console.error('Error during auto-sync:', error);
+  }
+}
 
 // Helper function to get the start and end dates of a week is now imported from date-utils.ts
 
@@ -85,6 +248,15 @@ router.get('/employees', function(req, res) {
       
       if (isNaN(yearNum) || isNaN(weekNum)) {
         return res.status(400).json({ error: 'Year and week must be valid numbers' });
+      }
+      
+      const cacheKey = CACHE_KEYS.EMPLOYEES_WEEK(yearNum, weekNum);
+      
+      // Check if data is in cache
+      const cachedData = cacheService.get(cacheKey);
+      if (cachedData) {
+        console.log(`Using cached data for year=${yearNum}, week=${weekNum}`);
+        return res.json(cachedData);
       }
       
       const { startDate, endDate } = getWeekDates(yearNum, weekNum);
@@ -278,7 +450,7 @@ router.get('/employees', function(req, res) {
           written_hours: 0, // Will be updated with actual hours
           actual_hours: 0, // Will be calculated
           absences: employeeAbsences,
-          active: employee.active === 1 && contractPeriod && contractPeriod !== 'No contract' // Ensure active is set correctly
+          active: employee.active === 1 || employee.active === true, // Match the logic in api-server.ts
         };
       });
       
@@ -333,6 +505,9 @@ router.get('/employees', function(req, res) {
         employee.actual_hours = employee.leave_hours + employee.written_hours;
       });
       
+      // After processing the data, store it in cache
+      cacheService.set(cacheKey, result);
+      
       return res.json(result);
     } catch (error) {
       console.error('Error fetching employees:', error);
@@ -354,6 +529,15 @@ app.get('/api/employees/month', async (req, res) => {
       
       if (isNaN(month) || isNaN(year) || month < 1 || month > 12) {
         return res.status(400).json({ error: 'Invalid month or year' });
+      }
+      
+      const cacheKey = CACHE_KEYS.EMPLOYEES_MONTH(year, month);
+      
+      // Check if data is in cache
+      const cachedData = cacheService.get(cacheKey);
+      if (cachedData) {
+        console.log(`Using cached data for year=${year}, month=${month}`);
+        return res.json(cachedData);
       }
       
       // Calculate start and end date for the month
@@ -488,7 +672,7 @@ app.get('/api/employees/month', async (req, res) => {
           written_hours: 0, // Will be updated with actual hours
           actual_hours: 0, // Will be calculated
           absences: employeeAbsences,
-          active: employee.active === 1 && contractPeriod && contractPeriod !== 'No contract' // Ensure active is set consistently
+          active: employee.active === 1 || employee.active === true, // Match the logic in api-server.ts
         };
       });
       
@@ -496,7 +680,7 @@ app.get('/api/employees/month', async (req, res) => {
       const writtenHoursQuery = `
         SELECT employee_id, SUM(amount) as total_hours
         FROM hours
-        WHERE date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ?
+        WHERE date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ? OR date LIKE ?
         GROUP BY employee_id
       `;
       
@@ -559,9 +743,12 @@ app.get('/api/employees/month', async (req, res) => {
         employee.actual_hours = employee.leave_hours + employee.written_hours;
       });
       
+      // After processing the data, store it in cache
+      cacheService.set(cacheKey, result);
+      
       return res.json(result);
     } catch (error) {
-      console.error('Error fetching employees by month:', error);
+      console.error('Error fetching employees:', error);
       res.status(500).json({ 
         error: 'Internal server error',
         details: error instanceof Error ? error.message : 'Unknown error'
@@ -611,329 +798,49 @@ router.post('/sync', async (req, res) => {
   try {
     if (!db) {
       console.error('Database not initialized');
-      return res.status(503).json({ error: 'Database not ready. Please try again in a few seconds.' });
+      return res.status(503).json({ 
+        success: false, 
+        error: 'Database not ready. Please try again in a few seconds.' 
+      });
     }
     
     const { startDate, endDate } = req.body;
     
     if (!startDate || !endDate) {
-      return res.status(400).json({ error: 'startDate and endDate are required' });
+      return res.status(400).json({ 
+        success: false, 
+        error: 'startDate and endDate are required' 
+      });
     }
     
     console.log(`Syncing data for period ${startDate} to ${endDate}`);
     
-    // Get all employees from Gripp API
-    console.log('Fetching employees from Gripp API...');
-    const employeeResult = await employeeService.getAll();
+    // Clear employee data cache before syncing
+    cacheService.clearEmployeeData();
     
-    if (!employeeResult?.result?.rows?.length) {
-      return res.status(500).json({ error: 'No employees found in Gripp API' });
-    }
+    // Use the syncAllData function from sync.service.ts
+    const success = await syncAllData(startDate, endDate);
     
-    console.log(`Found ${employeeResult.result.rows.length} employees in Gripp API`);
-    
-    // Get contracts for these employees
-    console.log('Fetching contracts from Gripp API...');
-    const employeeIds = employeeResult.result.rows.map(emp => emp.id);
-    const contractResults = await contractService.getByEmployeeIds(employeeIds);
-    
-    console.log(`Found ${contractResults.result?.rows?.length || 0} contracts in Gripp API`);
-    
-    // Begin transaction
-    await db.run('BEGIN TRANSACTION');
-    
-    try {
-      // Clear existing employees
-      await db.run('DELETE FROM employees');
-      
-      // Insert employees
-      for (const employee of employeeResult.result.rows) {
-        await db.run(`
-          INSERT INTO employees (
-            id, firstname, lastname, email, active, function, department_id, department_name
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          employee.id,
-          employee.firstname,
-          employee.lastname,
-          employee.email,
-          employee.active ? 1 : 0,
-          employee.function || null,
-          employee.department?.id || null,
-          employee.department?.zoeknaam || null
-        ]);
-      }
-      
-      console.log(`Inserted ${employeeResult.result.rows.length} employees into database`);
-      
-      // Clear existing contracts
-      await db.run('DELETE FROM contracts');
-      
-      // Insert contracts
-      if (contractResults.result?.rows?.length) {
-        for (const contract of contractResults.result.rows) {
-          await db.run(`
-            INSERT INTO contracts (
-              id, employee_id, 
-              hours_monday_even, hours_tuesday_even, hours_wednesday_even, hours_thursday_even, hours_friday_even,
-              hours_monday_odd, hours_tuesday_odd, hours_wednesday_odd, hours_thursday_odd, hours_friday_odd,
-              startdate, enddate
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `, [
-            contract.id,
-            contract.employee.id,
-            contract.hours_monday_even,
-            contract.hours_tuesday_even,
-            contract.hours_wednesday_even,
-            contract.hours_thursday_even,
-            contract.hours_friday_even,
-            contract.hours_monday_odd,
-            contract.hours_tuesday_odd,
-            contract.hours_wednesday_odd,
-            contract.hours_thursday_odd,
-            contract.hours_friday_odd,
-            contract.startdate.date,
-            contract.enddate?.date || null
-          ]);
+    if (success) {
+      return res.json({ 
+        success: true, 
+        message: 'Data synced successfully',
+        syncedPeriod: {
+          startDate,
+          endDate
         }
-        
-        console.log(`Inserted ${contractResults.result.rows.length} contracts into database`);
-      } else {
-        console.warn('No contracts found to insert');
-      }
-      
-      // Sync holidays (for simplicity, we'll keep any existing holidays)
-      // In a real implementation, you would fetch holidays from an API or calendar service
-      const currentYear = new Date().getFullYear();
-      await syncDutchHolidays(currentYear);
-      await syncDutchHolidays(currentYear + 1);
-      
-      // Update sync status for holidays
-      await updateSyncStatus('holidays', 'success');
-      
-      // Sync absence data
-      console.log('Syncing absence data...');
-      
-      // Fetch absence data from Gripp API
-      const absenceLines = await absenceService.getByEmployeeIdsAndPeriod(
-        employeeIds,
-        startDate,
-        endDate
-      );
-      
-      console.log(`Found ${absenceLines.length} absence lines in Gripp API`);
-      
-      // Clear existing absence data for the period
-      await db.run('DELETE FROM absence_request_lines WHERE date >= ? AND date <= ?', [startDate, endDate]);
-      
-      // Get unique absence request IDs
-      const absenceRequestIds = [...new Set(absenceLines.map(line => line.absencerequest.id))];
-      
-      // Delete absence requests that have all their lines in the period
-      for (const requestId of absenceRequestIds) {
-        const linesOutsidePeriod = await db.get(
-          'SELECT COUNT(*) as count FROM absence_request_lines WHERE absencerequest_id = ? AND (date < ? OR date > ?)',
-          [requestId, startDate, endDate]
-        );
-        
-        if (linesOutsidePeriod.count === 0) {
-          await db.run('DELETE FROM absence_requests WHERE id = ?', [requestId]);
-        }
-      }
-      
-      let insertedRequests = 0;
-      let insertedLines = 0;
-      
-      // Group absence lines by request ID
-      const absenceRequestMap = new Map();
-      
-      for (const line of absenceLines) {
-        const requestId = line.absencerequest.id;
-        
-        if (!absenceRequestMap.has(requestId)) {
-          absenceRequestMap.set(requestId, {
-            id: requestId,
-            lines: []
-          });
-        }
-        
-        absenceRequestMap.get(requestId).lines.push(line);
-      }
-      
-      // Process each absence request
-      for (const [requestId, absenceRequest] of absenceRequestMap.entries()) {
-        try {
-          // Check if the absence request already exists
-          const existingRequest = await db.get('SELECT id FROM absence_requests WHERE id = ?', [requestId]);
-          
-          if (!existingRequest) {
-            // Get the first line to extract employee info
-            const firstLine = absenceRequest.lines[0];
-            
-            if (!firstLine) {
-              console.error(`No lines found for absence request ${requestId}`);
-              continue;
-            }
-            
-            // Get employee ID from the database if available
-            let employeeId = firstLine.employee?.id;
-            
-            // If employee ID is not available in the line, try to find it in the database
-            if (!employeeId) {
-              // Try to find the employee by searchname if available
-              if (firstLine.employee?.searchname) {
-                const employee = await db.get(
-                  'SELECT id FROM employees WHERE searchname = ?',
-                  [firstLine.employee.searchname]
-                );
-                
-                if (employee) {
-                  employeeId = employee.id;
-                }
-              }
-              
-              // If still no employee ID, use a default employee
-              if (!employeeId) {
-                // Get the first employee from the database
-                const employee = await db.get('SELECT id FROM employees LIMIT 1');
-                
-                if (employee) {
-                  employeeId = employee.id;
-                  console.log(`Using default employee ID ${employeeId} for absence request ${requestId}`);
-                } else {
-                  console.error(`No employees found in the database, cannot insert absence request ${requestId}`);
-                  continue;
-                }
-              }
-            }
-            
-            // Insert the absence request
-            await db.run(
-              `INSERT INTO absence_requests 
-              (id, description, comment, createdon, updatedon, searchname, extendedproperties, 
-               employee_id, employee_searchname, employee_discr, 
-               absencetype_id, absencetype_searchname) 
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-              [
-                requestId,
-                firstLine.description || '',
-                '',
-                firstLine.createdon?.date || new Date().toISOString(),
-                firstLine.updatedon?.date || null,
-                firstLine.searchname || 'NOT SET',
-                firstLine.extendedproperties || null,
-                employeeId,
-                firstLine.employee?.searchname || 'Unknown',
-                firstLine.employee?.discr || 'medewerker',
-                // Default values for absence type
-                firstLine.absencerequest?.absencetype?.id || 1,
-                firstLine.absencerequest?.absencetype?.searchname || 'Absence'
-              ]
-            );
-            
-            insertedRequests++;
-            console.log(`Inserted absence request ${requestId}`);
-          }
-          
-          // Insert each absence request line
-          for (const line of absenceRequest.lines) {
-            try {
-              // Extract the date from the date object
-              const absenceDate = line.date.date.split(' ')[0]; // Format: YYYY-MM-DD
-              const startingTime = line.startingtime?.date || null;
-              
-              // Check if the absence request line already exists
-              const existingLine = await db.get('SELECT id FROM absence_request_lines WHERE id = ?', [line.id]);
-              
-              if (existingLine) {
-                // Update the existing line
-                await db.run(
-                  `UPDATE absence_request_lines 
-                  SET absencerequest_id = ?, date = ?, amount = ?, description = ?, startingtime = ?, 
-                      status_id = ?, status_name = ?, updatedon = ?, searchname = ?, extendedproperties = ? 
-                  WHERE id = ?`,
-                  [
-                    requestId,
-                    absenceDate,
-                    line.amount,
-                    line.description || '',
-                    startingTime,
-                    line.absencerequeststatus.id,
-                    line.absencerequeststatus.searchname,
-                    line.updatedon?.date || null,
-                    line.searchname || 'NOT SET',
-                    line.extendedproperties || null,
-                    line.id
-                  ]
-                );
-                
-                console.log(`Updated absence line for request ${requestId} on ${absenceDate}`);
-              } else {
-                // Insert the absence request line
-                await db.run(
-                  `INSERT INTO absence_request_lines 
-                  (id, absencerequest_id, date, amount, description, startingtime, 
-                   status_id, status_name, createdon, updatedon, searchname, extendedproperties) 
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                  [
-                    line.id,
-                    requestId,
-                    absenceDate,
-                    line.amount,
-                    line.description || '',
-                    startingTime,
-                    line.absencerequeststatus.id,
-                    line.absencerequeststatus.searchname,
-                    line.createdon?.date || new Date().toISOString(),
-                    line.updatedon?.date || null,
-                    line.searchname || 'NOT SET',
-                    line.extendedproperties || null
-                  ]
-                );
-                
-                insertedLines++;
-                console.log(`Inserted absence line for request ${requestId} on ${absenceDate}`);
-              }
-            } catch (error) {
-              console.error(`Error processing absence request line: ${error}`);
-            }
-          }
-        } catch (error) {
-          console.error(`Error inserting absence request: ${error}`);
-        }
-      }
-      
-      console.log(`Inserted ${insertedRequests} absence requests and ${insertedLines} absence lines into database`);
-      
-      await db.run(`
-        INSERT OR REPLACE INTO sync_status (endpoint, last_sync, status, error)
-        VALUES ('absence', datetime('now'), 'success', NULL)
-      `);
-      
-      // Commit transaction
-      await db.run('COMMIT');
-      
-      // Update sync status
-      await db.run(`
-        INSERT OR REPLACE INTO sync_status (endpoint, last_sync, status, error)
-        VALUES ('contracts', datetime('now'), 'success', NULL)
-      `);
-      
-      await db.run(`
-        INSERT OR REPLACE INTO sync_status (endpoint, last_sync, status, error)
-        VALUES ('holidays', datetime('now'), 'success', NULL)
-      `);
-      
-      return res.json({ success: true, message: 'Data synced successfully' });
-    } catch (error) {
-      // Rollback on error
-      await db.run('ROLLBACK');
-      console.error('Error during sync transaction:', error);
-      throw error;
+      });
+    } else {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to sync data',
+        details: 'Check server logs for more information'
+      });
     }
   } catch (error) {
     console.error('Error syncing data:', error);
     res.status(500).json({ 
+      success: false,
       error: 'Internal server error',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
@@ -946,236 +853,291 @@ router.post('/sync/absence', async (req, res) => {
     const { startDate, endDate } = req.body;
     
     if (!startDate || !endDate) {
-      return res.status(400).json({ success: false, message: 'startDate and endDate are required' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'startDate and endDate are required' 
+      });
     }
     
     console.log(`Syncing absence data for period ${startDate} to ${endDate}`);
-    console.log('Fetching absence data from Gripp API...');
     
-    // Get all employee IDs from the database
-    const employees = await db.all('SELECT id FROM employees');
-    const employeeIds = employees.map(emp => emp.id);
+    try {
+      await syncAbsenceRequests(startDate, endDate);
+      return res.json({ 
+        success: true, 
+        message: 'Absence data synced successfully',
+        syncedPeriod: {
+          startDate,
+          endDate
+        }
+      });
+    } catch (error) {
+      console.error('Error syncing absence data:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to sync absence data',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  } catch (error) {
+    console.error('Error in absence sync endpoint:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Add auto-sync endpoints
+router.post('/auto-sync/start', async (req, res) => {
+  try {
+    await startAutoSync();
+    res.json({ success: true, message: 'Auto-sync started' });
+  } catch (error) {
+    console.error('Error starting auto-sync:', error);
+    res.status(500).json({ error: 'Failed to start auto-sync' });
+  }
+});
+
+router.post('/auto-sync/stop', async (req, res) => {
+  try {
+    await stopAutoSync();
+    res.json({ success: true, message: 'Auto-sync stopped' });
+  } catch (error) {
+    console.error('Error stopping auto-sync:', error);
+    res.status(500).json({ error: 'Failed to stop auto-sync' });
+  }
+});
+
+router.get('/auto-sync/status', async (req, res) => {
+  try {
+    let lastSync = null;
     
-    console.log(`Found ${employeeIds.length} employees to sync absences for`);
+    if (db) {
+      const lastSyncRecord = await db.get("SELECT value FROM settings WHERE key = 'last_auto_sync'");
+      if (lastSyncRecord) {
+        lastSync = lastSyncRecord.value;
+      }
+    }
     
-    // Fetch absence data from Gripp API
-    const absenceResponse = await absenceService.getByEmployeeIdsAndPeriod(
-      employeeIds,
-      startDate,
-      endDate
-    );
+    res.json({
+      enabled: isAutoSyncEnabled,
+      lastSync: lastSync
+    });
+  } catch (error) {
+    console.error('Error getting auto-sync status:', error);
+    res.status(500).json({ error: 'Failed to get auto-sync status' });
+  }
+});
+
+router.post('/auto-sync/run-now', async (req, res) => {
+  try {
+    await runAutoSync();
+    res.json({ success: true, message: 'Manual auto-sync completed' });
+  } catch (error) {
+    console.error('Error running manual auto-sync:', error);
+    res.status(500).json({ error: 'Failed to run manual auto-sync' });
+  }
+});
+
+// Dashboard endpoints
+router.get('/dashboard/test', async (req, res) => {
+  try {
+    res.json({ status: 'ok', message: 'Dashboard API is working' });
+  } catch (error) {
+    console.error('Error in dashboard test endpoint:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/dashboard/projects/active', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ error: 'Database not connected' });
+    }
+
+    const projects = await projectService.getActiveProjects(db);
+    res.json({ response: projects });
+  } catch (error) {
+    console.error('Error fetching active projects:', error);
+    res.status(500).json({ error: 'Failed to fetch active projects' });
+  }
+});
+
+router.get('/dashboard/projects/:id', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ error: 'Database not connected' });
+    }
+
+    const projectId = parseInt(req.params.id);
+    if (isNaN(projectId)) {
+      return res.status(400).json({ error: 'Invalid project ID' });
+    }
+
+    const project = await projectService.getProjectById(db, projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    res.json({ response: project });
+  } catch (error) {
+    console.error(`Error fetching project ${req.params.id}:`, error);
+    res.status(500).json({ error: 'Failed to fetch project details' });
+  }
+});
+
+router.post('/dashboard/sync/projects', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ error: 'Database not connected' });
+    }
+
+    await projectService.syncProjects(db);
+    res.json({ status: 'ok', message: 'Projects synchronized successfully' });
+  } catch (error) {
+    console.error('Error synchronizing projects:', error);
+    res.status(500).json({ error: 'Failed to synchronize projects' });
+  }
+});
+
+// Add endpoint to clear cache
+router.post('/cache/clear', (req, res) => {
+  try {
+    cacheService.clear();
+    console.log('Cache cleared successfully');
+    return res.json({ 
+      success: true, 
+      message: 'Cache cleared successfully' 
+    });
+  } catch (error) {
+    console.error('Error clearing cache:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to clear cache',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Add endpoint to clear employee data cache
+router.post('/cache/clear/employees', (req, res) => {
+  try {
+    cacheService.clearEmployeeData();
+    console.log('Employee data cache cleared successfully');
+    return res.json({ 
+      success: true, 
+      message: 'Employee data cache cleared successfully' 
+    });
+  } catch (error) {
+    console.error('Error clearing employee data cache:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to clear employee data cache',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Add endpoint to get cache status
+router.get('/cache/status', (req, res) => {
+  try {
+    const keys = cacheService.keys();
+    const stats = {
+      total: keys.length,
+      employeeWeek: keys.filter(key => key.startsWith('employees_week_')).length,
+      employeeMonth: keys.filter(key => key.startsWith('employees_month_')).length,
+      keys: keys
+    };
     
-    // Extract the absence lines from the response
-    const absenceLines = absenceResponse.result.rows;
+    return res.json({ 
+      success: true, 
+      stats
+    });
+  } catch (error) {
+    console.error('Error getting cache status:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to get cache status',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Endpoint to update function titles from Gripp API
+app.post('/api/update-function-titles', async (req, res) => {
+  try {
+    if (!db) {
+      console.error('Database not initialized');
+      return res.status(503).json({ error: 'Database not ready. Please try again in a few seconds.' });
+    }
+
+    console.log('Fetching employees from Gripp API to update function titles');
     
-    console.log(`Received ${absenceLines.length} absence lines from Gripp API`);
-    console.log(`API response data: ${JSON.stringify(absenceLines.slice(0, 2), null, 2)}`);
+    const request: GrippRequest = {
+      method: 'employee.get',
+      params: [
+        [], // No filters, get all employees
+        {
+          paging: {
+            firstresult: 0,
+            maxresults: 250
+          }
+        }
+      ],
+      id: Date.now()
+    };
+
+    const response = await executeRequest<any>(request);
+    
+    if (!response?.result?.rows || response.result.rows.length === 0) {
+      return res.status(404).json({ error: 'No employees found in Gripp API' });
+    }
+    
+    console.log(`Received ${response.result.rows.length} employees from Gripp API`);
+    
+    // Log the first employee to see the structure
+    console.log('Sample employee data:', JSON.stringify(response.result.rows[0], null, 2));
+    
+    let updatedCount = 0;
     
     // Begin transaction
     await db.run('BEGIN TRANSACTION');
     
-    // Clear existing absence data for the period
-    await db.run('DELETE FROM absence_request_lines WHERE date >= ? AND date <= ?', [startDate, endDate]);
-    
-    // Get unique absence request IDs
-    const absenceRequestIds = [...new Set(absenceLines.map(line => line.absencerequest?.id).filter(Boolean))];
-    
-    // Delete absence requests that have all their lines in the period
-    for (const requestId of absenceRequestIds) {
-      const linesOutsidePeriod = await db.get(
-        'SELECT COUNT(*) as count FROM absence_request_lines WHERE absencerequest_id = ? AND (date < ? OR date > ?)',
-        [requestId, startDate, endDate]
-      );
-      
-      if (linesOutsidePeriod.count === 0) {
-        await db.run('DELETE FROM absence_requests WHERE id = ?', [requestId]);
-      }
-    }
-    
-    let insertedRequests = 0;
-    let insertedLines = 0;
-    
-    // Group absence lines by request ID
-    const absenceRequestMap = new Map();
-    
-    for (const line of absenceLines) {
-      if (!line.absencerequest || !line.absencerequest.id) {
-        console.warn(`Skipping absence line without valid request ID: ${JSON.stringify(line)}`);
-        continue;
-      }
-      
-      const requestId = line.absencerequest.id;
-      
-      if (!absenceRequestMap.has(requestId)) {
-        absenceRequestMap.set(requestId, {
-          id: requestId,
-          lines: []
-        });
-      }
-      
-      absenceRequestMap.get(requestId).lines.push(line);
-    }
-    
-    // Process each absence request
-    for (const [requestId, absenceRequest] of absenceRequestMap.entries()) {
-      try {
-        // Check if the absence request already exists
-        const existingRequest = await db.get('SELECT id FROM absence_requests WHERE id = ?', [requestId]);
-        
-        if (!existingRequest) {
-          // Get the first line to extract employee info
-          const firstLine = absenceRequest.lines[0];
-          
-          if (!firstLine) {
-            console.error(`No lines found for absence request ${requestId}`);
-            continue;
-          }
-          
-          // Get employee ID from the database if available
-          let employeeId = firstLine.employee?.id;
-          
-          // If employee ID is not available in the line, try to find it in the database
-          if (!employeeId) {
-            // Try to find the employee by searchname if available
-            if (firstLine.employee?.searchname) {
-              const employee = await db.get(
-                'SELECT id FROM employees WHERE searchname = ?',
-                [firstLine.employee.searchname]
-              );
-              
-              if (employee) {
-                employeeId = employee.id;
-              }
-            }
-            
-            // If still no employee ID, use a default employee
-            if (!employeeId) {
-              // Get the first employee from the database
-              const employee = await db.get('SELECT id FROM employees LIMIT 1');
-              
-              if (employee) {
-                employeeId = employee.id;
-                console.log(`Using default employee ID ${employeeId} for absence request ${requestId}`);
-              } else {
-                console.error(`No employees found in the database, cannot insert absence request ${requestId}`);
-                continue;
-              }
-            }
-          }
-          
-          // Insert the absence request
-          await db.run(
-            `INSERT INTO absence_requests 
-            (id, description, comment, createdon, updatedon, searchname, extendedproperties, 
-             employee_id, employee_searchname, employee_discr, 
-             absencetype_id, absencetype_searchname) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              requestId,
-              firstLine.description || '',
-              '',
-              firstLine.createdon?.date || new Date().toISOString(),
-              firstLine.updatedon?.date || null,
-              firstLine.searchname || 'NOT SET',
-              firstLine.extendedproperties || null,
-              employeeId,
-              firstLine.employee?.searchname || 'Unknown',
-              firstLine.employee?.discr || 'medewerker',
-              // Default values for absence type
-              firstLine.absencerequest?.absencetype?.id || 1,
-              firstLine.absencerequest?.absencetype?.searchname || 'Absence'
-            ]
-          );
-          
-          insertedRequests++;
-          console.log(`Inserted absence request ${requestId}`);
-        }
-        
-        // Insert each absence request line
-        for (const line of absenceRequest.lines) {
-          try {
-            // Extract the date from the date object
-            const absenceDate = line.date?.date?.split(' ')[0]; // Format: YYYY-MM-DD
-            
-            if (!absenceDate) {
-              console.warn(`Skipping absence line without valid date: ${JSON.stringify(line)}`);
-              continue;
-            }
-            
-            const startingTime = line.startingtime?.date || null;
-            
-            // Check if the absence request line already exists
-            const existingLine = await db.get('SELECT id FROM absence_request_lines WHERE id = ?', [line.id]);
-            
-            if (existingLine) {
-              // Update the existing line
-              await db.run(
-                `UPDATE absence_request_lines 
-                SET absencerequest_id = ?, date = ?, amount = ?, description = ?, startingtime = ?, 
-                    status_id = ?, status_name = ?, updatedon = ?, searchname = ?, extendedproperties = ? 
-                WHERE id = ?`,
-                [
-                  requestId,
-                  absenceDate,
-                  line.amount,
-                  line.description || '',
-                  startingTime,
-                  line.absencerequeststatus?.id,
-                  line.absencerequeststatus?.searchname,
-                  line.updatedon?.date || null,
-                  line.searchname || 'NOT SET',
-                  line.extendedproperties || null,
-                  line.id
-                ]
-              );
-              
-              console.log(`Updated absence line for request ${requestId} on ${absenceDate}`);
-            } else {
-              // Insert the absence request line
-              await db.run(
-                `INSERT INTO absence_request_lines 
-                (id, absencerequest_id, date, amount, description, startingtime, 
-                 status_id, status_name, createdon, updatedon, searchname, extendedproperties) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                  line.id,
-                  requestId,
-                  absenceDate,
-                  line.amount,
-                  line.description || '',
-                  startingTime,
-                  line.absencerequeststatus?.id,
-                  line.absencerequeststatus?.searchname,
-                  line.createdon?.date || new Date().toISOString(),
-                  line.updatedon?.date || null,
-                  line.searchname || 'NOT SET',
-                  line.extendedproperties || null
-                ]
-              );
-              
-              insertedLines++;
-              console.log(`Inserted absence line for request ${requestId} on ${absenceDate}`);
-            }
-          } catch (error) {
-            console.error(`Error processing absence request line: ${error}`);
-          }
-        }
-      } catch (error) {
-        console.error(`Error inserting absence request: ${error}`);
+    for (const employee of response.result.rows) {
+      // Check if the employee has a function
+      if (employee.function) {
+        // Update the function title in the database
+        await db.run(
+          `UPDATE employees SET function = ? WHERE id = ?`,
+          [typeof employee.function === 'string' ? employee.function.trim() : employee.function.searchname?.trim() || '', employee.id]
+        );
+        updatedCount++;
       }
     }
     
     // Commit transaction
     await db.run('COMMIT');
     
-    console.log(`Inserted ${insertedRequests} absence requests and ${insertedLines} absence lines into database`);
+    console.log(`Updated function titles for ${updatedCount} employees`);
     
-    return res.json({ success: true, message: 'Data synced successfully' });
+    return res.json({ 
+      success: true, 
+      message: `Updated function titles for ${updatedCount} employees` 
+    });
   } catch (error) {
-    console.error('Error syncing absence data:', error);
-    res.status(500).json({ 
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
+    console.error('Error updating function titles:', error);
+    
+    // Rollback transaction if there was an error
+    if (db) {
+      await db.run('ROLLBACK');
+    }
+    
+    return res.status(500).json({ 
+      error: 'Failed to update function titles', 
+      message: error instanceof Error ? error.message : String(error),
+      details: error
     });
   }
 });
@@ -1185,7 +1147,21 @@ app.use('/api', router);
 
 // Start the server with error handling
 const server = app.listen(port, () => {
-  console.log(`Simple API Server running at http://localhost:${port}`);
+  console.log(`Server running at http://localhost:${port}`);
+  
+  // Initialize the database
+  getDatabase().then(database => {
+    db = database;
+    console.log('Database connected');
+    
+    // Create the project service if it doesn't exist yet
+    let projectServiceInstance = projectService;
+    if (!projectServiceInstance) {
+      projectServiceInstance = new ProjectService();
+    }
+  }).catch(err => {
+    console.error('Failed to connect to database:', err);
+  });
 }).on('error', async (error: NodeJS.ErrnoException) => {
   if (error.code === 'EADDRINUSE') {
     console.error(`Port ${port} is already in use. Trying to close existing connection...`);

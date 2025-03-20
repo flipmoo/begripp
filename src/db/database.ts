@@ -22,6 +22,28 @@ export async function initializeDatabase() {
     const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
     await db.exec(schema);
 
+    // Create tables if they don't exist
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS employees (
+        id INTEGER PRIMARY KEY,
+        firstname TEXT,
+        lastname TEXT,
+        email TEXT,
+        active INTEGER,
+        function TEXT,
+        department_id INTEGER,
+        department_name TEXT,
+        searchname TEXT
+      )
+    `);
+
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    `);
+
     return db;
 }
 

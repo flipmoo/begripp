@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { format, getWeek, getYear, getMonth, startOfWeek, endOfWeek, startOfMonth, endOfMonth, parseISO } from 'date-fns';
-import { getEmployeeStats, getEmployeeMonthStats, type EmployeeWithStats } from '@/services/employee.service';
-import { useSyncStore } from '@/stores/sync';
-import { useAbsenceSyncStore } from '@/stores/absence-sync';
+import { getWeek, getYear, getMonth } from 'date-fns';
+import { getEmployeeStats, getEmployeeMonthStats, type EmployeeWithStats, isDataCached, updateFunctionTitles } from '@/services/employee.service';
 import { useFilterPresets } from '@/hooks/useFilterPresets';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from "@/components/ui/skeleton";
-import { ReloadIcon, MagnifyingGlassIcon, Cross2Icon, MixerHorizontalIcon } from '@radix-ui/react-icons';
+import { MagnifyingGlassIcon, Cross2Icon, MixerHorizontalIcon } from '@radix-ui/react-icons';
 import { DateSelector } from '@/components/DateSelector';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
@@ -15,40 +13,152 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { EmployeeCard } from '@/components/EmployeeCard';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { CacheStatusPopup } from '@/components/CacheStatusPopup';
+import { generateEmployeesUrl } from '@/utils/url';
 
 export default function EmployeeCardsPage() {
   const initialDate = new Date();
-  const [selectedDate, setSelectedDate] = useState(initialDate);
+  const [searchParams, setSearchParams] = useSearchParams();
+  
+  // Initialize state from URL parameters or defaults
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const yearParam = searchParams.get('year');
+    const weekParam = searchParams.get('week');
+    const monthParam = searchParams.get('month');
+    
+    if (yearParam) {
+      const year = parseInt(yearParam);
+      
+      if (weekParam) {
+        // If year and week are provided, set date to that week
+        const week = parseInt(weekParam);
+        const date = new Date(year, 0, 1 + (week - 1) * 7);
+        return date;
+      } else if (monthParam) {
+        // If year and month are provided, set date to that month
+        const month = parseInt(monthParam);
+        return new Date(year, month - 1, 1);
+      }
+    }
+    
+    return initialDate;
+  });
+  
   const [employees, setEmployees] = useState<EmployeeWithStats[]>([]);
   const [filteredEmployees, setFilteredEmployees] = useState<EmployeeWithStats[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { sync, isSyncing, lastSync, syncError } = useSyncStore();
-  const { syncAbsence, isSyncing: isAbsenceSyncing } = useAbsenceSyncStore();
-  const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
+  const [isFromCache, setIsFromCache] = useState<boolean>(false);
+  
+  const [viewMode, setViewMode] = useState<'week' | 'month'>(() => {
+    return searchParams.get('viewMode') === 'month' ? 'month' : 'week';
+  });
   
   // Filter states
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showOnlyActive, setShowOnlyActive] = useState(false);
-  const [percentageRange, setPercentageRange] = useState([0, 200]);
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
+  const [showOnlyActive, setShowOnlyActive] = useState(() => searchParams.get('active') === 'true');
+  const [percentageRange, setPercentageRange] = useState(() => {
+    const minParam = searchParams.get('minPercentage');
+    const maxParam = searchParams.get('maxPercentage');
+    return [
+      minParam ? parseInt(minParam) : 0,
+      maxParam ? parseInt(maxParam) : 200
+    ];
+  });
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [excludedEmployees, setExcludedEmployees] = useState<number[]>([]);
-  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
+  const [excludedEmployees, setExcludedEmployees] = useState<number[]>(() => {
+    const excludedParam = searchParams.get('excluded');
+    return excludedParam ? excludedParam.split(',').map(id => parseInt(id)) : [];
+  });
+  const [selectedPreset, setSelectedPreset] = useState<string | null>(() => {
+    return searchParams.get('preset');
+  });
   
   // Use the filter presets hook
   const { presets, savePreset, deletePreset, getPreset } = useFilterPresets();
   
   // Sorting states
-  const [sortBy, setSortBy] = useState<'percentage' | 'name'>('percentage');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [sortBy, setSortBy] = useState<'percentage' | 'name'>(() => {
+    return searchParams.get('sortBy') === 'name' ? 'name' : 'percentage';
+  });
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>(() => {
+    return searchParams.get('sortDirection') === 'asc' ? 'asc' : 'desc';
+  });
 
   const selectedWeek = getWeek(selectedDate, { weekStartsOn: 1, firstWeekContainsDate: 4 });
   const selectedYear = getYear(selectedDate);
   const selectedMonth = getMonth(selectedDate);
+  
+  // Update URL when filters change
+  useEffect(() => {
+    const params: Record<string, string> = {};
+    
+    // Always include year
+    params.year = selectedYear.toString();
+    
+    // Include week or month based on view mode
+    if (viewMode === 'week') {
+      params.week = selectedWeek.toString();
+    } else {
+      params.month = (selectedMonth + 1).toString();
+    }
+    
+    params.viewMode = viewMode;
+    
+    // Only include other filters if they're not the default values
+    if (searchQuery) {
+      params.search = searchQuery;
+    }
+    
+    if (showOnlyActive) {
+      params.active = 'true';
+    }
+    
+    if (percentageRange[0] !== 0) {
+      params.minPercentage = percentageRange[0].toString();
+    }
+    
+    if (percentageRange[1] !== 200) {
+      params.maxPercentage = percentageRange[1].toString();
+    }
+    
+    if (excludedEmployees.length > 0) {
+      params.excluded = excludedEmployees.join(',');
+    }
+    
+    if (selectedPreset) {
+      params.preset = selectedPreset;
+    }
+    
+    if (sortBy !== 'percentage') {
+      params.sortBy = sortBy;
+    }
+    
+    if (sortDirection !== 'desc') {
+      params.sortDirection = sortDirection;
+    }
+    
+    setSearchParams(params, { replace: true });
+  }, [selectedYear, selectedWeek, selectedMonth, viewMode, searchQuery, showOnlyActive, percentageRange, excludedEmployees, selectedPreset, sortBy, sortDirection, setSearchParams]);
+
+  // Load employees when date or view mode changes
+  useEffect(() => {
+    loadEmployees();
+  }, [selectedDate, viewMode]);
 
   const loadEmployees = async () => {
     setIsLoading(true);
     try {
+      // Update function titles from Gripp
+      await updateFunctionTitles();
+      
+      // Check if data is already in cache
+      const isCached = viewMode === 'week' 
+        ? isDataCached(selectedYear, selectedWeek)
+        : isDataCached(selectedYear, undefined, selectedMonth);
+      
+      setIsFromCache(isCached);
+      
       if (viewMode === 'week') {
         console.log(`Loading employees for year=${selectedYear}, week=${selectedWeek}`);
         const data = await getEmployeeStats(selectedYear, selectedWeek);
@@ -77,11 +187,6 @@ export default function EmployeeCardsPage() {
   useEffect(() => {
     applyFilters();
   }, [employees, searchQuery, showOnlyActive, percentageRange, excludedEmployees, sortBy, sortDirection]);
-
-  // Load employees when date or view mode changes
-  useEffect(() => {
-    loadEmployees();
-  }, [selectedDate, viewMode]);
 
   // Apply all filters to the employees list
   const applyFilters = () => {
@@ -143,40 +248,6 @@ export default function EmployeeCardsPage() {
     });
   };
   
-  // Toggle sort direction or change sort field
-  const toggleSort = (field: 'percentage' | 'name') => {
-    if (sortBy === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(field);
-      setSortDirection('desc'); // Default to descending for percentage, ascending for name
-    }
-  };
-
-  const handleSync = async () => {
-    try {
-      // Format dates for the sync API
-      const startDate = viewMode === 'week' 
-        ? format(startOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd')
-        : format(startOfMonth(selectedDate), 'yyyy-MM-dd');
-      
-      const endDate = viewMode === 'week'
-        ? format(endOfWeek(selectedDate, { weekStartsOn: 1 }), 'yyyy-MM-dd')
-        : format(endOfMonth(selectedDate), 'yyyy-MM-dd');
-      
-      await sync(startDate, endDate);
-      await syncAbsence(startDate, endDate);
-      loadEmployees();
-    } catch (error) {
-      console.error('Error during sync:', error);
-    }
-  };
-
-  const getLastSyncText = () => {
-    if (!lastSync) return 'Nooit';
-    return format(new Date(lastSync), 'dd-MM-yyyy HH:mm:ss');
-  };
-
   const resetFilters = () => {
     setSearchQuery('');
     setShowOnlyActive(false);
@@ -206,6 +277,11 @@ export default function EmployeeCardsPage() {
       setExcludedEmployees(preset.filters.excludedEmployees);
       setViewMode(preset.filters.viewMode);
       setSelectedPreset(id);
+      
+      // Reload employees if view mode changed
+      if (preset.filters.viewMode !== viewMode) {
+        setTimeout(() => loadEmployees(), 0);
+      }
     }
   };
 
@@ -247,260 +323,263 @@ export default function EmployeeCardsPage() {
   return (
     <div className="container mx-auto py-6 space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h1 className="text-3xl font-bold">Medewerkers Cards</h1>
-        
-        <div className="flex items-center gap-2">
-          <Link to="/employees">
-            <Button variant="outline">
-              Tabel View
-            </Button>
-          </Link>
+        <h1 className="text-3xl font-bold">Employee Cards</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as 'week' | 'month')}>
+            <TabsList>
+              <TabsTrigger value="week">Week</TabsTrigger>
+              <TabsTrigger value="month">Month</TabsTrigger>
+            </TabsList>
+          </Tabs>
           
-          <Button 
-            variant="outline" 
-            onClick={handleSync} 
-            disabled={isSyncing || isAbsenceSyncing}
-          >
-            {(isSyncing || isAbsenceSyncing) ? (
-              <>
-                <ReloadIcon className="mr-2 h-4 w-4 animate-spin" />
-                Synchroniseren...
-              </>
-            ) : (
-              <>
-                <ReloadIcon className="mr-2 h-4 w-4" />
-                Synchroniseren
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
-      
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <DateSelector 
             selectedDate={selectedDate} 
             onDateChange={setSelectedDate} 
             viewMode={viewMode}
           />
           
-          <Tabs 
-            value={viewMode} 
-            onValueChange={(value) => setViewMode(value as 'week' | 'month')}
-            className="w-[200px]"
-          >
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="week">Week</TabsTrigger>
-              <TabsTrigger value="month">Maand</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </div>
-        
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <div className="relative w-full sm:w-auto">
-            <MagnifyingGlassIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
-            <Input
-              type="search"
-              placeholder="Zoeken..."
-              className="pl-8 w-full sm:w-[200px]"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+          {isFromCache && (
+            <CacheStatusPopup 
+              year={selectedYear} 
+              week={viewMode === 'week' ? selectedWeek : undefined} 
+              month={viewMode === 'month' ? selectedMonth : undefined} 
             />
-            {searchQuery && (
-              <button 
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-2 text-gray-500 hover:text-gray-700"
-              >
-                <Cross2Icon className="h-4 w-4" />
-              </button>
-            )}
+          )}
+          <Link to={generateEmployeesUrl({
+            year: selectedYear,
+            week: viewMode === 'week' ? selectedWeek : undefined,
+            month: viewMode === 'month' ? selectedMonth : undefined,
+            viewMode,
+            search: searchQuery,
+            active: showOnlyActive,
+            minPercentage: percentageRange[0],
+            maxPercentage: percentageRange[1],
+            sortBy,
+            sortDirection
+          })}>
+            <Button variant="outline">Table View</Button>
+          </Link>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-1 gap-6">
+        <div>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <DateSelector 
+              selectedDate={selectedDate} 
+              onDateChange={setSelectedDate} 
+              viewMode={viewMode}
+            />
+            
+            <Tabs 
+              value={viewMode} 
+              onValueChange={(value) => setViewMode(value as 'week' | 'month')}
+              className="w-[200px]"
+            >
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="week">Week</TabsTrigger>
+                <TabsTrigger value="month">Maand</TabsTrigger>
+              </TabsList>
+            </Tabs>
           </div>
           
-          <Popover open={isFilterOpen} onOpenChange={setIsFilterOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" className="flex items-center gap-2">
-                <MixerHorizontalIcon className="h-4 w-4" />
-                Filters
-                {(showOnlyActive || percentageRange[0] > 0 || percentageRange[1] < 200 || excludedEmployees.length > 0) && (
-                  <span className="ml-1 h-2 w-2 rounded-full bg-blue-500"></span>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mt-4">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="relative w-full sm:w-auto">
+                <MagnifyingGlassIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
+                <Input
+                  type="search"
+                  placeholder="Zoeken..."
+                  className="pl-8 w-full sm:w-[200px]"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button 
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2 top-2 text-gray-500 hover:text-gray-700"
+                  >
+                    <Cross2Icon className="h-4 w-4" />
+                  </button>
                 )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-80">
-              <div className="space-y-4">
-                <h3 className="font-medium">Filter Options</h3>
-                
-                <div className="space-y-2">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox 
-                      id="active-only" 
-                      checked={showOnlyActive} 
-                      onCheckedChange={(checked) => setShowOnlyActive(checked === true)}
-                    />
-                    <Label htmlFor="active-only">Show only active employees</Label>
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label>Difference Percentage Range</Label>
-                  <div className="pt-4">
-                    <Slider 
-                      value={percentageRange}
-                      min={0}
-                      max={200}
-                      step={5}
-                      onValueChange={setPercentageRange}
-                    />
-                    <div className="flex justify-between mt-2 text-sm text-gray-500">
-                      <span>{percentageRange[0]}%</span>
-                      <span>{percentageRange[1]}%</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Excluded Employees</Label>
-                  <div className="max-h-32 overflow-y-auto space-y-2 border rounded-md p-2">
-                    {employees.map(emp => (
-                      <div key={emp.id} className="flex items-center space-x-2">
+              </div>
+              
+              <Popover open={isFilterOpen} onOpenChange={setIsFilterOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="flex items-center gap-2">
+                    <MixerHorizontalIcon className="h-4 w-4" />
+                    Filters
+                    {(showOnlyActive || percentageRange[0] > 0 || percentageRange[1] < 200 || excludedEmployees.length > 0) && (
+                      <span className="ml-1 h-2 w-2 rounded-full bg-blue-500"></span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80">
+                  <div className="space-y-4">
+                    <h3 className="font-medium">Filter Options</h3>
+                    
+                    <div className="space-y-2">
+                      <div className="flex items-center space-x-2">
                         <Checkbox 
-                          id={`exclude-${emp.id}`}
-                          checked={excludedEmployees.includes(emp.id)}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setExcludedEmployees(prev => [...prev, emp.id]);
-                            } else {
-                              setExcludedEmployees(prev => prev.filter(id => id !== emp.id));
-                            }
-                          }}
+                          id="active-only" 
+                          checked={showOnlyActive} 
+                          onCheckedChange={(checked) => setShowOnlyActive(checked === true)}
                         />
-                        <Label htmlFor={`exclude-${emp.id}`} className="text-sm">
-                          {emp.name}
-                        </Label>
+                        <Label htmlFor="active-only">Show only active employees</Label>
                       </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Filter Presets</Label>
-                  <div className="space-y-2">
-                    <div className="flex gap-2">
-                      <Input 
-                        id="preset-name"
-                        placeholder="Preset name"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && e.currentTarget.value) {
-                            saveCurrentFilterAsPreset(e.currentTarget.value);
-                            e.currentTarget.value = '';
-                          }
-                        }}
-                      />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          const input = document.getElementById('preset-name') as HTMLInputElement;
-                          if (input.value) {
-                            saveCurrentFilterAsPreset(input.value);
-                            input.value = '';
-                          }
-                        }}
-                      >
-                        Save
-                      </Button>
                     </div>
                     
-                    <div className="max-h-32 overflow-y-auto space-y-2 border rounded-md p-2">
-                      {presets.map(preset => (
-                        <div key={preset.id} className="flex items-center justify-between">
+                    <div className="space-y-2">
+                      <Label>Difference Percentage Range</Label>
+                      <div className="pt-4">
+                        <Slider 
+                          value={percentageRange}
+                          min={0}
+                          max={200}
+                          step={5}
+                          onValueChange={setPercentageRange}
+                        />
+                        <div className="flex justify-between mt-2 text-sm text-gray-500">
+                          <span>{percentageRange[0]}%</span>
+                          <span>{percentageRange[1]}%</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Excluded Employees</Label>
+                      <div className="max-h-32 overflow-y-auto space-y-2 border rounded-md p-2">
+                        {employees.map(emp => (
+                          <div key={emp.id} className="flex items-center space-x-2">
+                            <Checkbox 
+                              id={`exclude-${emp.id}`}
+                              checked={excludedEmployees.includes(emp.id)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setExcludedEmployees(prev => [...prev, emp.id]);
+                                } else {
+                                  setExcludedEmployees(prev => prev.filter(id => id !== emp.id));
+                                }
+                              }}
+                            />
+                            <Label htmlFor={`exclude-${emp.id}`} className="text-sm">
+                              {emp.name}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Filter Presets</Label>
+                      <div className="space-y-2">
+                        <div className="flex gap-2">
+                          <Input 
+                            id="preset-name"
+                            placeholder="Preset name"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && e.currentTarget.value) {
+                                saveCurrentFilterAsPreset(e.currentTarget.value);
+                                e.currentTarget.value = '';
+                              }
+                            }}
+                          />
                           <Button
-                            variant={selectedPreset === preset.id ? "default" : "ghost"}
+                            variant="outline"
                             size="sm"
-                            className="flex-1 justify-start"
-                            onClick={() => loadPreset(preset.id)}
+                            onClick={() => {
+                              const input = document.getElementById('preset-name') as HTMLInputElement;
+                              if (input.value) {
+                                saveCurrentFilterAsPreset(input.value);
+                                input.value = '';
+                              }
+                            }}
                           >
-                            {preset.name}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeletePreset(preset.id)}
-                          >
-                            <Cross2Icon className="h-4 w-4" />
+                            Save
                           </Button>
                         </div>
-                      ))}
-                      {presets.length === 0 && (
-                        <div className="text-sm text-gray-500 text-center py-2">
-                          No presets saved
+                        
+                        <div className="max-h-32 overflow-y-auto space-y-2 border rounded-md p-2">
+                          {presets.map(preset => (
+                            <div key={preset.id} className="flex items-center justify-between">
+                              <Button
+                                variant={selectedPreset === preset.id ? "default" : "ghost"}
+                                size="sm"
+                                className="flex-1 justify-start"
+                                onClick={() => loadPreset(preset.id)}
+                              >
+                                {preset.name}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDeletePreset(preset.id)}
+                              >
+                                <Cross2Icon className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
+                          {presets.length === 0 && (
+                            <div className="text-sm text-gray-500 text-center py-2">
+                              No presets saved
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-end">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={resetFilters}
+                        className="mr-2"
+                      >
+                        Reset
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        onClick={() => setIsFilterOpen(false)}
+                      >
+                        Apply
+                      </Button>
                     </div>
                   </div>
-                </div>
-                
-                <div className="flex justify-end">
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={resetFilters}
-                    className="mr-2"
-                  >
-                    Reset
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    onClick={() => setIsFilterOpen(false)}
-                  >
-                    Apply
-                  </Button>
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
-        </div>
-      </div>
-      
-      {syncError && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative">
-          <strong className="font-bold">Fout bij synchroniseren: </strong>
-          <span className="block sm:inline">{syncError}</span>
-        </div>
-      )}
-      
-      <div className="text-sm text-gray-500">
-        Laatste synchronisatie: {getLastSyncText()}
-      </div>
-      
-      {isLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {Array.from({ length: 8 }).map((_, index) => (
-            <div key={index} className="space-y-2">
-              <Skeleton className="h-[200px] w-full rounded-xl" />
+                </PopoverContent>
+              </Popover>
             </div>
-          ))}
-        </div>
-      ) : (
-        <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {filteredEmployees.length > 0 ? (
-              filteredEmployees.map((employee) => (
-                <EmployeeCard key={employee.id} employee={employee} />
-              ))
-            ) : (
-              <div className="col-span-full text-center py-10">
-                <p className="text-gray-500">Geen medewerkers gevonden die voldoen aan de filters.</p>
-              </div>
-            )}
           </div>
           
-          <div className="text-sm text-gray-500">
-            {filteredEmployees.length} medewerker{filteredEmployees.length !== 1 ? 's' : ''} weergegeven
-            {filteredEmployees.length !== employees.length && ` (van ${employees.length} totaal)`}
-          </div>
-        </>
-      )}
+          {isLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mt-4">
+              {Array.from({ length: 8 }).map((_, index) => (
+                <div key={index} className="space-y-2">
+                  <Skeleton className="h-[200px] w-full rounded-xl" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mt-4">
+                {filteredEmployees.length > 0 ? (
+                  filteredEmployees.map((employee) => (
+                    <EmployeeCard key={employee.id} employee={employee} />
+                  ))
+                ) : (
+                  <div className="col-span-full text-center py-10">
+                    <p className="text-gray-500">Geen medewerkers gevonden die voldoen aan de filters.</p>
+                  </div>
+                )}
+              </div>
+              
+              <div className="text-sm text-gray-500 mt-4">
+                {filteredEmployees.length} medewerker{filteredEmployees.length !== 1 ? 's' : ''} weergegeven
+                {filteredEmployees.length !== employees.length && ` (van ${employees.length} totaal)`}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 } 

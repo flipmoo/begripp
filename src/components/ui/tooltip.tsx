@@ -5,7 +5,8 @@ import { cn } from "@/lib/utils"
 
 const TooltipProvider = TooltipPrimitive.Provider
 
-const TooltipRoot = TooltipPrimitive.Root
+const Tooltip = ({ ...props }) => <TooltipPrimitive.Root {...props} />
+Tooltip.displayName = "Tooltip"
 
 const TooltipTrigger = TooltipPrimitive.Trigger
 
@@ -25,29 +26,4 @@ const TooltipContent = React.forwardRef<
 ))
 TooltipContent.displayName = TooltipPrimitive.Content.displayName
 
-// Export a simplified Tooltip component that includes all necessary parts
-export function Tooltip({
-  children,
-  content,
-  ...props
-}: {
-  children: React.ReactNode
-  content: React.ReactNode
-} & React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>) {
-  return (
-    <TooltipProvider>
-      <TooltipRoot>
-        <TooltipTrigger asChild>{children}</TooltipTrigger>
-        <TooltipContent {...props}>{content}</TooltipContent>
-      </TooltipRoot>
-    </TooltipProvider>
-  )
-}
-
-// Export individual components for more flexibility
-export {
-  TooltipProvider,
-  TooltipRoot,
-  TooltipTrigger,
-  TooltipContent,
-} 
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } 

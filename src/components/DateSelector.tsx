@@ -12,19 +12,24 @@ import {
 interface DateSelectorProps {
   selectedDate: Date;
   onDateChange: (date: Date) => void;
+  viewMode?: 'week' | 'month';
 }
 
-export function DateSelector({ selectedDate, onDateChange }: DateSelectorProps) {
+export function DateSelector({ selectedDate, onDateChange, viewMode = 'week' }: DateSelectorProps) {
   const currentYear = getYear(new Date());
   const currentWeek = getWeek(selectedDate, { weekStartsOn: 1, firstWeekContainsDate: 4 });
   const currentMonth = getMonth(selectedDate);
 
-  // Log the current date and calculated week
+  // Log the current date and calculated week/month
   useEffect(() => {
     console.log('DateSelector - Selected date:', selectedDate);
-    console.log('DateSelector - Calculated week:', currentWeek, 'with options { weekStartsOn: 1, firstWeekContainsDate: 4 }');
+    if (viewMode === 'week') {
+      console.log('DateSelector - Calculated week:', currentWeek, 'with options { weekStartsOn: 1, firstWeekContainsDate: 4 }');
+    } else {
+      console.log('DateSelector - Calculated month:', currentMonth);
+    }
     console.log('DateSelector - ISO string:', selectedDate.toISOString());
-  }, [selectedDate, currentWeek]);
+  }, [selectedDate, currentWeek, currentMonth, viewMode]);
 
   // Generate arrays for weeks 1-53, months 0-11, and years (current year ± 2)
   const weeks = Array.from({ length: 53 }, (_, i) => i + 1);
@@ -54,31 +59,35 @@ export function DateSelector({ selectedDate, onDateChange }: DateSelectorProps) 
 
   return (
     <div className="flex items-center gap-4">
-      <Select value={currentWeek.toString()} onValueChange={handleWeekChange}>
-        <SelectTrigger className="w-[120px]">
-          <SelectValue placeholder="Week" />
-        </SelectTrigger>
-        <SelectContent>
-          {weeks.map((week) => (
-            <SelectItem key={week} value={week.toString()}>
-              Week {week}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {viewMode === 'week' && (
+        <Select value={currentWeek.toString()} onValueChange={handleWeekChange}>
+          <SelectTrigger className="w-[120px]">
+            <SelectValue placeholder="Week" />
+          </SelectTrigger>
+          <SelectContent>
+            {weeks.map((week) => (
+              <SelectItem key={week} value={week.toString()}>
+                Week {week}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
-      <Select value={currentMonth.toString()} onValueChange={handleMonthChange}>
-        <SelectTrigger className="w-[120px]">
-          <SelectValue placeholder="Month" />
-        </SelectTrigger>
-        <SelectContent>
-          {months.map((month) => (
-            <SelectItem key={month} value={month.toString()}>
-              {format(new Date(2024, month), 'MMMM', { locale: nl })}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {viewMode === 'month' && (
+        <Select value={currentMonth.toString()} onValueChange={handleMonthChange}>
+          <SelectTrigger className="w-[120px]">
+            <SelectValue placeholder="Month" />
+          </SelectTrigger>
+          <SelectContent>
+            {months.map((month) => (
+              <SelectItem key={month} value={month.toString()}>
+                {format(new Date(2024, month), 'MMMM', { locale: nl })}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
       <Select value={currentYear.toString()} onValueChange={handleYearChange}>
         <SelectTrigger className="w-[120px]">

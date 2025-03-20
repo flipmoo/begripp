@@ -66,7 +66,13 @@ export function EmployeeAbsenceModal({
                       <span className="inline-block px-2 py-1 text-xs rounded-full bg-gray-200">
                         {absence.hours_per_day} hours/day
                       </span>
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className={`text-xs mt-1 px-2 py-1 rounded-full inline-block ${
+                        absence.status.name === 'GOEDGEKEURD' 
+                          ? 'bg-green-100 text-green-800' 
+                          : absence.status.name === 'AFGEKEURD'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-orange-100 text-orange-800'
+                      }`}>
                         {absence.status.name}
                       </p>
                     </div>

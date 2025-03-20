@@ -3,8 +3,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { TooltipProvider } from './components/ui/tooltip';
 import EmployeesPage from './pages/employees';
-import { SettingsPage } from './pages/settings';
+import EmployeeCardsPage from './pages/employees/cards';
+import DashboardPage from './pages/dashboard';
+import ProjectsPage from './pages/projects';
 import { Layout } from './components/common/Layout';
+import { Toaster } from './components/ui/toaster';
 import './App.css';
 
 // Create a client
@@ -28,13 +31,16 @@ function App() {
         <Router>
           <Layout>
             <Routes>
-              <Route path="/" element={<Navigate to="/employees" replace />} />
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/projects" element={<ProjectsPage />} />
               <Route path="/employees" element={<EmployeesPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="*" element={<Navigate to="/employees" replace />} />
+              <Route path="/employees/cards" element={<EmployeeCardsPage />} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </Layout>
         </Router>
+        <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
   );

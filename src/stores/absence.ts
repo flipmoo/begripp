@@ -1,6 +1,8 @@
 import { create } from 'zustand';
-import { absenceService, AbsenceRequest } from '../api/gripp/services/absence';
 import { getDateRangeForView } from '../utils/date';
+
+// Use the same API base URL as in employee.service.ts
+const API_BASE = 'http://localhost:3002/api';
 
 type AbsenceHours = {
   [employeeId: number]: {
@@ -11,6 +13,27 @@ type AbsenceHours = {
     };
   };
 };
+
+// Define the Absence type to match the API response
+interface Absence {
+  id: number;
+  employee: {
+    id: number;
+    name: string;
+  };
+  startdate: string;
+  enddate: string;
+  type: {
+    id: number;
+    name: string;
+  };
+  hours_per_day: number;
+  description: string;
+  status: {
+    id: number;
+    name: string;
+  };
+}
 
 interface AbsenceState {
   absenceHours: AbsenceHours;
@@ -45,12 +68,15 @@ export const useAbsenceStore = create<AbsenceState>((set, get) => ({
       const startDate = start.toISOString().split('T')[0];
       const endDate = end.toISOString().split('T')[0];
 
-      // Fetch absence requests
-      const responses = await absenceService.getByEmployeeIdsAndPeriod(
-        employeeIds,
-        startDate,
-        endDate
-      );
+      // Fetch absence data directly from the API
+      console.log(`Fetching absences for week ${week} of ${year} (${startDate} to ${endDate})`);
+      const response = await fetch(`${API_BASE}/absences?startDate=${startDate}&endDate=${endDate}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch absence data');
+      }
+      
+      const absences = await response.json();
 
       // Process responses into AbsenceHours structure
       const absenceHours: AbsenceHours = {};
@@ -64,29 +90,18 @@ export const useAbsenceStore = create<AbsenceState>((set, get) => ({
             absenceHours[employeeId] = {};
           }
 
-          // Convert start and end dates to Date objects
-          const start = new Date(absence.startdate.date);
-          const end = new Date(absence.enddate.date);
-
-          // Ensure dates are in UTC to avoid timezone issues
-          start.setUTCHours(0, 0, 0, 0);
-          end.setUTCHours(0, 0, 0, 0);
-
-          // For each day in the range, add the hours
-          for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
-            const dateStr = date.toISOString().split('T')[0];
-            
-            // If there's already an absence for this day, only override if the current one has more hours
-            const existingAbsence = absenceHours[employeeId][dateStr];
-            if (!existingAbsence || existingAbsence.hours < absence.hours_per_day) {
-              absenceHours[employeeId][dateStr] = {
-                hours: absence.hours_per_day,
-                type: absence.type.searchname,
-                description: absence.description,
-              };
-            }
-          }
-        });
+        // Get the date from the absence
+        const dateStr = absence.startdate.split('T')[0];
+        
+        // If there's already an absence for this day, only override if the current one has more hours
+        const existingAbsence = absenceHours[employeeId][dateStr];
+        if (!existingAbsence || existingAbsence.hours < absence.hours_per_day) {
+          absenceHours[employeeId][dateStr] = {
+            hours: absence.hours_per_day,
+            type: absence.type.name,
+            description: absence.description,
+          };
+        }
       });
 
       // Replace the entire state instead of merging

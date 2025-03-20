@@ -9,10 +9,9 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
 
   const navigation = [
-    { name: 'Dashboard', href: '/' },
+    { name: 'Dashboard', href: '/dashboard' },
     { name: 'Projects', href: '/projects' },
     { name: 'Employees', href: '/employees' },
-    { name: 'Settings', href: '/settings' },
   ];
 
   return (

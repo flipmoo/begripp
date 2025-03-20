@@ -6,6 +6,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/ta
 import { AbsenceSyncButton } from '../../components/AbsenceSyncButton';
 import type { Holiday } from '../../data/holidays';
 
+// Use the same API base URL as in employee.service.ts
+const API_BASE = 'http://localhost:3002/api';
+
 export function SettingsPage() {
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -20,12 +23,12 @@ export function SettingsPage() {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await fetch('/api/holidays');
+      const response = await fetch(`${API_BASE}/holidays`);
       if (!response.ok) {
         throw new Error('Failed to fetch holidays');
       }
       const data = await response.json();
-      setHolidays(data.map((holiday: any) => ({
+      setHolidays(data.map((holiday: { date: string; name: string }) => ({
         id: holiday.date, // Use date as ID since it's unique
         date: holiday.date,
         name: holiday.name,
@@ -46,7 +49,7 @@ export function SettingsPage() {
     e.preventDefault();
     if (newHoliday.date && newHoliday.name) {
       try {
-        const response = await fetch('/api/holidays', {
+        const response = await fetch(`${API_BASE}/holidays`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -75,12 +78,12 @@ export function SettingsPage() {
     if (editingHoliday && editingHoliday.date && editingHoliday.name) {
       try {
         // Delete old holiday
-        await fetch(`/api/holidays/${editingHoliday.id}`, {
+        await fetch(`${API_BASE}/holidays/${editingHoliday.id}`, {
           method: 'DELETE',
         });
 
         // Add updated holiday
-        const response = await fetch('/api/holidays', {
+        const response = await fetch(`${API_BASE}/holidays`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -114,7 +117,7 @@ export function SettingsPage() {
       if (!holiday) return;
 
       // Call the API to delete the holiday
-      const response = await fetch(`/api/holidays/${holiday.date}`, {
+      const response = await fetch(`${API_BASE}/holidays/${holiday.date}`, {
         method: 'DELETE',
       });
 

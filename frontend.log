@@ -1,0 +1,41 @@
+
+> bravoure-people@0.0.0 dev
+> vite
+
+
+  VITE v6.1.1  ready in 136 ms
+
+  ➜  Local:   http://localhost:3000/
+  ➜  Network: use --host to expose
+  ➜  press h + enter to show help
+8:49:56 PM [vite] (client) page reload src/db/database.ts
+8:49:58 PM [vite] (client) hmr update /src/components/ui/toast.tsx, /src/index.css
+8:49:58 PM [vite] (client) hmr update /src/components/ui/toast.tsx, /src/index.css
+8:49:58 PM [vite] (client) hmr update /src/components/ui/toaster.tsx, /src/index.css, /src/pages/employees/index.tsx
+8:49:58 PM [vite] (client) hmr update /src/components/ui/toaster.tsx, /src/index.css
+8:49:58 PM [vite] (client) hmr update /src/components/ui/toaster.tsx, /src/index.css
+8:49:58 PM [vite] (client) hmr update /src/components/ui/toaster.tsx, /src/index.css, /src/pages/employees/index.tsx
+8:49:59 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+8:49:59 PM [vite] (client) page reload src/api/gripp/simple-api-server.ts
+8:50:00 PM [vite] (client) hmr update /src/index.css, /src/pages/employees/cards.tsx, /src/pages/employees/index.tsx
+8:50:00 PM [vite] (client) hmr update /src/pages/employees/index.tsx, /src/index.css
+8:50:00 PM [vite] (client) page reload src/api/gripp/services/absence.ts
+8:50:00 PM [vite] (client) page reload src/api/gripp/services/absence.ts
+8:50:01 PM [vite] (client) page reload src/services/sync.service.ts
+8:51:04 PM [vite] (client) page reload src/services/sync.service.ts
+8:51:29 PM [vite] (client) page reload src/api/gripp/services/absence.ts
+8:51:41 PM [vite] (client) page reload src/services/sync.service.ts
+8:51:58 PM [vite] (client) page reload src/api/gripp/simple-api-server.ts
+8:52:18 PM [vite] (client) hmr update /src/pages/employees/index.tsx, /src/index.css
+8:52:26 PM [vite] (client) hmr update /src/pages/employees/index.tsx, /src/index.css
+8:52:26 PM [vite] (client) hmr update /src/pages/employees/index.tsx, /src/index.css
+8:52:38 PM [vite] (client) hmr update /src/index.css, /src/pages/employees/cards.tsx, /src/pages/employees/index.tsx
+8:52:48 PM [vite] (client) hmr update /src/index.css, /src/pages/employees/cards.tsx, /src/pages/employees/index.tsx, /src/components/AbsenceSyncButton.tsx
+8:52:49 PM [vite] (client) hmr update /src/index.css, /src/pages/employees/cards.tsx, /src/pages/employees/index.tsx, /src/components/AbsenceSyncButton.tsx
+8:53:01 PM [vite] (client) page reload src/api/gripp/simple-api-server.ts
+8:57:57 PM [vite] (client) hmr update /src/pages/employees/index.tsx, /src/index.css
+8:58:09 PM [vite] (client) hmr update /src/pages/employees/index.tsx, /src/index.css
+9:03:36 PM [vite] (client) page reload src/services/sync.service.ts
+9:04:06 PM [vite] (client) page reload src/services/sync.service.ts
+9:04:26 PM [vite] (client) page reload src/services/sync.service.ts
+9:04:46 PM [vite] (client) page reload src/services/sync.service.ts

@@ -1,0 +1,81 @@
+import NodeCache from 'node-cache';
+
+// Instantiate a new cache with a default TTL of 1 hour (in seconds)
+const cache = new NodeCache({ stdTTL: 3600, checkperiod: 120 });
+
+// Cache keys
+export const CACHE_KEYS = {
+  EMPLOYEES_WEEK: (year: number, week: number) => `employees_week_${year}_${week}`,
+  EMPLOYEES_MONTH: (year: number, month: number) => `employees_month_${year}_${month}`,
+};
+
+// Cache service
+export const cacheService = {
+  /**
+   * Get data from cache
+   * @param key Cache key
+   * @returns Cached data or undefined if not found
+   */
+  get: <T>(key: string): T | undefined => {
+    return cache.get<T>(key);
+  },
+
+  /**
+   * Set data in cache
+   * @param key Cache key
+   * @param data Data to cache
+   * @param ttl Time to live in seconds (optional, defaults to stdTTL)
+   */
+  set: <T>(key: string, data: T, ttl?: number | string): void => {
+    cache.set(key, data, ttl as number);
+  },
+
+  /**
+   * Check if key exists in cache
+   * @param key Cache key
+   * @returns True if key exists in cache
+   */
+  has: (key: string): boolean => {
+    return cache.has(key);
+  },
+
+  /**
+   * Delete a key from cache
+   * @param key Cache key
+   * @returns True if key was deleted
+   */
+  delete: (key: string): boolean => {
+    return cache.del(key) > 0;
+  },
+
+  /**
+   * Clear all cache
+   */
+  clear: (): void => {
+    cache.flushAll();
+  },
+
+  /**
+   * Clear all employee data from cache
+   */
+  clearEmployeeData: (): void => {
+    const keys = cache.keys();
+    const employeeKeys = keys.filter(key => 
+      key.startsWith('employees_week_') || 
+      key.startsWith('employees_month_')
+    );
+    
+    if (employeeKeys.length > 0) {
+      cache.del(employeeKeys);
+      console.log(`Cleared ${employeeKeys.length} employee cache entries`);
+    }
+  },
+
+  /**
+   * Get all keys in cache
+   * @returns Array of keys
+   */
+  keys: (): string[] => {
+    return cache.keys();
+  },
+}; 

@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent } from '../ui/card';
 import { GrippProject } from '../../types/gripp';
 import { EmployeeWithStats } from '../../services/employee.service';
 import { BarChart3, DollarSign, Users, AlertTriangle, PieChart, AlertCircle, Tag } from 'lucide-react';
+import { fetchInvoices } from '../../api/dashboard/grippApi';
 
 interface DashboardStatsProps {
   projects: GrippProject[];
@@ -10,6 +11,26 @@ interface DashboardStatsProps {
 }
 
 const DashboardStats: React.FC<DashboardStatsProps> = ({ projects, employees = [] }) => {
+  const [totalOpenInvoicesValue, setTotalOpenInvoicesValue] = useState<number>(0);
+
+  // Ophalen van de openstaande facturen en berekenen van de totale waarde
+  useEffect(() => {
+    const fetchOpenInvoicesValue = async () => {
+      try {
+        const invoices = await fetchInvoices();
+        const totalValue = invoices.reduce((sum, invoice) => {
+          return sum + parseFloat(invoice.totalexclvat || '0');
+        }, 0);
+        setTotalOpenInvoicesValue(totalValue);
+      } catch (error) {
+        console.error('Error fetching invoice value:', error);
+        setTotalOpenInvoicesValue(0);
+      }
+    };
+
+    fetchOpenInvoicesValue();
+  }, []);
+
   // Filter voor actieve projecten
   const activeProjects = projects.filter(project => !project.archived);
   
@@ -126,8 +147,8 @@ const DashboardStats: React.FC<DashboardStatsProps> = ({ projects, employees = [
       bgColor: 'bg-amber-50'
     },
     {
-      title: 'Totale waarde',
-      value: `€ ${totalValue.toLocaleString('nl-NL', { maximumFractionDigits: 0 })}`,
+      title: 'Totale waarde openstaande facturen',
+      value: `€ ${totalOpenInvoicesValue.toLocaleString('nl-NL', { maximumFractionDigits: 0 })}`,
       icon: <DollarSign className="h-5 w-5 text-purple-500" />,
       color: 'text-purple-500',
       bgColor: 'bg-purple-50'

@@ -7,6 +7,7 @@ import { promisify } from 'util';
 import { employeeService } from './services/employee';
 import { contractService } from './services/contract';
 import { absenceService } from './services/absence';
+import { invoiceService } from './services/invoice';
 import { normalizeDate, getWeekDates } from './utils/date-utils';
 import { calculateLeaveHours } from './utils/leave-utils';
 import { syncHours, syncAllData, syncAbsenceRequests } from '../../services/sync.service';
@@ -941,16 +942,42 @@ router.post('/auto-sync/run-now', async (req, res) => {
   }
 });
 
-// Dashboard endpoints
+// Dashboard test endpoint
 router.get('/dashboard/test', async (req, res) => {
+  console.log('Dashboard test endpoint called');
+  return res.status(200).json({ message: 'Dashboard API is available' });
+});
+
+// Dashboard invoices endpoint
+router.get('/dashboard/invoices', async (req, res) => {
+  console.log('Dashboard invoices endpoint called');
   try {
-    res.json({ status: 'ok', message: 'Dashboard API is working' });
+    // Haal facturen op uit de Gripp API
+    const invoicesResponse = await invoiceService.getAll();
+    
+    if (invoicesResponse.error) {
+      console.error('Error fetching invoices:', invoicesResponse.error);
+      return res.status(500).json({ 
+        error: 'Failed to fetch invoices from Gripp API', 
+        details: invoicesResponse.error 
+      });
+    }
+    
+    return res.status(200).json({
+      response: invoicesResponse.result?.items || [],
+      error: null
+    });
   } catch (error) {
-    console.error('Error in dashboard test endpoint:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error in dashboard invoices endpoint:', errorMessage);
+    return res.status(500).json({ 
+      error: 'Server error while fetching invoices',
+      details: errorMessage
+    });
   }
 });
 
+// Dashboard active projects endpoint
 router.get('/dashboard/projects/active', async (req, res) => {
   try {
     if (!db) {
@@ -1139,6 +1166,90 @@ app.post('/api/update-function-titles', async (req, res) => {
       message: error instanceof Error ? error.message : String(error),
       details: error
     });
+  }
+});
+
+// Invoice endpoints
+app.get('/api/invoices', async (req, res) => {
+  try {
+    console.log('API server: Fetching invoices');
+    const year = req.query.year ? parseInt(req.query.year as string) : 0;
+    
+    let filters = [];
+    
+    // Only apply year filter if a specific year is requested
+    if (year > 0) {
+      const startDate = `${year}-01-01`;
+      const endDate = `${year + 1}-01-01`;
+      
+      filters.push({
+        field: 'invoice.date',
+        operator: 'greaterequals',
+        value: startDate
+      });
+      
+      filters.push({
+        field: 'invoice.date',
+        operator: 'less',
+        value: endDate
+      });
+    } else {
+      // If no specific year, get all invoices from 2024 onwards
+      filters.push({
+        field: 'invoice.date',
+        operator: 'greaterequals',
+        value: '2024-01-01'
+      });
+    }
+    
+    const response = await invoiceService.get({
+      filters: filters,
+      options: {
+        orderings: [
+          {
+            field: 'invoice.date',
+            direction: 'desc',
+          },
+        ],
+      }
+    });
+    
+    res.json(response.result);
+  } catch (error) {
+    console.error('Error fetching invoices:', error);
+    res.status(500).json({ error: 'Failed to fetch invoices' });
+  }
+});
+
+app.get('/api/invoices/unpaid', async (req, res) => {
+  try {
+    console.log('API server: Fetching unpaid invoices');
+    
+    // Parse year parameter if provided
+    const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+    
+    // Just use the invoiceService which now includes client-side filtering
+    const response = await invoiceService.getUnpaid(year);
+    res.json(response.result);
+  } catch (error) {
+    console.error('Error fetching unpaid invoices:', error);
+    res.status(500).json({ error: 'Failed to fetch unpaid invoices' });
+  }
+});
+
+app.get('/api/invoices/overdue', async (req, res) => {
+  try {
+    console.log('API server: Fetching overdue invoices');
+    
+    // Parse year parameter if provided
+    const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+    
+    // Just use the invoiceService which now includes client-side filtering
+    const response = await invoiceService.getOverdue(year);
+    res.json(response.result);
+  } catch (error) {
+    console.error('Error fetching overdue invoices:', error);
+    res.status(500).json({ error: 'Failed to fetch overdue invoices' });
   }
 });
 

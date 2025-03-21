@@ -10,8 +10,8 @@ import { dbService } from '../../api/dashboard/dbService';
 import { getEmployeeStats, EmployeeWithStats } from '../../services/employee.service';
 import OverBudgetProjects from '../../components/dashboard/OverBudgetProjects';
 import IncompleteHoursFilter from '../../components/dashboard/IncompleteHoursFilter';
-import ProjectStats from '../../components/dashboard/ProjectStats';
 import DashboardStats from '../../components/dashboard/DashboardStats';
+import OverdueInvoices from '../../components/dashboard/OverdueInvoices';
 
 const DashboardPage: React.FC = () => {
   const { toast } = useToast();
@@ -231,40 +231,11 @@ const DashboardPage: React.FC = () => {
           {/* Dashboard Statistieken */}
           <DashboardStats projects={projects} employees={employees} />
 
-          {/* Voortgang */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Totale Voortgang</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span>Voortgang over alle projecten</span>
-                  <span>{Math.round(stats.progressPercentage)}%</span>
-                </div>
-                <Progress value={stats.progressPercentage} className="h-2" />
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <span className="text-sm text-gray-500">Totaal gebudgetteerde uren</span>
-                  <p className="text-lg font-medium">{stats.totalHours.toFixed(2)}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-gray-500">Totaal geschreven uren</span>
-                  <p className="text-lg font-medium">{stats.writtenHours.toFixed(2)}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Project Statistieken */}
-          <ProjectStats projects={projects} employees={employees} />
-
           {/* Nieuwe componenten */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <OverBudgetProjects projects={projects} />
             <IncompleteHoursFilter />
+            <OverdueInvoices />
           </div>
 
           {/* Projecten per fase */}

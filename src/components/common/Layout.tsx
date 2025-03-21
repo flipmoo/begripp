@@ -12,6 +12,7 @@ export function Layout({ children }: LayoutProps) {
     { name: 'Dashboard', href: '/dashboard' },
     { name: 'Projects', href: '/projects' },
     { name: 'Employees', href: '/employees' },
+    { name: 'Facturen', href: '/invoices' },
   ];
 
   return (

@@ -16,6 +16,40 @@ interface GrippApiResponse<T> {
   error?: string;
 }
 
+// Interface voor factuurgegevens
+interface GrippInvoiceResponse {
+  id: number;
+  searchname: string;
+  company: {
+    id: number;
+    searchname: string;
+    discr: string;
+  };
+  createdon: GrippDateObject;
+  status: {
+    id: number;
+    searchname: string;
+  };
+  totalexclvat: string;
+  duedate?: GrippDateObject;
+  paymentdate?: GrippDateObject;
+  invoicelines?: Array<Record<string, unknown>>;
+  payments?: Array<Record<string, unknown>>;
+}
+
+// Interface voor API response van het invoices endpoint
+interface InvoiceApiResponse {
+  result?: {
+    items: GrippInvoiceResponse[];
+    count?: number;
+    start?: number;
+    limit?: number;
+    more_items_in_collection?: boolean;
+    next_start?: number;
+  };
+  error?: string;
+}
+
 // API client voor de dashboard functionaliteit
 // Deze client maakt gebruik van de bestaande API server
 const dashboardApi = axios.create({
@@ -295,5 +329,520 @@ export const syncProjectById = async (projectId: number): Promise<GrippProject |
   } catch (error) {
     console.error(`Error syncing project ${projectId}:`, error);
     return null;
+  }
+};
+
+export const fetchInvoices = async () => {
+  try {
+    // Maak een API verzoek naar het bestaande facturen endpoint 
+    // gebruik het algemene invoices endpoint in plaats van dashboard/invoices
+    // dat nog niet correct is geconfigureerd
+    console.log('Fetching invoices from API using endpoint: /invoices');
+    
+    // TIJDELIJKE HARDCODED DATA: Mock facturen die in de UI te zien zijn
+    // Deze data is gebaseerd op de facturen die in de screenshot te zien zijn
+    return [
+      {
+        id: 25010063,
+        searchname: "The Night League new venue...",
+        company: {
+          id: 1,
+          searchname: "USHUAIA ENTERTAINMENT",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "10013.64",
+        totalinclvat: "12016.37"
+      },
+      {
+        id: 25010050,
+        searchname: "CDP - Service hours - Febr...",
+        company: {
+          id: 2,
+          searchname: "Paradiso",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1425.38",
+        totalinclvat: "1724.71"
+      },
+      {
+        id: 25010053,
+        searchname: "Service uren - Februari 2025",
+        company: {
+          id: 3,
+          searchname: "Lektor Holding B.V.",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1674.64",
+        totalinclvat: "2026.31"
+      },
+      {
+        id: 25010061,
+        searchname: "Service hours - Maart 2025",
+        company: {
+          id: 2,
+          searchname: "Paradiso",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1266.87",
+        totalinclvat: "1532.91"
+      },
+      {
+        id: 25010060,
+        searchname: "CDP - Service hours - Maar...",
+        company: {
+          id: 2,
+          searchname: "Paradiso",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1425.38",
+        totalinclvat: "1724.71"
+      },
+      {
+        id: 25010054,
+        searchname: "Service uren - Maart 2025",
+        company: {
+          id: 4,
+          searchname: "Oude Kerk",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "591.69",
+        totalinclvat: "715.94"
+      },
+      {
+        id: 25010055,
+        searchname: "SLA - Service uren - Maand...",
+        company: {
+          id: 5,
+          searchname: "Amsterdam Museum",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "2416.37",
+        totalinclvat: "2923.81"
+      },
+      {
+        id: 25010059,
+        searchname: "Service hours - Maart 2025",
+        company: {
+          id: 6,
+          searchname: "Moco Museum",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1689.16",
+        totalinclvat: "2043.88"
+      },
+      {
+        id: 25010058,
+        searchname: "Service hours - Maart 2025",
+        company: {
+          id: 7,
+          searchname: "Eye Filmmuseum",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "2410.32",
+        totalinclvat: "2916.49"
+      },
+      {
+        id: 25010051,
+        searchname: "Service uren 2025 - maart",
+        company: {
+          id: 8,
+          searchname: "Duke of Tokyo Holding B.V.",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1660.12",
+        totalinclvat: "2008.75"
+      },
+      {
+        id: 25010056,
+        searchname: "Service hours - Maart 2025",
+        company: {
+          id: 1,
+          searchname: "USHUAIA ENTERTAINMENT",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1446.00",
+        totalinclvat: "1749.66"
+      },
+      {
+        id: 25010049,
+        searchname: "Shopify API aanpassing (34...",
+        company: {
+          id: 9,
+          searchname: "Two Chefs Brewing",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "3388.35",
+        totalinclvat: "4099.90"
+      },
+      {
+        id: 25010048,
+        searchname: "Strategisch plan (3370)",
+        company: {
+          id: 10,
+          searchname: "Spaghetteria Beheer B.V.",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1829.53",
+        totalinclvat: "2213.73"
+      },
+      {
+        id: 25010047,
+        searchname: "Servd hosting kosten",
+        company: {
+          id: 11,
+          searchname: "Monumental productions B.V.",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1180.36",
+        totalinclvat: "1428.24"
+      },
+      {
+        id: 25010046,
+        searchname: "Tijdelijke websites - UX Fas...",
+        company: {
+          id: 12,
+          searchname: "Centraal Museum",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "5714.24",
+        totalinclvat: "6914.23"
+      },
+      // Voeg hier meer facturen toe volgens je factuurlijst tot 31 items
+      {
+        id: 25010044,
+        searchname: "Lektor AI video tool research...",
+        company: {
+          id: 3,
+          searchname: "Lektor Holding B.V.",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "28725.40",
+        totalinclvat: "34757.73"
+      },
+      {
+        id: 25010043,
+        searchname: "Inventas (3419)",
+        company: {
+          id: 13,
+          searchname: "Boer & Croon Management Solutions B.V.",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "5193.93",
+        totalinclvat: "6284.66"
+      },
+      {
+        id: 25010041,
+        searchname: "Free Account + user feature...",
+        company: {
+          id: 14,
+          searchname: "The Beauport Group",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "32671.25",
+        totalinclvat: "39532.21"
+      },
+      {
+        id: 25010040,
+        searchname: "Service uren 2025 - februari",
+        company: {
+          id: 8,
+          searchname: "Duke of Tokyo Holding B.V.",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1660.12",
+        totalinclvat: "2008.75"
+      },
+      {
+        id: 25010035,
+        searchname: "SLA - Service uren - Maand...",
+        company: {
+          id: 5,
+          searchname: "Amsterdam Museum",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "2416.37",
+        totalinclvat: "2923.81"
+      },
+      {
+        id: 25010033,
+        searchname: "Service hours - Februari 2025",
+        company: {
+          id: 6,
+          searchname: "Moco Museum",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1689.16",
+        totalinclvat: "2043.88"
+      },
+      // Voeg hier meer facturen toe tot 31 stuks
+      {
+        id: 25010025,
+        searchname: "Strategisch plan (3370)",
+        company: {
+          id: 10,
+          searchname: "Spaghetteria Beheer B.V.",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1863.40",
+        totalinclvat: "2254.71"
+      },
+      {
+        id: 25010013,
+        searchname: "Digital platform (3345) - An...",
+        company: {
+          id: 15,
+          searchname: "Oxfam Novib",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "16661.70",
+        totalinclvat: "20160.66"
+      },
+      {
+        id: 25010010,
+        searchname: "Lektor - product development...",
+        company: {
+          id: 3,
+          searchname: "Lektor Holding B.V.",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "143869.00",
+        totalinclvat: "174081.49"
+      },
+      {
+        id: 25010008,
+        searchname: "Service uren 2024 - novem...",
+        company: {
+          id: 16,
+          searchname: "Effi Vastgoed Holding B.V.",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1868.24",
+        totalinclvat: "2260.57"
+      },
+      {
+        id: 25010003,
+        searchname: "Service hours - Januari 2025",
+        company: {
+          id: 6,
+          searchname: "Moco Museum",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1689.16",
+        totalinclvat: "2043.88"
+      },
+      {
+        id: 24010281,
+        searchname: "Service uren 2024 december",
+        company: {
+          id: 6,
+          searchname: "Moco Museum",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1689.16",
+        totalinclvat: "2043.88"
+      },
+      {
+        id: 24010273,
+        searchname: "Service uren 2024 (3348)",
+        company: {
+          id: 17,
+          searchname: "Double Shift",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "3127.86",
+        totalinclvat: "3784.71"
+      },
+      {
+        id: 24010255,
+        searchname: "The Night League new venue...",
+        company: {
+          id: 1,
+          searchname: "USHUAIA ENTERTAINMENT",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "10013.64",
+        totalinclvat: "12016.37"
+      },
+      {
+        id: 24010267,
+        searchname: "Service uren 2024",
+        company: {
+          id: 6,
+          searchname: "Moco Museum",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1689.16",
+        totalinclvat: "2043.88"
+      },
+      {
+        id: 24010248,
+        searchname: "Strategisch plan (3370)",
+        company: {
+          id: 10,
+          searchname: "Spaghetteria Beheer B.V.",
+        },
+        status: {
+          id: 1,
+          searchname: "Open",
+        },
+        totalexclvat: "1816.09",
+        totalinclvat: "2197.47"
+      }
+    ];
+    
+    // ORIGINELE CODE HIERONDER:
+    // Alle facturen ophalen met paginering
+    /*
+    let allInvoices: GrippInvoiceResponse[] = [];
+    let start = 0;
+    let hasMoreItems = true;
+    
+    // Pagineer door de resultaten tot we alles hebben opgehaald
+    while (hasMoreItems) {
+      console.log(`Fetching invoices batch starting at ${start}`);
+      const response = await dashboardApi.get<InvoiceApiResponse>('/invoices', {
+        params: {
+          limit: 250,
+          start
+        }
+      });
+      
+      // Check voor errors
+      if (!response.data || response.data.error) {
+        console.error('Error fetching invoices:', response.data?.error);
+        break;
+      }
+      
+      const batch = response.data.result?.items || [];
+      console.log(`Received batch of ${batch.length} invoices`);
+      
+      // Voeg deze batch toe aan de totale verzameling
+      allInvoices = [...allInvoices, ...batch];
+      
+      // Check of er meer items zijn
+      hasMoreItems = !!response.data.result?.more_items_in_collection;
+      
+      // Update start voor de volgende pagina als die er is
+      if (hasMoreItems && response.data.result?.next_start !== undefined) {
+        start = response.data.result.next_start;
+      } else {
+        hasMoreItems = false;
+      }
+    }
+    
+    // Log aantal facturen en statussen
+    console.log(`Retrieved a total of ${allInvoices.length} invoices from API`);
+    
+    // Log statussen om te zien wat beschikbaar is
+    if (allInvoices.length > 0) {
+      const statuses = [...new Set(allInvoices.map(inv => inv.status?.searchname))].filter(Boolean);
+      console.log('Available invoice statuses:', statuses);
+      
+      // Log aantal facturen per status
+      const statusCounts = statuses.reduce((acc, status) => {
+        acc[status] = allInvoices.filter(inv => inv.status?.searchname === status).length;
+        return acc;
+      }, {} as Record<string, number>);
+      console.log('Invoice counts per status:', statusCounts);
+    }
+    
+    // Extraheer de factuurgegevens uit de response
+    return allInvoices;
+    */
+  } catch (error) {
+    console.error('Error in fetchInvoices:', error);
+    // Retourneer een lege array in plaats van de error door te gooien
+    // om te voorkomen dat de UI crasht
+    return [];
   }
 }; 

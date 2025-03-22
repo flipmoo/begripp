@@ -1,5 +1,6 @@
 import React, { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import ValidationStatusButton from './ValidationStatusButton';
 
 interface LayoutProps {
   children: ReactNode;
@@ -42,7 +43,8 @@ export function Layout({ children }: LayoutProps) {
                 })}
               </div>
             </div>
-            <div className="flex items-center">
+            <div className="flex items-center space-x-4">
+              <ValidationStatusButton />
               <span className="text-sm text-gray-500">Laatste update: 14:14</span>
             </div>
           </div>

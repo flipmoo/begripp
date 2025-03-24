@@ -18,6 +18,7 @@ import { promisify } from 'util';
 import { cacheService, CACHE_KEYS } from './cache-service';
 import { projectService, ProjectService } from './services/project';
 import { grippClient } from './client';
+import { invoiceService } from './services/invoice';
 
 // Define the GrippRequest interface
 interface GrippRequest {
@@ -1015,6 +1016,293 @@ dashboardRouter.post('/gripp/sync-project', async (req, res) => {
 
 // Mount the dashboard router
 app.use('/api/dashboard', dashboardRouter);
+
+// Invoice endpoints
+app.get('/api/invoices', async (req: Request, res: Response) => {
+  try {
+    console.log('API server: Fetching invoices');
+    const year = req.query.year ? parseInt(req.query.year as string) : 0;
+    
+    let filters = [];
+    
+    // Only apply year filter if a specific year is requested
+    if (year > 0) {
+      const startDate = `${year}-01-01`;
+      const endDate = `${year + 1}-01-01`;
+      
+      filters.push({
+        field: 'invoice.date',
+        operator: 'greaterequals',
+        value: startDate
+      });
+      
+      filters.push({
+        field: 'invoice.date',
+        operator: 'less',
+        value: endDate
+      });
+    } else {
+      // If no specific year, get all invoices from 2024 onwards
+      filters.push({
+        field: 'invoice.date',
+        operator: 'greaterequals',
+        value: '2024-01-01'
+      });
+    }
+    
+    const response = await invoiceService.get({
+      filters: filters,
+      options: {
+        orderings: [
+          {
+            field: 'invoice.date',
+            direction: 'desc',
+          },
+        ],
+      }
+    });
+    
+    res.json(response.result);
+  } catch (error) {
+    console.error('Error fetching invoices:', error);
+    res.status(500).json({ error: 'Failed to fetch invoices' });
+  }
+});
+
+app.get('/api/invoices/unpaid', async (req: Request, res: Response) => {
+  try {
+    console.log('API server: Fetching unpaid invoices');
+    
+    // Parse year parameter if provided
+    const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+    
+    // Just use the invoiceService which now includes client-side filtering
+    const response = await invoiceService.getUnpaid(year);
+    res.json(response.result);
+  } catch (error) {
+    console.error('Error fetching unpaid invoices:', error);
+    res.status(500).json({ error: 'Failed to fetch unpaid invoices' });
+  }
+});
+
+app.get('/api/invoices/overdue', async (req: Request, res: Response) => {
+  try {
+    console.log('API server: Fetching overdue invoices');
+    
+    // Parse year parameter if provided
+    const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+    
+    // Just use the invoiceService which now includes client-side filtering
+    const response = await invoiceService.getOverdue(year);
+    res.json(response.result);
+  } catch (error) {
+    console.error('Error fetching overdue invoices:', error);
+    res.status(500).json({ error: 'Failed to fetch overdue invoices' });
+  }
+});
+
+// Revenue endpoint - Get project hours per month
+app.get('/api/revenue/hours', async (req: Request, res: Response) => {
+  try {
+    console.log('API server: Fetching project hours for revenue');
+    const year = req.query.year ? parseInt(req.query.year as string) : 2025; // Default to 2025
+    
+    if (!db) {
+      console.error('Database not initialized');
+      return res.status(503).json({ error: 'Database not ready. Please try again in a few seconds.' });
+    }
+
+    // Get ALL employees (including inactive)
+    const employees = await db.all(`SELECT id, firstname, lastname, active FROM employees`);
+    console.log(`Found ${employees.length} total employees`);
+    
+    if (!employees || employees.length === 0) {
+      return res.status(404).json({ error: 'No employees found' });
+    }
+    
+    // Get project hours for ALL employees (including inactive) for specified year
+    const startDate = `${year}-01-01`;
+    const endDate = `${year}-12-31`;
+    
+    console.log(`Fetching hours for ALL employees from ${startDate} to ${endDate}`);
+    
+    let allHours: any[] = [];
+    const PAGE_SIZE = 250; // API max page size
+    let totalRequestsMade = 0;
+    let totalHoursFound = 0;
+    let employeesWithHours = 0;
+    let employeesWithoutHours = 0;
+    
+    // Map to keep track of hours per employee
+    const employeeHoursMap: { [key: number]: number } = {};
+    
+    for (const employee of employees) {
+      let hasMoreResults = true;
+      let offset = 0;
+      let employeeHours = 0;
+      
+      console.log(`Fetching hours for employee ${employee.id} (${employee.firstname} ${employee.lastname}, active: ${employee.active ? 'yes' : 'no'})`);
+      
+      while (hasMoreResults) {
+        totalRequestsMade++;
+        const request = {
+          method: 'hour.get',
+          params: [
+            [
+              {
+                field: 'hour.employee',
+                operator: 'equals',
+                value: employee.id,
+              },
+              {
+                field: 'hour.date',
+                operator: 'between',
+                value: startDate,
+                value2: endDate,
+              }
+            ],
+            {
+              paging: {
+                firstresult: offset,
+                maxresults: PAGE_SIZE,
+              },
+            },
+          ],
+          id: Date.now(),
+        };
+        
+        const response = await executeRequest(request);
+        
+        if (!response.result || !response.result.rows) {
+          console.error(`Unexpected API response for employee ${employee.id}:`, response);
+          break;
+        }
+        
+        const hours = response.result.rows;
+        const totalCount = response.result.count || 0;
+        
+        console.log(`Fetched ${hours.length} hours for employee ${employee.id} (offset: ${offset}, total: ${totalCount}, status: ${hours.length > 0 ? hours[0].status?.searchname || 'unknown' : 'N/A'})`);
+        
+        if (hours.length > 0) {
+          allHours = [...allHours, ...hours];
+          
+          // Sum up hours for this employee
+          for (const hour of hours) {
+            const hourAmount = parseFloat(hour.amount);
+            employeeHours += hourAmount;
+            totalHoursFound += hourAmount;
+          }
+        }
+        
+        // If we got fewer results than page size or reached total count, we're done
+        if (hours.length < PAGE_SIZE || offset + hours.length >= totalCount) {
+          hasMoreResults = false;
+        } else {
+          offset += PAGE_SIZE;
+        }
+      }
+      
+      // Track how many hours this employee has
+      employeeHoursMap[employee.id] = employeeHours;
+      
+      if (employeeHours > 0) {
+        employeesWithHours++;
+      } else {
+        employeesWithoutHours++;
+      }
+      
+      console.log(`Total hours for employee ${employee.id} (${employee.firstname} ${employee.lastname}): ${employeeHours}`);
+    }
+    
+    console.log('=== SUMMARY ===');
+    console.log(`Total API requests made: ${totalRequestsMade}`);
+    console.log(`Total hours entries fetched: ${allHours.length}`);
+    console.log(`Total hours (summed): ${totalHoursFound}`);
+    console.log(`Employees with hours: ${employeesWithHours}`);
+    console.log(`Employees without hours: ${employeesWithoutHours}`);
+    console.log('=== TOP 5 EMPLOYEES WITH MOST HOURS ===');
+    
+    // Show top 5 employees with most hours
+    const topEmployees = Object.entries(employeeHoursMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    
+    for (const [empId, hours] of topEmployees) {
+      const employee = employees.find(e => e.id === parseInt(empId));
+      console.log(`${employee?.firstname} ${employee?.lastname}: ${hours} hours`);
+    }
+    
+    // Group hours by project and month
+    interface ProjectHour {
+      projectId: number;
+      projectName: string;
+      month: number;
+      totalHours: number;
+    }
+    
+    const projectHours: { [key: string]: ProjectHour } = {};
+    
+    for (const hour of allHours) {
+      if (!hour.offerprojectbase || !hour.offerprojectbase.id) {
+        continue; // Skip hours without project association
+      }
+      
+      const projectId = hour.offerprojectbase.id;
+      const projectName = hour.offerprojectbase.searchname || `Project ${projectId}`;
+      
+      // Extract month from date string (format: YYYY-MM-DD)
+      const dateStr = hour.date.date;
+      const month = new Date(dateStr).getMonth() + 1; // 1-12
+      
+      const key = `${projectId}-${month}`;
+      
+      if (!projectHours[key]) {
+        projectHours[key] = {
+          projectId,
+          projectName,
+          month,
+          totalHours: 0
+        };
+      }
+      
+      projectHours[key].totalHours += parseFloat(hour.amount);
+    }
+    
+    // Convert to array and format for display
+    const result = Object.values(projectHours);
+    console.log(`Grouped hours by project and month: ${result.length} unique project-month combinations`);
+    
+    // Group by project
+    const projectMonthlyHours: { [key: string]: any } = {};
+    
+    for (const item of result) {
+      const { projectId, projectName, month, totalHours } = item;
+      
+      if (!projectMonthlyHours[projectId]) {
+        projectMonthlyHours[projectId] = {
+          projectId,
+          projectName,
+          months: Array(12).fill(0) // Initialize array for 12 months
+        };
+      }
+      
+      // Months are 1-indexed, so subtract 1 for array index
+      projectMonthlyHours[projectId].months[month - 1] = totalHours;
+    }
+    
+    // Convert to array and sort by project name
+    const sortedResults = Object.values(projectMonthlyHours).sort((a, b) => 
+      a.projectName.localeCompare(b.projectName)
+    );
+    
+    console.log(`Final result: ${sortedResults.length} projects with hourly data`);
+    
+    res.json(sortedResults);
+  } catch (error) {
+    console.error('Error fetching revenue data:', error);
+    res.status(500).json({ error: 'Failed to fetch revenue data' });
+  }
+});
 
 // Start the server with error handling
 const server = app.listen(port, () => {

@@ -7,6 +7,7 @@ import EmployeeCardsPage from './pages/employees/cards';
 import DashboardPage from './pages/dashboard';
 import ProjectsPage from './pages/projects';
 import InvoicesPage from './pages/invoices';
+import RevenuePage from './pages/revenue';
 import { Layout } from './components/common/Layout';
 import { Toaster } from './components/ui/toaster';
 import './App.css';
@@ -38,6 +39,7 @@ function App() {
               <Route path="/employees" element={<EmployeesPage />} />
               <Route path="/employees/cards" element={<EmployeeCardsPage />} />
               <Route path="/invoices" element={<InvoicesPage />} />
+              <Route path="/revenue" element={<RevenuePage />} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </Layout>

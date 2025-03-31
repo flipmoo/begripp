@@ -25,9 +25,15 @@ export class ProjectService {
       const projects = await db.all<GrippProject[]>(`
         SELECT * FROM projects 
         WHERE archived = 0 
+          AND name NOT LIKE '#0%' 
+          AND name NOT LIKE '#1%'
+          AND name NOT LIKE '#0 Service Hours - (Nacalculatie)%'
+          AND name NOT LIKE '#0 New Business - Klant - Opdracht - Pitch%'
+          AND name NOT LIKE '#1 Gripp Intern%'
         ORDER BY deadline IS NULL, deadline ASC
       `);
 
+      console.log(`Retrieved ${projects.length} active projects (excluding template projects)`);
       return projects;
     } catch (error) {
       console.error('Error fetching active projects:', error);

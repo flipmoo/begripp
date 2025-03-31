@@ -3,7 +3,7 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { RefreshCw, Search } from 'lucide-react';
+import { RefreshCw, Search, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { useToast } from '../../components/ui/use-toast';
 import ProjectCard from '../../components/dashboard/ProjectCard';
 import ProjectDetails from '../../components/dashboard/ProjectDetails';
@@ -29,10 +29,9 @@ const ProjectsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClient, setSelectedClient] = useState('all');
   const [selectedPhase, setSelectedPhase] = useState('all');
-  const [selectedTag, setSelectedTag] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
+  const [selectedTag, setSelectedTag] = useState('all');
   const [sortOrder, setSortOrder] = useState('deadline-asc');
-  const [showTemplates, setShowTemplates] = useState(false);
 
   // Laad projecten functie met useCallback om re-renders te voorkomen
   const loadProjects = useCallback(async (forceRefresh = false) => {
@@ -87,24 +86,23 @@ const ProjectsPage: React.FC = () => {
       // Probeer eerst projecten uit de IndexedDB te laden
       try {
         console.log('Attempting to load projects from IndexedDB...');
-        const cachedProjects = await dbService.getAllProjects();
-        console.log('IndexedDB returned', cachedProjects ? cachedProjects.length : 0, 'projects');
+        const localProjects = await dbService.getAllProjects();
         
-        if (cachedProjects && cachedProjects.length > 0) {
-          console.log('Loaded projects from cache:', cachedProjects.length);
-          console.log('First 3 cached projects:', cachedProjects.slice(0, 3).map(p => ({ id: p.id, name: p.name })));
-          setProjects(cachedProjects);
+        if (localProjects && localProjects.length > 0) {
+          console.log(`Loaded ${localProjects.length} projects from IndexedDB`);
+          setProjects(localProjects);
           setLoadingState('complete');
-          setLoadingMessage(`${cachedProjects.length} projecten geladen uit cache.`);
-          setLoading(false);
-          return;
+          setLoadingMessage(`${localProjects.length} projecten geladen uit lokale cache`);
         } else {
-          console.log('No projects found in cache or empty array returned');
-          setLoadingMessage('Geen projecten in cache gevonden. Laden vanaf API...');
+          console.log('No projects in IndexedDB or empty response, fetching from API');
+          throw new Error('No projects in local database');
         }
-      } catch (dbError) {
-        console.error('Error loading projects from IndexedDB:', dbError);
-        setLoadingMessage('Fout bij laden uit cache. Proberen vanaf API...');
+      } catch (apiError) {
+        console.error('Error calling API:', apiError);
+        const errorMessage = apiError instanceof Error ? apiError.message : 'Onbekende fout';
+        setError('API fout: ' + errorMessage);
+        setLoadingState('error');
+        setLoadingMessage('Er is een fout opgetreden bij het API verzoek. Probeer het later opnieuw.');
       }
 
       // Als er geen gecachte projecten zijn, haal ze op van de API
@@ -367,28 +365,8 @@ const ProjectsPage: React.FC = () => {
 
   // Sorteer en filter projecten
   const filteredProjects = useMemo(() => {
-    // Template project names to exclude
-    const templateProjects = [
-      "#0 Service Hours - (Nacalculatie)",
-      "#0 New Business - Klant - Opdracht - Pitch",
-      "#1 Gripp Intern"
-    ];
-    
     return projects
       .filter(project => {
-        // Exclude template projects based on user preference
-        if (!showTemplates) {
-          // Check for specific template projects
-          if (templateProjects.some(template => project.name?.includes(template))) {
-            return false;
-          }
-          
-          // Check for any project starting with #0 or #1
-          if (project.name?.startsWith("#0") || project.name?.startsWith("#1")) {
-            return false;
-          }
-        }
-        
         // Filter op zoekterm
         if (searchQuery && !project.name?.toLowerCase().includes(searchQuery.toLowerCase())) {
           return false;
@@ -404,7 +382,7 @@ const ProjectsPage: React.FC = () => {
           return false;
         }
         
-        // Filter op status
+        // Filter op status (voortgang)
         if (selectedStatus && selectedStatus !== 'all') {
           const status = getProjectStatus(project);
           if (status !== selectedStatus) {
@@ -414,83 +392,81 @@ const ProjectsPage: React.FC = () => {
         
         // Filter op tag
         if (selectedTag && selectedTag !== 'all') {
-          // Check voor tags
+          // Check if the project has the selected tag
+          const projectTags = project.tags || [];
           let hasTag = false;
           
-          // Als tags een string is (JSON formaat), probeer te parsen
-          if (typeof project.tags === 'string') {
+          // If tags is a string, parse it first
+          if (typeof projectTags === 'string') {
             try {
-              const parsedTags = JSON.parse(project.tags);
-              hasTag = parsedTags.some((tag: { searchname?: string; name?: string }) => 
+              const parsedTags = JSON.parse(projectTags);
+              hasTag = parsedTags.some((tag: any) => 
                 (tag.searchname === selectedTag) || (tag.name === selectedTag)
               );
             } catch (error) {
-              console.error('Error parsing tags JSON:', error);
+              console.error('Error parsing tags:', error);
+              hasTag = false;
             }
           } 
-          // Als tags een array is, gebruik direct
-          else if (Array.isArray(project.tags)) {
-            hasTag = project.tags.some(tag => {
+          // If tags is an array, check directly
+          else if (Array.isArray(projectTags)) {
+            hasTag = projectTags.some((tag: any) => {
               if (typeof tag === 'string') return tag === selectedTag;
               return (tag.searchname === selectedTag) || (tag.name === selectedTag);
             });
           }
           
-          if (!hasTag) return false;
+          if (!hasTag) {
+            return false;
+          }
         }
         
         return true;
       })
       .sort((a, b) => {
-        // Sorteer op voortgang (oplopend)
-        if (sortOrder === 'progress-asc') {
-          return calculateProjectProgress(a) - calculateProjectProgress(b);
+        switch (sortOrder) {
+          case 'deadline-asc':
+            // Als deadline null is, zet het achteraan
+            if (!a.deadline) return 1;
+            if (!b.deadline) return -1;
+            return new Date(a.deadline.date).getTime() - new Date(b.deadline.date).getTime();
+          case 'deadline-desc':
+            if (!a.deadline) return 1;
+            if (!b.deadline) return -1;
+            return new Date(b.deadline.date).getTime() - new Date(a.deadline.date).getTime();
+          case 'name-asc':
+            return (a.name || '').localeCompare(b.name || '');
+          case 'name-desc':
+            return (b.name || '').localeCompare(a.name || '');
+          case 'budget-asc': {
+            const aBudget = a.projectlines?.reduce((sum, line) => 
+              sum + (line?.amount || 0), 0) || 0;
+            const bBudget = b.projectlines?.reduce((sum, line) => 
+              sum + (line?.amount || 0), 0) || 0;
+            return aBudget - bBudget;
+          }
+          case 'budget-desc': {
+            const aBudget = a.projectlines?.reduce((sum, line) => 
+              sum + (line?.amount || 0), 0) || 0;
+            const bBudget = b.projectlines?.reduce((sum, line) => 
+              sum + (line?.amount || 0), 0) || 0;
+            return bBudget - aBudget;
+          }
+          case 'progress-asc': {
+            const aProgress = calculateProjectProgress(a);
+            const bProgress = calculateProjectProgress(b);
+            return aProgress - bProgress;
+          }
+          case 'progress-desc': {
+            const aProgress = calculateProjectProgress(a);
+            const bProgress = calculateProjectProgress(b);
+            return bProgress - aProgress;
+          }
+          default:
+            return 0;
         }
-        
-        // Sorteer op voortgang (aflopend)
-        if (sortOrder === 'progress-desc') {
-          return calculateProjectProgress(b) - calculateProjectProgress(a);
-        }
-        
-        // Sorteer op deadline (oplopend)
-        if (sortOrder === 'deadline-asc') {
-          if (!a.deadline && !b.deadline) return 0;
-          if (!a.deadline) return 1;
-          if (!b.deadline) return -1;
-          return new Date(a.deadline.date).getTime() - new Date(b.deadline.date).getTime();
-        }
-        
-        // Sorteer op deadline (aflopend)
-        if (sortOrder === 'deadline-desc') {
-          if (!a.deadline && !b.deadline) return 0;
-          if (!a.deadline) return 1;
-          if (!b.deadline) return -1;
-          return new Date(b.deadline.date).getTime() - new Date(a.deadline.date).getTime();
-        }
-        
-        // Sorteer op naam (A-Z)
-        if (sortOrder === 'name-asc') {
-          return (a.name || '').localeCompare(b.name || '');
-        }
-        
-        // Sorteer op naam (Z-A)
-        if (sortOrder === 'name-desc') {
-          return (b.name || '').localeCompare(a.name || '');
-        }
-        
-        // Sorteer op budget (hoog-laag)
-        if (sortOrder === 'budget-desc') {
-          return parseFloat(b.totalexclvat || '0') - parseFloat(a.totalexclvat || '0');
-        }
-        
-        // Sorteer op budget (laag-hoog)
-        if (sortOrder === 'budget-asc') {
-          return parseFloat(a.totalexclvat || '0') - parseFloat(b.totalexclvat || '0');
-        }
-        
-        return 0;
       });
-  }, [projects, searchQuery, selectedClient, selectedPhase, sortOrder, selectedTag, selectedStatus, showTemplates]);
+  }, [projects, searchQuery, selectedClient, selectedPhase, selectedStatus, selectedTag, sortOrder, calculateProjectProgress, getProjectStatus]);
 
   // Functie om een specifiek project te vernieuwen
   const refreshSelectedProject = useCallback(async () => {
@@ -540,30 +516,26 @@ const ProjectsPage: React.FC = () => {
     }
   }, [selectedProject, toast]);
 
-  // Render loading/error state
+  // Renders loading spinner with appropriate message based on the current loading state
   const renderLoadingState = () => {
-    if (loading) {
-      return (
-        <div className="flex flex-col items-center justify-center p-8 mt-8">
-          <div className="animate-spin mb-4">
-            <RefreshCw className="h-8 w-8 text-primary" />
-          </div>
-          <p className="text-lg font-medium text-center">{loadingMessage || 'Projecten worden geladen...'}</p>
-        </div>
-      );
-    }
+    if (loadingState === 'idle') return null;
     
-    if (error) {
-      return (
-        <div className="flex flex-col items-center justify-center p-8 mt-8 border border-red-200 rounded-lg bg-red-50">
-          <p className="text-lg font-medium text-center text-red-800 mb-4">{error}</p>
-          <p className="text-sm text-center text-red-600 mb-4">{loadingMessage}</p>
-          <Button onClick={() => loadProjects(true)}>Opnieuw proberen</Button>
+    return (
+      <div className="w-full flex items-center justify-center p-8">
+        <div className="flex flex-col items-center space-y-4">
+          {(loadingState === 'loading' || loadingState === 'syncing') && (
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          )}
+          {loadingState === 'error' && (
+            <AlertCircle className="h-8 w-8 text-destructive" />
+          )}
+          {loadingState === 'complete' && (
+            <CheckCircle className="h-8 w-8 text-success" />
+          )}
+          <p className="text-center text-muted-foreground">{loadingMessage}</p>
         </div>
-      );
-    }
-    
-    return null;
+      </div>
+    );
   };
 
   // Als er een project is geselecteerd, toon de details
@@ -709,21 +681,6 @@ const ProjectsPage: React.FC = () => {
                 <SelectItem value="progress-desc">Voortgang (hoog-laag)</SelectItem>
               </SelectContent>
             </Select>
-          </div>
-          
-          {/* Template projects toggle */}
-          <div className="flex items-center space-x-2">
-            <Checkbox 
-              id="show-templates" 
-              checked={showTemplates}
-              onCheckedChange={(checked) => setShowTemplates(checked === true)}
-            />
-            <label 
-              htmlFor="show-templates" 
-              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-            >
-              Toon template projecten (beginnen met #0 of #1)
-            </label>
           </div>
         </CardContent>
       </Card>

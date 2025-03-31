@@ -22,15 +22,21 @@ export class ProjectService {
         await this.syncProjects(db);
       }
 
-      // Voer een query uit die alleen template projecten uitsluit
+      // Haal alleen projecten op die NIET beginnen met #0 of #1
       const projects = await db.all<GrippProject[]>(`
         SELECT * FROM projects 
         WHERE archived = 0 
-          AND (name NOT LIKE '#0%' AND name NOT LIKE '#1%')
+        AND name NOT LIKE '#0%'
+        AND name NOT LIKE '#1%'
         ORDER BY deadline IS NULL, deadline ASC
       `);
 
-      console.log(`Retrieved ${projects.length} active projects (excluding template projects)`);
+      console.log(`Retrieved ${projects.length} active projects (excluding #0 and #1 templates)`);
+      
+      // Log eerste 5 projecten om te zien wat er in de database staat
+      const firstProjects = projects.slice(0, 5);
+      console.log('First 5 projects:', firstProjects.map(p => ({ id: p.id, name: p.name })));
+      
       return projects;
     } catch (error) {
       console.error('Error fetching active projects:', error);

@@ -47,18 +47,10 @@ const ProjectsPage: React.FC = () => {
         
         if (localProjects && localProjects.length > 0) {
           console.log(`Loaded ${localProjects.length} projects from IndexedDB`);
-          // Filter template projects out immediately
-          const filteredProjects = localProjects.filter(project => 
-            !(project.name?.startsWith('#0') || 
-              project.name?.startsWith('#1') || 
-              project.name?.includes('Service Hours') || 
-              project.name?.includes('New Business') || 
-              project.name?.includes('Gripp Intern'))
-          );
-          console.log(`Filtered down to ${filteredProjects.length} projects (excluding templates)`);
-          setProjects(filteredProjects);
+          // Gebruik de projecten direct zoals ze uit de database komen
+          setProjects(localProjects);
           setLoadingState('complete');
-          setLoadingMessage(`${filteredProjects.length} projecten geladen uit lokale cache`);
+          setLoadingMessage(`${localProjects.length} projecten geladen uit lokale cache`);
         } else {
           console.log('No projects in IndexedDB or empty response, fetching from API');
           throw new Error('No projects in local database');
@@ -82,23 +74,14 @@ const ProjectsPage: React.FC = () => {
       const activeProjects = await fetchActiveProjects();
       console.log(`Loaded ${activeProjects.length} projects from API`);
       
-      // Filter template projects out immediately
-      const filteredProjects = activeProjects.filter(project => 
-        !(project.name?.startsWith('#0') || 
-          project.name?.startsWith('#1') || 
-          project.name?.includes('Service Hours') || 
-          project.name?.includes('New Business') || 
-          project.name?.includes('Gripp Intern'))
-      );
-      console.log(`Filtered down to ${filteredProjects.length} projects (excluding templates)`);
-      
-      setProjects(filteredProjects);
+      // Gebruik de projecten direct zoals ze van de API komen
+      setProjects(activeProjects);
       setLoadingState('complete');
-      setLoadingMessage(`${filteredProjects.length} projecten geladen vanaf API`);
+      setLoadingMessage(`${activeProjects.length} projecten geladen vanaf API`);
       
       // Update IndexedDB cache
       try {
-        await dbService.saveProjects(filteredProjects);
+        await dbService.saveProjects(activeProjects);
         console.log('Projects saved to IndexedDB cache');
       } catch (dbError) {
         console.error('Error saving projects to IndexedDB:', dbError);
@@ -159,25 +142,15 @@ const ProjectsPage: React.FC = () => {
       if (refreshedProjects && refreshedProjects.length > 0) {
         console.log(`Successfully loaded ${refreshedProjects.length} projects after sync`);
         
-        // Filter template projects out immediately
-        const filteredProjects = refreshedProjects.filter(project => 
-          !(project.name?.startsWith('#0') || 
-            project.name?.startsWith('#1') || 
-            project.name?.includes('Service Hours') || 
-            project.name?.includes('New Business') || 
-            project.name?.includes('Gripp Intern'))
-        );
-        console.log(`Filtered down to ${filteredProjects.length} projects (excluding templates)`);
-        
         // Update state direct met de nieuwe projecten
-        setProjects(filteredProjects);
+        setProjects(refreshedProjects);
         setLoadingState('complete');
-        setLoadingMessage(`${filteredProjects.length} projecten succesvol gesynchroniseerd.`);
+        setLoadingMessage(`${refreshedProjects.length} projecten succesvol gesynchroniseerd.`);
         
         // Werk ook IndexedDB bij voor toekomstige laadcycli
         try {
           console.log('Saving projects to IndexedDB cache');
-          await dbService.saveProjects(filteredProjects);
+          await dbService.saveProjects(refreshedProjects);
           console.log('Projects saved to IndexedDB cache');
         } catch (dbError) {
           console.error('Error saving projects to IndexedDB:', dbError);
@@ -185,7 +158,7 @@ const ProjectsPage: React.FC = () => {
         
         toast({
           title: "Synchronisatie voltooid",
-          description: `${filteredProjects.length} projecten zijn succesvol bijgewerkt.`,
+          description: `${refreshedProjects.length} projecten zijn succesvol bijgewerkt.`,
           variant: "default",
         });
       } else {

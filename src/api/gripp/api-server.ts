@@ -1002,42 +1002,96 @@ app.get('/api/revenue/hours', async (req: Request, res: Response) => {
     
     // If no results, generate sample data for testing
     if (results.length === 0) {
-      console.log(`No revenue data found in database for year=${year}, generating sample data`);
+      console.log(`No revenue data found in database for year=${year}, fetching from hours table instead`);
       
-      // Generate department/function-based data that mimics real output
-      const functions = [
-        'Developer', 'Designer', 'Project Manager', 'Marketing', 
-        'Sales', 'Account Manager', 'QA Engineer', 'DevOps',
-        'Strategy', 'Content Creator', 'UX Researcher'
-      ];
+      // Instead of generating sample data, fetch actual hours data from the database
+      const hoursResults = await db.all(`
+        SELECT 
+          h.employee_id,
+          h.offerprojectbase_id AS project_id,
+          h.offerprojectbase_searchname AS project_name,
+          strftime('%m', h.date) AS month,
+          SUM(h.amount) AS totalHours
+        FROM 
+          hours h
+        WHERE 
+          h.date BETWEEN ? AND ?
+          AND h.offerprojectbase_id > 0
+        GROUP BY 
+          h.offerprojectbase_id, month
+        ORDER BY 
+          h.offerprojectbase_searchname, month
+      `, [startDate, endDate]);
       
-      const projectData = functions.map((functionName, i) => {
-        const projectId = 1000 + i;
+      if (hoursResults.length === 0) {
+        console.log(`No hours data found in database for year=${year}, generating sample data`);
         
-        // Generate monthly hours with some variation and reasonable patterns
-        const months = Array(12).fill(0).map((_, monthIdx) => {
-          // Generate realistic hours patterns
-          // 70% chance of having hours in any given month for active functions
-          const hasHours = Math.random() < 0.7;
-          // Hours range from 5 to 180 depending on function type
-          const maxHours = functionName.includes('Manager') ? 100 : 180;
-          const minHours = functionName.includes('Manager') ? 5 : 20;
-          return hasHours ? parseFloat((Math.random() * (maxHours - minHours) + minHours).toFixed(1)) : 0;
+        // Generate department/function-based data that mimics real output
+        const functions = [
+          'Developer', 'Designer', 'Project Manager', 'Marketing', 
+          'Sales', 'Account Manager', 'QA Engineer', 'DevOps',
+          'Strategy', 'Content Creator', 'UX Researcher'
+        ];
+        
+        const projectData = functions.map((functionName, i) => {
+          const projectId = 1000 + i;
+          
+          // Generate monthly hours with some variation and reasonable patterns
+          const months = Array(12).fill(0).map((_, monthIdx) => {
+            // Generate realistic hours patterns
+            // 70% chance of having hours in any given month for active functions
+            const hasHours = Math.random() < 0.7;
+            // Hours range from 5 to 180 depending on function type
+            const maxHours = functionName.includes('Manager') ? 100 : 180;
+            const minHours = functionName.includes('Manager') ? 5 : 20;
+            return hasHours ? parseFloat((Math.random() * (maxHours - minHours) + minHours).toFixed(1)) : 0;
+          });
+          
+          return {
+            projectId,
+            projectName: functionName,
+            months
+          };
         });
         
-        return {
-          projectId,
-          projectName: functionName,
-          months
-        };
+        // Cache the sample data
+        cacheService.set(cacheKey, projectData);
+        
+        res.header('X-Cache', 'MISS');
+        res.header('X-Data-Source', 'sample');
+        return res.json(projectData);
+      }
+      
+      // Transform the hours results into the expected format
+      const projectMap = new Map();
+      
+      hoursResults.forEach(row => {
+        const projectId = row.project_id;
+        const projectName = row.project_name;
+        
+        if (!projectMap.has(projectId)) {
+          projectMap.set(projectId, {
+            projectId: projectId,
+            projectName: projectName,
+            months: Array(12).fill(0)
+          });
+        }
+        
+        const project = projectMap.get(projectId);
+        // Month is 1-indexed in the database but we need 0-indexed for the array
+        const monthIndex = parseInt(row.month) - 1;
+        project.months[monthIndex] = parseFloat(row.totalHours.toFixed(1));
       });
       
-      // Cache the sample data
-      cacheService.set(cacheKey, projectData);
+      // Convert map to array for the response
+      const formattedData = Array.from(projectMap.values());
+      
+      // Cache the formatted results
+      cacheService.set(cacheKey, formattedData);
       
       res.header('X-Cache', 'MISS');
-      res.header('X-Data-Source', 'sample');
-      return res.json(projectData);
+      res.header('X-Data-Source', 'hours-table');
+      return res.json(formattedData);
     }
     
     // Transform the query results into the expected format

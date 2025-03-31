@@ -71,7 +71,7 @@ export async function preloadAdjacentYears(year: number): Promise<void> {
  */
 export async function getRevenueHours(
   year: number,
-  forceRefresh = false,
+  forceRefresh = true,
   isPreloading = false
 ): Promise<ProjectRevenue[]> {
   try {

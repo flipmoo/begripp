@@ -37,6 +37,48 @@ const ProjectsPage: React.FC = () => {
   const [selectedTag, setSelectedTag] = useState('all');
   const [sortOrder, setSortOrder] = useState('deadline-asc');
   
+  // Functie om filters te laden uit localStorage - meer robust gemaakt
+  const loadFiltersFromStorage = useCallback(() => {
+    try {
+      console.log('Poging om filters te laden uit localStorage...');
+      const savedSettings = localStorage.getItem(FILTER_STORAGE_KEY);
+      
+      if (savedSettings) {
+        const settings = JSON.parse(savedSettings);
+        console.log('Gevonden filter instellingen:', settings);
+        
+        setSearchQuery(settings.searchQuery || '');
+        setSelectedClient(settings.selectedClient || 'all');
+        setSelectedPhase(settings.selectedPhase || 'all');
+        setSelectedStatus(settings.selectedStatus || 'all');
+        setSelectedTag(settings.selectedTag || 'all');
+        setSortOrder(settings.sortOrder || 'deadline-asc');
+        
+        console.log('Filters succesvol geladen uit localStorage');
+        return true;
+      } else {
+        console.log('Geen opgeslagen filters gevonden in localStorage');
+        return false;
+      }
+    } catch (error) {
+      console.error('Fout bij laden van filters:', error);
+      return false;
+    }
+  }, []);
+
+  // Functie om filters op te slaan in localStorage - meer robust gemaakt
+  const saveFiltersToStorage = useCallback((filterData: Record<string, any>) => {
+    try {
+      console.log('Opslaan van filters in localStorage:', filterData);
+      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filterData));
+      console.log('Filters succesvol opgeslagen in localStorage');
+      return true;
+    } catch (error) {
+      console.error('Fout bij opslaan van filters:', error);
+      return false;
+    }
+  }, []);
+  
   // Filter opslaan/laden functionaliteit voor UI knoppen
   const saveFilters = useCallback(() => {
     const filterSettings = {
@@ -149,48 +191,6 @@ const ProjectsPage: React.FC = () => {
       setLoadingState('error');
       setLoadingMessage('Er is een fout opgetreden bij het laden van de projecten. Probeer het later opnieuw.');
       setError('Fout bij laden van projecten');
-    }
-  }, []);
-
-  // Functie om filters te laden uit localStorage - meer robust gemaakt
-  const loadFiltersFromStorage = useCallback(() => {
-    try {
-      console.log('Poging om filters te laden uit localStorage...');
-      const savedSettings = localStorage.getItem(FILTER_STORAGE_KEY);
-      
-      if (savedSettings) {
-        const settings = JSON.parse(savedSettings);
-        console.log('Gevonden filter instellingen:', settings);
-        
-        setSearchQuery(settings.searchQuery || '');
-        setSelectedClient(settings.selectedClient || 'all');
-        setSelectedPhase(settings.selectedPhase || 'all');
-        setSelectedStatus(settings.selectedStatus || 'all');
-        setSelectedTag(settings.selectedTag || 'all');
-        setSortOrder(settings.sortOrder || 'deadline-asc');
-        
-        console.log('Filters succesvol geladen uit localStorage');
-        return true;
-      } else {
-        console.log('Geen opgeslagen filters gevonden in localStorage');
-        return false;
-      }
-    } catch (error) {
-      console.error('Fout bij laden van filters:', error);
-      return false;
-    }
-  }, []);
-
-  // Functie om filters op te slaan in localStorage - meer robust gemaakt
-  const saveFiltersToStorage = useCallback((filterData: any) => {
-    try {
-      console.log('Opslaan van filters in localStorage:', filterData);
-      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filterData));
-      console.log('Filters succesvol opgeslagen in localStorage');
-      return true;
-    } catch (error) {
-      console.error('Fout bij opslaan van filters:', error);
-      return false;
     }
   }, []);
 

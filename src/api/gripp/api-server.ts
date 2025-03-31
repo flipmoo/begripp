@@ -994,8 +994,7 @@ app.get('/api/revenue/hours', async (req: Request, res: Response) => {
     const startDate = `${year}-01-01`;
     const endDate = `${year}-12-31`;
     
-    // Since we don't have a direct relationship between hours and projects in the database,
-    // we'll use employee functions as a proxy for project categorization to provide meaningful data
+    // Query to get hours data grouped by project and month
     const results = await db.all(`
       SELECT 
         h.project_id AS projectId,
@@ -1016,102 +1015,6 @@ app.get('/api/revenue/hours', async (req: Request, res: Response) => {
     `, [startDate, endDate]);
     
     console.log(`Got ${results.length} rows of revenue data`);
-    
-    // If no results, generate sample data for testing
-    if (results.length === 0) {
-      console.log(`No revenue data found in database for year=${year}, fetching from hours table instead`);
-      
-      // Try an alternative query to find hours data with project information
-      const hoursResults = await db.all(`
-        SELECT 
-          h.project_id,
-          p.name AS project_name,
-          strftime('%m', h.date) AS month,
-          SUM(h.amount) AS totalHours
-        FROM 
-          hours h
-        JOIN
-          projects p ON h.project_id = p.id
-        WHERE 
-          h.date BETWEEN ? AND ?
-          AND h.project_id IS NOT NULL
-        GROUP BY 
-          h.project_id, month
-        ORDER BY 
-          p.name, month
-      `, [startDate, endDate]);
-      
-      if (hoursResults.length === 0) {
-        console.log(`No hours data found in database for year=${year}, generating sample data`);
-        
-        // Generate department/function-based data that mimics real output
-        const functions = [
-          'Developer', 'Designer', 'Project Manager', 'Marketing', 
-          'Sales', 'Account Manager', 'QA Engineer', 'DevOps',
-          'Strategy', 'Content Creator', 'UX Researcher'
-        ];
-        
-        const projectData = functions.map((functionName, i) => {
-          const projectId = 1000 + i;
-          
-          // Generate monthly hours with some variation and reasonable patterns
-          const months = Array(12).fill(0).map((_, monthIdx) => {
-            // Generate realistic hours patterns
-            // 70% chance of having hours in any given month for active functions
-            const hasHours = Math.random() < 0.7;
-            // Hours range from 5 to 180 depending on function type
-            const maxHours = functionName.includes('Manager') ? 100 : 180;
-            const minHours = functionName.includes('Manager') ? 5 : 20;
-            return hasHours ? parseFloat((Math.random() * (maxHours - minHours) + minHours).toFixed(1)) : 0;
-          });
-          
-          return {
-            projectId,
-            projectName: functionName,
-            months
-          };
-        });
-        
-        // Cache the sample data
-        cacheService.set(cacheKey, projectData);
-        
-        res.header('X-Cache', 'MISS');
-        res.header('X-Data-Source', 'sample');
-        return res.json(projectData);
-      }
-      
-      // Transform the hours results into the expected format
-      const projectMap = new Map();
-      
-      hoursResults.forEach(row => {
-        const projectName = row.project_name;
-        // Use function name as project identifier
-        const projectId = projectName.hashCode ? projectName.hashCode() : 1000 + Math.floor(Math.random() * 1000);
-        
-        if (!projectMap.has(projectName)) {
-          projectMap.set(projectName, {
-            projectId: projectId,
-            projectName: projectName,
-            months: Array(12).fill(0)
-          });
-        }
-        
-        const project = projectMap.get(projectName);
-        // Month is 1-indexed in the database but we need 0-indexed for the array
-        const monthIndex = parseInt(row.month) - 1;
-        project.months[monthIndex] = parseFloat(row.totalHours.toFixed(1));
-      });
-      
-      // Convert map to array for the response
-      const formattedData = Array.from(projectMap.values());
-      
-      // Cache the formatted results
-      cacheService.set(cacheKey, formattedData);
-      
-      res.header('X-Cache', 'MISS');
-      res.header('X-Data-Source', 'hours-table');
-      return res.json(formattedData);
-    }
     
     // Transform the query results into the expected format
     const projectMap = new Map();

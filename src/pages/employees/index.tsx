@@ -6,8 +6,8 @@ import { API_BASE } from '@/services/api';
 import { useFilterPresets } from '@/hooks/useFilterPresets';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from "@/components/ui/skeleton";
-import { InfoCircledIcon, MagnifyingGlassIcon, Cross2Icon, MixerHorizontalIcon } from '@radix-ui/react-icons';
-import { RefreshCw } from 'lucide-react';
+import { InfoCircledIcon, MagnifyingGlassIcon, Cross2Icon, MixerHorizontalIcon, ChevronLeftIcon, ChevronRightIcon } from '@radix-ui/react-icons';
+import { RefreshCw, Calendar, CalendarRange } from 'lucide-react';
 import { DateSelector } from '@/components/DateSelector';
 import { EmployeeAbsenceModal } from '@/components/EmployeeAbsenceModal';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -19,6 +19,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Link, useSearchParams } from 'react-router-dom';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { generateEmployeeCardsUrl } from '@/utils/url';
 import { AbsenceSyncButton } from '@/components/AbsenceSyncButton';
 import { DataSyncButton } from '@/components/DataSyncButton';
@@ -109,7 +110,115 @@ export default function EmployeesPage() {
   const selectedYear = getYear(selectedDate);
   const selectedMonth = getMonth(selectedDate);
 
+  // Generate year options (current year and 2 years back/forward)
+  const yearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    return [
+      { value: currentYear - 2, label: `${currentYear - 2}` },
+      { value: currentYear - 1, label: `${currentYear - 1}` },
+      { value: currentYear, label: `${currentYear}` },
+      { value: currentYear + 1, label: `${currentYear + 1}` },
+      { value: currentYear + 2, label: `${currentYear + 2}` },
+    ];
+  }, []);
+
+  // Generate week options (1-52)
+  const weekOptions = useMemo(() => {
+    return Array.from({ length: 52 }, (_, i) => ({
+      value: i + 1,
+      label: `Week ${i + 1}`
+    }));
+  }, []);
+
+  // Generate month options
+  const monthOptions = useMemo(() => {
+    return [
+      { value: 0, label: 'Januari' },
+      { value: 1, label: 'Februari' },
+      { value: 2, label: 'Maart' },
+      { value: 3, label: 'April' },
+      { value: 4, label: 'Mei' },
+      { value: 5, label: 'Juni' },
+      { value: 6, label: 'Juli' },
+      { value: 7, label: 'Augustus' },
+      { value: 8, label: 'September' },
+      { value: 9, label: 'Oktober' },
+      { value: 10, label: 'November' },
+      { value: 11, label: 'December' }
+    ];
+  }, []);
+
   const weekDays = useMemo(() => getWeekDays(selectedYear, selectedWeek), [selectedYear, selectedWeek]);
+
+  // Functies om tussen periodes te navigeren
+  const handlePrevPeriod = () => {
+    if (viewMode === 'week') {
+      if (selectedWeek === 1) {
+        // Go to previous year, week 52
+        setSelectedDate(new Date(selectedYear - 1, 11, 31));
+      } else {
+        // Go to previous week
+        const newDate = new Date(selectedDate);
+        newDate.setDate(newDate.getDate() - 7);
+        setSelectedDate(newDate);
+      }
+    } else {
+      if (selectedMonth === 0) {
+        // Go to previous year, December
+        setSelectedDate(new Date(selectedYear - 1, 11, 1));
+      } else {
+        // Go to previous month
+        setSelectedDate(new Date(selectedYear, selectedMonth - 1, 1));
+      }
+    }
+  };
+
+  const handleNextPeriod = () => {
+    if (viewMode === 'week') {
+      if (selectedWeek === 52) {
+        // Go to next year, week 1
+        setSelectedDate(new Date(selectedYear + 1, 0, 1));
+      } else {
+        // Go to next week
+        const newDate = new Date(selectedDate);
+        newDate.setDate(newDate.getDate() + 7);
+        setSelectedDate(newDate);
+      }
+    } else {
+      if (selectedMonth === 11) {
+        // Go to next year, January
+        setSelectedDate(new Date(selectedYear + 1, 0, 1));
+      } else {
+        // Go to next month
+        setSelectedDate(new Date(selectedYear, selectedMonth + 1, 1));
+      }
+    }
+  };
+
+  const handleYearChange = (year: number) => {
+    setSelectedDate(new Date(year, selectedDate.getMonth(), selectedDate.getDate()));
+  };
+
+  const handleWeekChange = (week: number) => {
+    setSelectedDate(new Date(selectedYear, 0, 1 + (week - 1) * 7));
+  };
+
+  const handleMonthChange = (month: number) => {
+    setSelectedDate(new Date(selectedYear, month, 1));
+  };
+
+  const handleViewModeChange = (mode: 'week' | 'month') => {
+    setViewMode(mode);
+    
+    // We behouden dezelfde datum, alleen het viewMode verandert
+    if (mode === 'week') {
+      // Als we van maand naar week gaan, nemen we de eerste week van de maand
+      setSelectedDate(new Date(selectedYear, selectedMonth, 1));
+    } else {
+      // Als we van week naar maand gaan, behouden we de maand van de huidige week
+      setSelectedDate(new Date(selectedYear, selectedMonth, 1));
+    }
+  };
 
   // Update URL when filters change
   useEffect(() => {
@@ -434,19 +543,11 @@ export default function EmployeesPage() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex flex-col space-y-4">
-        <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold flex items-center">
-            <IconPerson className="mr-2 h-6 w-6" />
-            Employees Overview
-          </h1>
-          <div className="flex items-center gap-2">
-            {isFromCache && (
-              <Badge variant="outline" className="bg-green-50 text-xs">
-                From Cache
-              </Badge>
-            )}
+    <div className="container mx-auto py-6">
+      <div className="max-w-full mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-3xl font-bold">Medewerkers</h1>
+          <div className="flex gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -477,13 +578,112 @@ export default function EmployeesPage() {
           </div>
         </div>
         
-        <WeekSelector 
-          year={selectedYear}
-          week={selectedWeek}
-          onYearChange={(newYear) => setSelectedDate(new Date(newYear, selectedDate.getMonth(), selectedDate.getDate()))}
-          onWeekChange={(newWeek) => setSelectedDate(new Date(selectedDate.getFullYear(), 0, 1 + (newWeek - 1) * 7))}
-          className="mb-6"
-        />
+        {/* Period Selector */}
+        <div className="space-y-4 mb-6">
+          <div className="flex items-center justify-between">
+            <Tabs value={viewMode} onValueChange={(value) => handleViewModeChange(value as 'week' | 'month')}>
+              <TabsList>
+                <TabsTrigger value="week">Week</TabsTrigger>
+                <TabsTrigger value="month">Maand</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+          
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {/* Year selector */}
+              <div>
+                <Label className="mb-1 block">Jaar</Label>
+                <Select 
+                  value={selectedYear.toString()} 
+                  onValueChange={(value) => handleYearChange(parseInt(value))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecteer jaar" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {yearOptions.map(option => (
+                      <SelectItem key={option.value} value={option.value.toString()}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {/* Week/Month selector */}
+              {viewMode === 'week' ? (
+                <div>
+                  <Label className="mb-1 block">Week</Label>
+                  <Select 
+                    value={selectedWeek.toString()} 
+                    onValueChange={(value) => handleWeekChange(parseInt(value))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecteer week" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {weekOptions.map(option => (
+                        <SelectItem key={option.value} value={option.value.toString()}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <div>
+                  <Label className="mb-1 block">Maand</Label>
+                  <Select 
+                    value={selectedMonth.toString()} 
+                    onValueChange={(value) => handleMonthChange(parseInt(value))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecteer maand" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {monthOptions.map(option => (
+                        <SelectItem key={option.value} value={option.value.toString()}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              
+              {/* Navigation buttons */}
+              <div className="flex items-end">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handlePrevPeriod}
+                    aria-label="Previous period"
+                  >
+                    <ChevronLeftIcon className="h-4 w-4" />
+                  </Button>
+                  
+                  <div className="flex flex-col items-center px-2 min-w-28 text-center">
+                    <span className="font-medium">
+                      {viewMode === 'week' ? `Week ${selectedWeek}` : monthOptions[selectedMonth]?.label}
+                    </span>
+                    <span className="text-sm text-muted-foreground">{selectedYear}</span>
+                  </div>
+                  
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleNextPeriod}
+                    aria-label="Next period"
+                  >
+                    <ChevronRightIcon className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
         
         {error && <ErrorMessage message={error} className="mb-6" />}
         

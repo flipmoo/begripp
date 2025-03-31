@@ -1007,7 +1007,6 @@ app.get('/api/revenue/hours', async (req: Request, res: Response) => {
         projects p ON h.project_id = p.id
       WHERE 
         h.date BETWEEN ? AND ?
-        AND h.project_id IS NOT NULL
       GROUP BY 
         h.project_id, month
       ORDER BY 

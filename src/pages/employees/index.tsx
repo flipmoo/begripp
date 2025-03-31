@@ -573,7 +573,14 @@ export default function EmployeesPage() {
                 Cards
               </Link>
             </Button>
-            <DataSyncButton onSync={handleRefresh} />
+            <DataSyncButton 
+              onSync={handleRefresh} 
+              viewMode={viewMode}
+              year={selectedYear}
+              week={selectedWeek}
+              month={selectedMonth}
+              selectedDate={selectedDate}
+            />
             <CacheStatus />
           </div>
         </div>

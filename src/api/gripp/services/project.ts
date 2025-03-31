@@ -22,14 +22,20 @@ export class ProjectService {
         await this.syncProjects(db);
       }
 
+      // Voer een query uit die alle template projecten uitsluit op een effectieve manier
       const projects = await db.all<GrippProject[]>(`
         SELECT * FROM projects 
         WHERE archived = 0 
-          AND name NOT LIKE '#0%' 
-          AND name NOT LIKE '#1%'
-          AND name NOT LIKE '#0 Service Hours - (Nacalculatie)%'
-          AND name NOT LIKE '#0 New Business - Klant - Opdracht - Pitch%'
-          AND name NOT LIKE '#1 Gripp Intern%'
+          AND (
+            name IS NULL 
+            OR (
+              name NOT LIKE '#0%' 
+              AND name NOT LIKE '#1%'
+              AND name NOT LIKE '%Service Hours%'
+              AND name NOT LIKE '%New Business%'
+              AND name NOT LIKE '%Gripp Intern%'
+            )
+          )
         ORDER BY deadline IS NULL, deadline ASC
       `);
 

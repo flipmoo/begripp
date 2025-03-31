@@ -35,64 +35,30 @@ const ProjectsPage: React.FC = () => {
 
   // Laad projecten functie met useCallback om re-renders te voorkomen
   const loadProjects = useCallback(async (forceRefresh = false) => {
-    console.log('Loading projects...', forceRefresh ? '(force refresh)' : '');
-    try {
-      setLoading(true);
-      setError(null);
-      
-      if (forceRefresh) {
-        setLoadingState('loading');
-        setLoadingMessage('Projecten worden direct van de API geladen...');
-        
-        console.log('Force refresh: skipping cache and fetching from API directly');
-        // Als er geen gecachte projecten zijn, haal ze op van de API
-        console.log('Fetching projects from API...');
-        console.log('API call to: /dashboard/projects/active');
-        const activeProjects = await fetchActiveProjects();
-        console.log('API Response received. Raw response size:', activeProjects ? JSON.stringify(activeProjects).length : 'undefined');
-        
-        if (activeProjects && activeProjects.length > 0) {
-          console.log('Project data appears valid with', activeProjects.length, 'projects');
-          console.log('First 3 API projects:', activeProjects.slice(0, 3).map(p => ({ id: p.id, name: p.name })));
-          
-          setProjects(activeProjects);
-          console.log('Set projects state with', activeProjects.length, 'projects');
-          setLoadingState('complete');
-          setLoadingMessage(`${activeProjects.length} projecten geladen.`);
-          
-          // Sla projecten op in IndexedDB
-          try {
-            console.log('Saving projects to IndexedDB...');
-            await dbService.saveProjects(activeProjects);
-            console.log('Projects saved to IndexedDB successfully');
-          } catch (dbError) {
-            console.error('Error saving projects to IndexedDB:', dbError);
-          }
-        } else {
-          console.error('No projects returned from API or empty array. API returned:', activeProjects);
-          setError('Geen projecten gevonden');
-          setLoadingState('error');
-          setLoadingMessage('Er zijn geen projecten gevonden. Probeer de synchronisatie opnieuw uit te voeren.');
-          console.log('No projects returned from API');
-        }
-        setLoading(false);
-        return;
-      }
-
-      // We laden uit de cache
-      setLoadingState('loading');
-      setLoadingMessage('Projecten worden uit de cache geladen...');
-      
-      // Probeer eerst projecten uit de IndexedDB te laden
+    setLoadingState('loading');
+    setLoadingMessage('Projecten worden geladen...');
+    setError(null);
+    
+    // Probeer eerst projecten uit IndexedDB te laden, tenzij forceren van refresh
+    if (!forceRefresh) {
       try {
         console.log('Attempting to load projects from IndexedDB...');
         const localProjects = await dbService.getAllProjects();
         
         if (localProjects && localProjects.length > 0) {
           console.log(`Loaded ${localProjects.length} projects from IndexedDB`);
-          setProjects(localProjects);
+          // Filter template projects out immediately
+          const filteredProjects = localProjects.filter(project => 
+            !(project.name?.startsWith('#0') || 
+              project.name?.startsWith('#1') || 
+              project.name?.includes('Service Hours') || 
+              project.name?.includes('New Business') || 
+              project.name?.includes('Gripp Intern'))
+          );
+          console.log(`Filtered down to ${filteredProjects.length} projects (excluding templates)`);
+          setProjects(filteredProjects);
           setLoadingState('complete');
-          setLoadingMessage(`${localProjects.length} projecten geladen uit lokale cache`);
+          setLoadingMessage(`${filteredProjects.length} projecten geladen uit lokale cache`);
         } else {
           console.log('No projects in IndexedDB or empty response, fetching from API');
           throw new Error('No projects in local database');
@@ -104,61 +70,56 @@ const ProjectsPage: React.FC = () => {
         setLoadingState('error');
         setLoadingMessage('Er is een fout opgetreden bij het API verzoek. Probeer het later opnieuw.');
       }
-
-      // Als er geen gecachte projecten zijn, haal ze op van de API
-      console.log('No cached projects available, fetching from API directly');
-      setLoadingMessage('Projecten worden opgehaald van de server...');
       
+      return;
+    }
+    
+    // Als we hier zijn, laden we projecten direct van de API (forceRefresh=true)
+    try {
       console.log('API call to: /dashboard/projects/active');
+      setLoadingMessage('Projecten worden geladen vanaf API...');
+      
+      const activeProjects = await fetchActiveProjects();
+      console.log(`Loaded ${activeProjects.length} projects from API`);
+      
+      // Filter template projects out immediately
+      const filteredProjects = activeProjects.filter(project => 
+        !(project.name?.startsWith('#0') || 
+          project.name?.startsWith('#1') || 
+          project.name?.includes('Service Hours') || 
+          project.name?.includes('New Business') || 
+          project.name?.includes('Gripp Intern'))
+      );
+      console.log(`Filtered down to ${filteredProjects.length} projects (excluding templates)`);
+      
+      setProjects(filteredProjects);
+      setLoadingState('complete');
+      setLoadingMessage(`${filteredProjects.length} projecten geladen vanaf API`);
+      
+      // Update IndexedDB cache
       try {
-        const activeProjects = await fetchActiveProjects();
-        console.log('API Response received. Raw data size:', activeProjects ? JSON.stringify(activeProjects).length : 'undefined');
-        
-        if (activeProjects && activeProjects.length > 0) {
-          console.log('Project data valid with', activeProjects.length, 'projects');
-          console.log('First 3 API projects:', activeProjects.slice(0, 3).map(p => ({ id: p.id, name: p.name })));
-          setProjects(activeProjects);
-          setLoadingState('complete');
-          setLoadingMessage(`${activeProjects.length} projecten geladen.`);
-          
-          // Sla projecten op in IndexedDB
-          try {
-            console.log('Saving projects to IndexedDB...');
-            await dbService.saveProjects(activeProjects);
-            console.log('Projects saved to IndexedDB successfully');
-          } catch (dbError) {
-            console.error('Error saving projects to IndexedDB:', dbError);
-          }
-        } else {
-          console.error('No projects returned from API or empty array. API returned:', activeProjects);
-          setError('Geen projecten gevonden');
-          setLoadingState('error');
-          setLoadingMessage('Er zijn geen projecten gevonden van de API. Probeer de synchronisatie opnieuw uit te voeren.');
-          console.log('No projects returned from API');
-        }
-      } catch (apiError) {
-        console.error('Error calling API:', apiError);
-        setError('API fout: ' + (apiError.message || 'Onbekende fout'));
-        setLoadingState('error');
-        setLoadingMessage('Er is een fout opgetreden bij het API verzoek. Probeer het later opnieuw.');
+        await dbService.saveProjects(filteredProjects);
+        console.log('Projects saved to IndexedDB cache');
+      } catch (dbError) {
+        console.error('Error saving projects to IndexedDB:', dbError);
       }
-    } catch (err) {
-      console.error('Error loading projects:', err);
-      setError('Er is een fout opgetreden bij het laden van de projecten');
+    } catch (error) {
+      console.error('Error fetching active projects:', error);
       setLoadingState('error');
-      setLoadingMessage('Er is een fout opgetreden bij het laden van de projecten. Controleer de console voor details.');
-    } finally {
-      setLoading(false);
+      setLoadingMessage('Er is een fout opgetreden bij het laden van de projecten. Probeer het later opnieuw.');
+      setError('Fout bij laden van projecten');
     }
   }, []);
 
-  // Laad projecten bij het laden van de pagina
+  // Effect to load projects on component mount
   useEffect(() => {
     loadProjects();
-  }, [loadProjects]);
+  }, []);
 
   // Synchroniseer projecten met de Gripp API
   const handleSync = useCallback(async () => {
+    if (syncing) return;
+    
     try {
       setSyncing(true);
       setLoadingState('syncing');
@@ -166,34 +127,24 @@ const ProjectsPage: React.FC = () => {
       
       toast({
         title: "Synchronisatie gestart",
-        description: "Project data wordt gesynchroniseerd vanuit Gripp...",
+        description: "Projecten worden gesynchroniseerd met Gripp...",
       });
       
-      // Synchroniseer projecten met de Gripp API
-      console.log('Starting project synchronization');
+      // Eerst Gripp projecten synchroniseren
       await syncProjects();
-      console.log('Sync request completed');
       
-      // Wacht kort om de server tijd te geven om de database bij te werken
-      setLoadingMessage('Database wordt bijgewerkt met nieuwe data...');
       toast({
-        title: "Gegevens synchroniseren",
-        description: "Project database wordt bijgewerkt met nieuwe gegevens...",
+        title: "Data gesynchroniseerd",
+        description: "Projecten zijn gesynchroniseerd met Gripp, gegevens worden opgehaald...",
       });
+      
+      // Wacht een seconde om zeker te weten dat de database is bijgewerkt
       await new Promise(resolve => setTimeout(resolve, 1000));
       
-      // Clear the local IndexedDB cache to ensure fresh data is loaded
-      try {
-        console.log('Clearing local IndexedDB cache');
-        setLoadingMessage('Lokale cache wordt geleegd...');
-        await dbService.clearProjects();
-        console.log('IndexedDB cache cleared');
-      } catch (clearError) {
-        console.error('Error clearing IndexedDB cache:', clearError);
-      }
+      // IndexedDB cache leegmaken
+      setLoadingMessage("Cache wordt leeggemaakt...");
+      await dbService.clearProjects();
       
-      // Laad de bijgewerkte projecten direct van de API
-      setLoadingMessage('Bijgewerkte projecten worden opgehaald...');
       toast({
         title: "Data ophalen",
         description: "Bijgewerkte project gegevens worden opgehaald...",
@@ -208,15 +159,25 @@ const ProjectsPage: React.FC = () => {
       if (refreshedProjects && refreshedProjects.length > 0) {
         console.log(`Successfully loaded ${refreshedProjects.length} projects after sync`);
         
+        // Filter template projects out immediately
+        const filteredProjects = refreshedProjects.filter(project => 
+          !(project.name?.startsWith('#0') || 
+            project.name?.startsWith('#1') || 
+            project.name?.includes('Service Hours') || 
+            project.name?.includes('New Business') || 
+            project.name?.includes('Gripp Intern'))
+        );
+        console.log(`Filtered down to ${filteredProjects.length} projects (excluding templates)`);
+        
         // Update state direct met de nieuwe projecten
-        setProjects(refreshedProjects);
+        setProjects(filteredProjects);
         setLoadingState('complete');
-        setLoadingMessage(`${refreshedProjects.length} projecten succesvol gesynchroniseerd.`);
+        setLoadingMessage(`${filteredProjects.length} projecten succesvol gesynchroniseerd.`);
         
         // Werk ook IndexedDB bij voor toekomstige laadcycli
         try {
           console.log('Saving projects to IndexedDB cache');
-          await dbService.saveProjects(refreshedProjects);
+          await dbService.saveProjects(filteredProjects);
           console.log('Projects saved to IndexedDB cache');
         } catch (dbError) {
           console.error('Error saving projects to IndexedDB:', dbError);
@@ -224,7 +185,7 @@ const ProjectsPage: React.FC = () => {
         
         toast({
           title: "Synchronisatie voltooid",
-          description: `${refreshedProjects.length} projecten zijn succesvol bijgewerkt.`,
+          description: `${filteredProjects.length} projecten zijn succesvol bijgewerkt.`,
           variant: "default",
         });
       } else {

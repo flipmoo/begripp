@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Progress } from '../ui/progress';
-import { getEmployeeStats, EmployeeWithStats } from '../../services/employee.service';
+import { getEmployeeStats, EmployeeWithStats, clearEmployeeCache } from '../../services/employee.service';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 
@@ -9,12 +9,64 @@ interface EmployeeWithPercentage extends EmployeeWithStats {
   percentage: number;
 }
 
+// Add a function to sync hours data
+const syncHoursData = async (startDate: string, endDate: string) => {
+  try {
+    // Sync the data
+    const syncResponse = await fetch(`/api/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ startDate, endDate }),
+    });
+    
+    if (!syncResponse.ok) {
+      throw new Error('Failed to sync data');
+    }
+    
+    // Clear the cache
+    const cacheResponse = await fetch('/api/cache/clear', {
+      method: 'POST',
+    });
+    
+    if (!cacheResponse.ok) {
+      throw new Error('Failed to clear cache');
+    }
+    
+    // Clear local cache
+    clearEmployeeCache();
+    
+    return true;
+  } catch (error) {
+    console.error('Error syncing hours data:', error);
+    return false;
+  }
+};
+
 const EmployeeHoursStatus: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [employees, setEmployees] = useState<EmployeeWithPercentage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [syncingData, setSyncingData] = useState(false);
+
+  // Get the current month start and end dates
+  const getCurrentMonthDates = (): { startDate: string, endDate: string } => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1; // JavaScript months are 0-indexed
+    
+    // First day of current month
+    const startDate = `${year}-${month.toString().padStart(2, '0')}-01`;
+    
+    // Last day of current month
+    const lastDay = new Date(year, month, 0).getDate();
+    const endDate = `${year}-${month.toString().padStart(2, '0')}-${lastDay}`;
+    
+    return { startDate, endDate };
+  };
 
   useEffect(() => {
     const fetchEmployeeHours = async () => {
@@ -94,16 +146,44 @@ const EmployeeHoursStatus: React.FC = () => {
     setRetryCount(prev => prev + 1);
   };
 
+  const handleSyncData = async () => {
+    setSyncingData(true);
+    try {
+      const { startDate, endDate } = getCurrentMonthDates();
+      const success = await syncHoursData(startDate, endDate);
+      
+      if (success) {
+        // Trigger a refetch after successful sync
+        setRetryCount(prev => prev + 1);
+      } else {
+        setError('Synchronisatie van uren is mislukt. Probeer het later opnieuw.');
+      }
+    } catch (err) {
+      console.error('Error syncing data:', err);
+      setError('Synchronisatie van uren is mislukt. Probeer het later opnieuw.');
+    } finally {
+      setSyncingData(false);
+    }
+  };
+
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle>Medewerkers met Onvolledige Uren</CardTitle>
+        <button 
+          onClick={handleSyncData}
+          disabled={syncingData}
+          className="p-1 text-gray-500 hover:text-blue-500 focus:outline-none" 
+          title="Refresh data from Gripp"
+        >
+          <RefreshCw className={`h-5 w-5 ${syncingData ? 'animate-spin text-blue-500' : ''}`} />
+        </button>
       </CardHeader>
       <CardContent>
-        {loading ? (
+        {loading || syncingData ? (
           <div className="text-center py-4 text-gray-500">
             <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
-            Medewerker gegevens laden...
+            {syncingData ? 'Gegevens worden gesynchroniseerd...' : 'Medewerker gegevens laden...'}
           </div>
         ) : error ? (
           <div className="text-center py-4">

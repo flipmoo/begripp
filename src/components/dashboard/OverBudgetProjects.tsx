@@ -4,7 +4,43 @@ import { Progress } from '../ui/progress';
 import { GrippProject } from '../../types/gripp';
 import { Dialog, DialogContent } from '../ui/dialog';
 import ProjectDetails from './ProjectDetails';
-import { RefreshButton } from '../ui/refresh-button';
+import { RefreshCw } from 'lucide-react';
+
+// Add function to sync projects data
+const syncProjectsData = async () => {
+  const currentYear = new Date().getFullYear();
+  const startDate = `${currentYear}-01-01`;
+  const endDate = `${currentYear}-12-31`;
+  
+  try {
+    // Sync the data
+    const syncResponse = await fetch(`/api/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ startDate, endDate }),
+    });
+    
+    if (!syncResponse.ok) {
+      throw new Error('Failed to sync data');
+    }
+    
+    // Clear the cache
+    const cacheResponse = await fetch('/api/cache/clear', {
+      method: 'POST',
+    });
+    
+    if (!cacheResponse.ok) {
+      throw new Error('Failed to clear cache');
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error syncing projects data:', error);
+    return false;
+  }
+};
 
 interface OverBudgetProjectsProps {
   projects: GrippProject[];
@@ -13,6 +49,7 @@ interface OverBudgetProjectsProps {
 const OverBudgetProjects: React.FC<OverBudgetProjectsProps> = ({ projects }) => {
   const [selectedProject, setSelectedProject] = useState<GrippProject | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [syncingData, setSyncingData] = useState(false);
   
   // Format currency
   const formatCurrency = (value: number) => {
@@ -149,11 +186,23 @@ const OverBudgetProjects: React.FC<OverBudgetProjectsProps> = ({ projects }) => 
     setIsDialogOpen(false);
   };
 
-  // Simple refresh handler that dispatches an event to the dashboard
-  const refreshProjects = () => {
-    console.log('Refreshing dashboard data from OverBudgetProjects component');
-    const refreshEvent = new CustomEvent('refresh-dashboard-data');
-    window.dispatchEvent(refreshEvent);
+  // Enhanced refresh handler that now actually syncs data
+  const refreshProjects = async () => {
+    setSyncingData(true);
+    try {
+      console.log('Syncing project data from Gripp...');
+      const success = await syncProjectsData();
+      
+      if (success) {
+        // Dispatch event to refresh dashboard after successful sync
+        const refreshEvent = new CustomEvent('refresh-dashboard-data');
+        window.dispatchEvent(refreshEvent);
+      }
+    } catch (error) {
+      console.error('Error during project sync:', error);
+    } finally {
+      setSyncingData(false);
+    }
   };
 
   return (
@@ -163,14 +212,22 @@ const OverBudgetProjects: React.FC<OverBudgetProjectsProps> = ({ projects }) => 
           <CardTitle className="text-sm font-medium">
             Overschreden Budget Projecten ({overBudgetProjects.length})
           </CardTitle>
-          <RefreshButton 
-            variant="ghost" 
-            tooltipText="Ververs project budget overzicht" 
+          <button 
             onClick={refreshProjects}
-          />
+            disabled={syncingData}
+            className="p-1 text-gray-500 hover:text-blue-500 focus:outline-none" 
+            title="Refresh projectdata from Gripp"
+          >
+            <RefreshCw className={`h-5 w-5 ${syncingData ? 'animate-spin text-blue-500' : ''}`} />
+          </button>
         </CardHeader>
         <CardContent>
-          {overBudgetProjects.length === 0 ? (
+          {syncingData ? (
+            <div className="text-center text-sm text-gray-500 py-8 flex flex-col items-center">
+              <RefreshCw className="h-6 w-6 animate-spin mb-2" />
+              Project gegevens worden gesynchroniseerd...
+            </div>
+          ) : overBudgetProjects.length === 0 ? (
             <div className="text-center text-sm text-gray-500 py-8">
               Geen projecten met overschreden budget gevonden.
             </div>
@@ -258,12 +315,14 @@ const OverBudgetProjects: React.FC<OverBudgetProjectsProps> = ({ projects }) => 
       </Card>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-3xl">
-          {selectedProject && <ProjectDetails 
-            project={selectedProject} 
-            onClose={handleCloseDialog} 
-            onRefresh={handleRefreshProject}
-          />}
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          {selectedProject && (
+            <ProjectDetails 
+              project={selectedProject} 
+              onClose={handleCloseDialog}
+              onRefresh={handleRefreshProject}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </>

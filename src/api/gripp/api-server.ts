@@ -998,20 +998,21 @@ app.get('/api/revenue/hours', async (req: Request, res: Response) => {
     // we'll use employee functions as a proxy for project categorization to provide meaningful data
     const results = await db.all(`
       SELECT 
-        e.function AS projectName,
+        h.project_id AS projectId,
+        p.name AS projectName,
         strftime('%m', h.date) AS month,
         SUM(h.amount) AS totalHours
       FROM 
         hours h
       JOIN 
-        employees e ON h.employee_id = e.id
+        projects p ON h.project_id = p.id
       WHERE 
         h.date BETWEEN ? AND ?
-        AND e.function IS NOT NULL AND e.function != ''
+        AND h.project_id IS NOT NULL
       GROUP BY 
-        e.function, month
+        h.project_id, month
       ORDER BY 
-        e.function, month
+        p.name, month
     `, [startDate, endDate]);
     
     console.log(`Got ${results.length} rows of revenue data`);
@@ -1020,24 +1021,24 @@ app.get('/api/revenue/hours', async (req: Request, res: Response) => {
     if (results.length === 0) {
       console.log(`No revenue data found in database for year=${year}, fetching from hours table instead`);
       
-      // Instead of using non-existent columns, use the existing columns in hours table
+      // Try an alternative query to find hours data with project information
       const hoursResults = await db.all(`
         SELECT 
-          h.employee_id,
-          e.function AS project_name,
+          h.project_id,
+          p.name AS project_name,
           strftime('%m', h.date) AS month,
           SUM(h.amount) AS totalHours
         FROM 
           hours h
         JOIN
-          employees e ON h.employee_id = e.id
+          projects p ON h.project_id = p.id
         WHERE 
           h.date BETWEEN ? AND ?
-          AND e.function IS NOT NULL
+          AND h.project_id IS NOT NULL
         GROUP BY 
-          e.function, month
+          h.project_id, month
         ORDER BY 
-          e.function, month
+          p.name, month
       `, [startDate, endDate]);
       
       if (hoursResults.length === 0) {
@@ -1116,19 +1117,19 @@ app.get('/api/revenue/hours', async (req: Request, res: Response) => {
     const projectMap = new Map();
     
     // Process the results to create project entries
-    let projectId = 1000;
     results.forEach(row => {
       const projectName = row.projectName;
+      const projectId = row.projectId;
       
-      if (!projectMap.has(projectName)) {
-        projectMap.set(projectName, {
-          projectId: projectId++,
+      if (!projectMap.has(projectId)) {
+        projectMap.set(projectId, {
+          projectId: projectId,
           projectName: projectName,
           months: Array(12).fill(0)
         });
       }
       
-      const project = projectMap.get(projectName);
+      const project = projectMap.get(projectId);
       // Month is 1-indexed in the database but we need 0-indexed for the array
       const monthIndex = parseInt(row.month) - 1;
       project.months[monthIndex] = parseFloat(row.totalHours.toFixed(1));

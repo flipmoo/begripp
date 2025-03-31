@@ -101,7 +101,7 @@ const Revenue: React.FC = () => {
     <div className="container py-8">
       <Card className="mb-8">
         <CardHeader>
-          <CardTitle className="text-2xl">Revenue Overview - Written Hours {year}</CardTitle>
+          <CardTitle className="text-2xl">Uren per Project - {year}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex justify-between mb-4">

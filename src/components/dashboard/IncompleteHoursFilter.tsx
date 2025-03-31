@@ -6,7 +6,7 @@ import { Slider } from '../ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
-import { getEmployeeStats, getEmployeeMonthStats, EmployeeWithStats } from '../../services/employee.service';
+import { getEmployeeStats, getEmployeeMonthStats, EmployeeWithStats, clearEmployeeCache } from '../../services/employee.service';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, UserX, Save } from 'lucide-react';
 import { useToast } from '../ui/use-toast';
@@ -36,6 +36,50 @@ interface IncompleteHoursFilterProps {
 
 const STORAGE_KEY = 'incomplete-hours-filters';
 
+// Function to sync hours data
+const syncHoursData = async (startDate: string, endDate: string) => {
+  try {
+    console.log(`Syncing employee hours data from ${startDate} to ${endDate}...`);
+    
+    // Sync the data
+    const syncResponse = await fetch(`/api/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ startDate, endDate }),
+    });
+    
+    if (!syncResponse.ok) {
+      const errorData = await syncResponse.json();
+      console.error('Sync response error:', errorData);
+      throw new Error(`Failed to sync data: ${syncResponse.status} ${syncResponse.statusText}`);
+    }
+    
+    // Wait a moment for sync to complete
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Clear the cache
+    const cacheResponse = await fetch('/api/cache/clear', {
+      method: 'POST',
+    });
+    
+    if (!cacheResponse.ok) {
+      const errorData = await cacheResponse.json();
+      console.error('Cache clear response error:', errorData);
+      throw new Error(`Failed to clear cache: ${cacheResponse.status} ${cacheResponse.statusText}`);
+    }
+    
+    // Clear local cache
+    await clearEmployeeCache();
+    
+    return true;
+  } catch (error) {
+    console.error('Error syncing hours data:', error);
+    return false;
+  }
+};
+
 const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHoursFilterProps>(({ onFilterChange }, ref) => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -44,6 +88,7 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
   const [filteredEmployees, setFilteredEmployees] = useState<EmployeeWithPercentage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [syncingData, setSyncingData] = useState(false);
   
   // Expose refreshData function to parent
   useImperativeHandle(ref, () => ({
@@ -89,6 +134,15 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
   const [excludedEmployees, setExcludedEmployees] = useState<Set<number>>(
     new Set(savedFilters?.excludedEmployees || [])
   );
+
+  // Trigger data fetch when component mounts with saved filters
+  useEffect(() => {
+    if (savedFilters) {
+      console.log('Loaded saved filters, triggering data fetch:', savedFilters);
+      // Verhoog de retryCount om de data opnieuw op te halen met de geladen filters
+      setRetryCount(prev => prev + 1);
+    }
+  }, []);
 
   // Generate period options
   const periodOptions = useMemo(() => {
@@ -173,6 +227,82 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
         console.error('Error auto-saving filters:', error);
       }
     }, 0);
+  };
+
+  // Function to get date range for the selected period
+  const getSelectedPeriodDateRange = (): { startDate: string, endDate: string } => {
+    const year = selectedYear;
+    
+    if (periodType === 'month') {
+      // Create date for first day of selected month
+      const month = selectedPeriod + 1; // JavaScript months are 0-indexed, but our UI is 1-indexed
+      const monthStr = month.toString().padStart(2, '0');
+      
+      // First day of selected month
+      const startDate = `${year}-${monthStr}-01`;
+      
+      // Last day of selected month
+      const lastDay = new Date(year, month, 0).getDate();
+      const lastDayStr = lastDay.toString().padStart(2, '0');
+      const endDate = `${year}-${monthStr}-${lastDayStr}`;
+      
+      return { startDate, endDate };
+    } else {
+      // For week, create a date range for the selected week
+      // This is a simplified calculation and may need adjustment
+      const date = new Date(year, 0, 1 + (selectedPeriod - 1) * 7);
+      const month = date.getMonth() + 1;
+      const day = date.getDate();
+      
+      const startDate = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+      
+      // End date is 6 days later
+      const endDateObj = new Date(date);
+      endDateObj.setDate(date.getDate() + 6);
+      const endMonth = endDateObj.getMonth() + 1;
+      const endDay = endDateObj.getDate();
+      
+      const endDate = `${endDateObj.getFullYear()}-${endMonth.toString().padStart(2, '0')}-${endDay.toString().padStart(2, '0')}`;
+      
+      return { startDate, endDate };
+    }
+  };
+
+  // Handle manual sync button click
+  const handleSyncData = async () => {
+    setSyncingData(true);
+    try {
+      const { startDate, endDate } = getSelectedPeriodDateRange();
+      console.log(`Syncing hours for period: ${startDate} to ${endDate}`);
+      
+      const success = await syncHoursData(startDate, endDate);
+      
+      if (success) {
+        toast({
+          title: "Synchronisatie voltooid",
+          description: "Medewerker uren zijn bijgewerkt.",
+        });
+        // Trigger a refresh of the data
+        setRetryCount(prev => prev + 1);
+      } else {
+        setError('Synchronisatie van uren is mislukt. Probeer het later opnieuw.');
+        toast({
+          title: "Synchronisatie mislukt",
+          description: "Er is een fout opgetreden bij het synchroniseren van de uren.",
+          variant: "destructive",
+        });
+      }
+    } catch (err) {
+      console.error('Error syncing data:', err);
+      setError('Synchronisatie van uren is mislukt. Probeer het later opnieuw.');
+      toast({
+        title: "Synchronisatie mislukt",
+        description: "Er is een fout opgetreden bij het synchroniseren van de uren.",
+        variant: "destructive",
+      });
+    } finally {
+      setSyncingData(false);
+    }
   };
 
   // Fetch employee data when filters change
@@ -312,17 +442,34 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Medewerkers met Onvolledige Uren</CardTitle>
-        <Button 
-          variant="outline"
-          size="sm"
-          className="flex items-center gap-1"
-          onClick={saveFilters}
-        >
-          <Save className="h-4 w-4" />
-          <span>Filters opslaan</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline"
+            size="sm"
+            className="flex items-center gap-1"
+            onClick={saveFilters}
+          >
+            <Save className="h-4 w-4" />
+            <span>Filters opslaan</span>
+          </Button>
+          <button 
+            onClick={handleSyncData}
+            disabled={syncingData}
+            className="p-1 text-gray-500 hover:text-blue-500 focus:outline-none" 
+            title="Synchroniseer medewerker uren voor deze periode"
+          >
+            <RefreshCw className={`h-5 w-5 ${syncingData ? 'animate-spin text-blue-500' : ''}`} />
+          </button>
+        </div>
       </CardHeader>
       <CardContent>
+        {syncingData && (
+          <div className="mb-4 bg-blue-50 text-blue-700 p-2 rounded flex items-center justify-center">
+            <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+            <span>Medewerker uren worden gesynchroniseerd...</span>
+          </div>
+        )}
+        
         {/* Filter controls */}
         <div className="space-y-4 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

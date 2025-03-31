@@ -1,4 +1,5 @@
-import express, { Request, Response } from 'express';
+import express, { Express, Request, Response } from 'express';
+import bodyParser from 'body-parser';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { executeRequest } from './client';
@@ -41,7 +42,22 @@ const exec = promisify(execCallback);
 dotenv.config();
 console.log('Dotenv loaded successfully');
 
-const app = express();
+// Helper function to generate a consistent hash code from a string
+// This is used to create consistent IDs from string values
+if (!String.prototype.hashCode) {
+  String.prototype.hashCode = function() {
+    let hash = 0;
+    for (let i = 0; i < this.length; i++) {
+      const char = this.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return Math.abs(hash);
+  };
+}
+
+// Create Express application
+const app: Express = express();
 const port = API_PORT; // Use port from central config
 // const alternativePorts = [3004, 3005, 3006]; // Comment out alternative ports
 
@@ -1004,23 +1020,24 @@ app.get('/api/revenue/hours', async (req: Request, res: Response) => {
     if (results.length === 0) {
       console.log(`No revenue data found in database for year=${year}, fetching from hours table instead`);
       
-      // Instead of generating sample data, fetch actual hours data from the database
+      // Instead of using non-existent columns, use the existing columns in hours table
       const hoursResults = await db.all(`
         SELECT 
           h.employee_id,
-          h.offerprojectbase_id AS project_id,
-          h.offerprojectbase_searchname AS project_name,
+          e.function AS project_name,
           strftime('%m', h.date) AS month,
           SUM(h.amount) AS totalHours
         FROM 
           hours h
+        JOIN
+          employees e ON h.employee_id = e.id
         WHERE 
           h.date BETWEEN ? AND ?
-          AND h.offerprojectbase_id > 0
+          AND e.function IS NOT NULL
         GROUP BY 
-          h.offerprojectbase_id, month
+          e.function, month
         ORDER BY 
-          h.offerprojectbase_searchname, month
+          e.function, month
       `, [startDate, endDate]);
       
       if (hoursResults.length === 0) {
@@ -1066,18 +1083,19 @@ app.get('/api/revenue/hours', async (req: Request, res: Response) => {
       const projectMap = new Map();
       
       hoursResults.forEach(row => {
-        const projectId = row.project_id;
         const projectName = row.project_name;
+        // Use function name as project identifier
+        const projectId = projectName.hashCode ? projectName.hashCode() : 1000 + Math.floor(Math.random() * 1000);
         
-        if (!projectMap.has(projectId)) {
-          projectMap.set(projectId, {
+        if (!projectMap.has(projectName)) {
+          projectMap.set(projectName, {
             projectId: projectId,
             projectName: projectName,
             months: Array(12).fill(0)
           });
         }
         
-        const project = projectMap.get(projectId);
+        const project = projectMap.get(projectName);
         // Month is 1-indexed in the database but we need 0-indexed for the array
         const monthIndex = parseInt(row.month) - 1;
         project.months[monthIndex] = parseFloat(row.totalHours.toFixed(1));

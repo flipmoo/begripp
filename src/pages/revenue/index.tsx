@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Table } from '../../components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { getRevenueHours, ProjectRevenue } from '../../services/revenue.service';
+import { getRevenueHours, ProjectRevenue, clearRevenueCache } from '../../services/revenue.service';
+import { Button } from '../../components/ui/button';
+import { ReloadIcon } from '@radix-ui/react-icons';
+import { toast } from 'sonner';
 
 const monthNames = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
@@ -11,25 +14,72 @@ const Revenue: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectRevenue[]>([]);
-  const [year, setYear] = useState(2025);
+  const [year, setYear] = useState(2024);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const data = await getRevenueHours(year);
+      setProjects(data);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching revenue data:', err);
+      setError('Failed to load revenue data. Please try again later.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const data = await getRevenueHours(year);
-        setProjects(data);
-        setError(null);
-      } catch (err) {
-        console.error('Error fetching revenue data:', err);
-        setError('Failed to load revenue data. Please try again later.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchData();
   }, [year]);
+
+  const handleSync = async () => {
+    try {
+      setIsSyncing(true);
+      toast.info('Bezig met synchroniseren van omzetgegevens...');
+      
+      // First sync the data with Gripp
+      const syncResponse = await fetch(`http://localhost:3002/api/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          startDate: `${year}-01-01`,
+          endDate: `${year}-12-31`,
+        }),
+      });
+      
+      if (!syncResponse.ok) {
+        throw new Error('Failed to sync data with Gripp');
+      }
+      
+      toast.info('Data gesynchroniseerd, cache wordt geleegd...');
+      
+      // Wait a moment for sync to complete
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Clear the cache
+      await fetch('http://localhost:3002/api/cache/clear', {
+        method: 'POST',
+      });
+      
+      // Clear client-side cache
+      clearRevenueCache();
+      
+      toast.success('Data succesvol gesynchroniseerd!');
+      
+      // Refetch the data
+      await fetchData();
+    } catch (error) {
+      console.error('Error syncing data:', error);
+      toast.error('Er is een fout opgetreden bij het synchroniseren van de data.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Calculate totals per month across all projects
   const monthlyTotals = Array(12).fill(0);
@@ -54,7 +104,25 @@ const Revenue: React.FC = () => {
           <CardTitle className="text-2xl">Revenue Overview - Written Hours {year}</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex justify-end mb-4">
+          <div className="flex justify-between mb-4">
+            <Button 
+              variant="outline" 
+              onClick={handleSync} 
+              disabled={isSyncing}
+              className="flex items-center"
+            >
+              {isSyncing ? (
+                <>
+                  <ReloadIcon className="mr-2 h-4 w-4 animate-spin" />
+                  Synchroniseren...
+                </>
+              ) : (
+                <>
+                  <ReloadIcon className="mr-2 h-4 w-4" />
+                  Synchroniseren
+                </>
+              )}
+            </Button>
             <select 
               value={year}
               onChange={(e) => setYear(Number(e.target.value))}

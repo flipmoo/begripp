@@ -192,7 +192,7 @@ const ProjectsPage: React.FC = () => {
     } catch (error) {
       console.error('Error loading saved filters on mount:', error);
     }
-  }, []);
+  }, [loadProjects]);
   
   // Sla filters automatisch op bij elke wijziging
   useEffect(() => {

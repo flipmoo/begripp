@@ -14,6 +14,8 @@ import { Checkbox } from '../../components/ui/checkbox';
 import { Badge } from '../../components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 
+const FILTER_STORAGE_KEY = 'projectFilterSettings';
+
 const ProjectsPage: React.FC = () => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
@@ -35,7 +37,7 @@ const ProjectsPage: React.FC = () => {
   const [selectedTag, setSelectedTag] = useState('all');
   const [sortOrder, setSortOrder] = useState('deadline-asc');
   
-  // Filter opslaan/laden functionaliteit
+  // Filter opslaan/laden functionaliteit voor UI knoppen
   const saveFilters = useCallback(() => {
     const filterSettings = {
       searchQuery,
@@ -46,55 +48,34 @@ const ProjectsPage: React.FC = () => {
       sortOrder
     };
     
-    try {
-      localStorage.setItem('projectFilterSettings', JSON.stringify(filterSettings));
+    if (saveFiltersToStorage(filterSettings)) {
       toast({
         title: "Filters opgeslagen",
         description: "Je filterinstellingen zijn opgeslagen en kunnen later worden geladen.",
       });
-    } catch (error) {
-      console.error('Error saving filter settings:', error);
+    } else {
       toast({
         title: "Fout bij opslaan",
         description: "Er is een fout opgetreden bij het opslaan van de filterinstellingen.",
         variant: "destructive",
       });
     }
-  }, [searchQuery, selectedClient, selectedPhase, selectedStatus, selectedTag, sortOrder, toast]);
+  }, [searchQuery, selectedClient, selectedPhase, selectedStatus, selectedTag, sortOrder, toast, saveFiltersToStorage]);
   
   const loadSavedFilters = useCallback(() => {
-    try {
-      const savedSettings = localStorage.getItem('projectFilterSettings');
-      if (!savedSettings) {
-        toast({
-          title: "Geen opgeslagen filters",
-          description: "Er zijn geen eerder opgeslagen filterinstellingen gevonden.",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      const settings = JSON.parse(savedSettings);
-      setSearchQuery(settings.searchQuery || '');
-      setSelectedClient(settings.selectedClient || 'all');
-      setSelectedPhase(settings.selectedPhase || 'all');
-      setSelectedStatus(settings.selectedStatus || 'all');
-      setSelectedTag(settings.selectedTag || 'all');
-      setSortOrder(settings.sortOrder || 'deadline-asc');
-      
+    if (loadFiltersFromStorage()) {
       toast({
         title: "Filters geladen",
         description: "Je opgeslagen filterinstellingen zijn toegepast.",
       });
-    } catch (error) {
-      console.error('Error loading filter settings:', error);
+    } else {
       toast({
-        title: "Fout bij laden",
-        description: "Er is een fout opgetreden bij het laden van de filterinstellingen.",
+        title: "Geen opgeslagen filters",
+        description: "Er zijn geen eerder opgeslagen filterinstellingen gevonden.",
         variant: "destructive",
       });
     }
-  }, [toast]);
+  }, [toast, loadFiltersFromStorage]);
   
   const clearFilters = useCallback(() => {
     setSearchQuery('');
@@ -171,21 +152,16 @@ const ProjectsPage: React.FC = () => {
     }
   }, []);
 
-  // Effect to load projects on component mount
-  useEffect(() => {
-    // Eerst de opgeslagen filters ophalen en toepassen
-    loadFiltersFromStorage();
-    
-    // Dan de projecten laden
-    loadProjects();
-  }, []);
-
-  // Functie om filters te laden uit localStorage
+  // Functie om filters te laden uit localStorage - meer robust gemaakt
   const loadFiltersFromStorage = useCallback(() => {
     try {
-      const savedSettings = localStorage.getItem('projectFilterSettings');
+      console.log('Poging om filters te laden uit localStorage...');
+      const savedSettings = localStorage.getItem(FILTER_STORAGE_KEY);
+      
       if (savedSettings) {
         const settings = JSON.parse(savedSettings);
+        console.log('Gevonden filter instellingen:', settings);
+        
         setSearchQuery(settings.searchQuery || '');
         setSelectedClient(settings.selectedClient || 'all');
         setSelectedPhase(settings.selectedPhase || 'all');
@@ -193,16 +169,72 @@ const ProjectsPage: React.FC = () => {
         setSelectedTag(settings.selectedTag || 'all');
         setSortOrder(settings.sortOrder || 'deadline-asc');
         
-        console.log('Filters geladen uit localStorage');
+        console.log('Filters succesvol geladen uit localStorage');
+        return true;
+      } else {
+        console.log('Geen opgeslagen filters gevonden in localStorage');
+        return false;
       }
     } catch (error) {
-      console.error('Error loading saved filters:', error);
+      console.error('Fout bij laden van filters:', error);
+      return false;
     }
   }, []);
+
+  // Functie om filters op te slaan in localStorage - meer robust gemaakt
+  const saveFiltersToStorage = useCallback((filterData: any) => {
+    try {
+      console.log('Opslaan van filters in localStorage:', filterData);
+      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filterData));
+      console.log('Filters succesvol opgeslagen in localStorage');
+      return true;
+    } catch (error) {
+      console.error('Fout bij opslaan van filters:', error);
+      return false;
+    }
+  }, []);
+
+  // Effect to load projects AND filters on component mount
+  // Gebruik een ref om te onthouden of we filters hebben geladen
+  const initialLoadDone = React.useRef(false);
+  
+  useEffect(() => {
+    // Alleen laden als het nog niet gedaan is
+    if (!initialLoadDone.current) {
+      console.log('Initiële pagina laden - filters en projecten worden geladen...');
+      
+      // Eerst de opgeslagen filters ophalen en toepassen
+      loadFiltersFromStorage();
+      
+      // Dan de projecten laden
+      loadProjects();
+      
+      // Markeer dat initiële load gedaan is
+      initialLoadDone.current = true;
+    }
+  }, [loadProjects, loadFiltersFromStorage]);
+  
+  // Luister naar focus events om filters opnieuw te laden
+  useEffect(() => {
+    const handleFocus = () => {
+      console.log('Window kreeg focus - controleren of filters bijgewerkt moeten worden');
+      loadFiltersFromStorage();
+    };
+    
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [loadFiltersFromStorage]);
   
   // Effect om filters op te slaan bij elke wijziging
   useEffect(() => {
-    // Voorkom dat dit effect wordt uitgevoerd bij initiële render
+    // Als filters nog geladen moeten worden, sla dan nog niet op
+    if (!initialLoadDone.current) {
+      return;
+    }
+    
     const filterSettings = {
       searchQuery,
       selectedClient,
@@ -212,13 +244,8 @@ const ProjectsPage: React.FC = () => {
       sortOrder
     };
     
-    try {
-      localStorage.setItem('projectFilterSettings', JSON.stringify(filterSettings));
-      console.log('Filters automatisch opgeslagen in localStorage');
-    } catch (error) {
-      console.error('Error auto-saving filter settings:', error);
-    }
-  }, [searchQuery, selectedClient, selectedPhase, selectedStatus, selectedTag, sortOrder]);
+    saveFiltersToStorage(filterSettings);
+  }, [searchQuery, selectedClient, selectedPhase, selectedStatus, selectedTag, sortOrder, saveFiltersToStorage]);
 
   // Synchroniseer projecten met de Gripp API
   const handleSync = useCallback(async () => {
@@ -856,4 +883,5 @@ const ProjectsPage: React.FC = () => {
   );
 };
 
+export default ProjectsPage; 
 export default ProjectsPage; 

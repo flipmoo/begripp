@@ -10,6 +10,7 @@ import ProjectDetails from '../../components/dashboard/ProjectDetails';
 import { GrippProject } from '../../types/gripp';
 import { fetchActiveProjects, fetchProjectDetails, syncProjects, syncProjectById } from '../../api/dashboard/grippApi';
 import { dbService } from '../../api/dashboard/dbService';
+import { Checkbox } from '../../components/ui/checkbox';
 
 const ProjectsPage: React.FC = () => {
   const { toast } = useToast();
@@ -31,6 +32,7 @@ const ProjectsPage: React.FC = () => {
   const [selectedTag, setSelectedTag] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [sortOrder, setSortOrder] = useState('deadline-asc');
+  const [showTemplates, setShowTemplates] = useState(false);
 
   // Laad projecten functie met useCallback om re-renders te voorkomen
   const loadProjects = useCallback(async (forceRefresh = false) => {
@@ -162,11 +164,11 @@ const ProjectsPage: React.FC = () => {
     try {
       setSyncing(true);
       setLoadingState('syncing');
-      setLoadingMessage('Projecten worden gesynchroniseerd...');
+      setLoadingMessage('Projecten worden gesynchroniseerd met Gripp...');
       
       toast({
         title: "Synchronisatie gestart",
-        description: "Projecten data wordt gesynchroniseerd...",
+        description: "Project data wordt gesynchroniseerd vanuit Gripp...",
       });
       
       // Synchroniseer projecten met de Gripp API
@@ -175,18 +177,28 @@ const ProjectsPage: React.FC = () => {
       console.log('Sync request completed');
       
       // Wacht kort om de server tijd te geven om de database bij te werken
-      setLoadingMessage('Even geduld terwijl de server bijwerkt...');
+      setLoadingMessage('Database wordt bijgewerkt met nieuwe data...');
       toast({
-        title: "Database bijwerken",
-        description: "Project database wordt bijgewerkt...",
+        title: "Gegevens synchroniseren",
+        description: "Project database wordt bijgewerkt met nieuwe gegevens...",
       });
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Clear the local IndexedDB cache to ensure fresh data is loaded
+      try {
+        console.log('Clearing local IndexedDB cache');
+        setLoadingMessage('Lokale cache wordt geleegd...');
+        await dbService.clearProjects();
+        console.log('IndexedDB cache cleared');
+      } catch (clearError) {
+        console.error('Error clearing IndexedDB cache:', clearError);
+      }
       
       // Laad de bijgewerkte projecten direct van de API
       setLoadingMessage('Bijgewerkte projecten worden opgehaald...');
       toast({
-        title: "Data opnieuw laden",
-        description: "Projecten worden opnieuw geladen van de server...",
+        title: "Data ophalen",
+        description: "Bijgewerkte project gegevens worden opgehaald...",
       });
       
       console.log('Forcing projects refresh');
@@ -201,7 +213,7 @@ const ProjectsPage: React.FC = () => {
         // Update state direct met de nieuwe projecten
         setProjects(refreshedProjects);
         setLoadingState('complete');
-        setLoadingMessage(`${refreshedProjects.length} projecten geladen.`);
+        setLoadingMessage(`${refreshedProjects.length} projecten succesvol gesynchroniseerd.`);
         
         // Werk ook IndexedDB bij voor toekomstige laadcycli
         try {
@@ -214,7 +226,7 @@ const ProjectsPage: React.FC = () => {
         
         toast({
           title: "Synchronisatie voltooid",
-          description: `Projecten data is bijgewerkt met ${refreshedProjects.length} projecten.`,
+          description: `${refreshedProjects.length} projecten zijn succesvol bijgewerkt.`,
           variant: "default",
         });
       } else {
@@ -249,7 +261,7 @@ const ProjectsPage: React.FC = () => {
     } finally {
       setSyncing(false);
     }
-  }, [toast]);
+  }, [toast, loadProjects]);
 
   // Navigeer naar project details
   const handleProjectClick = useCallback(async (id: number) => {
@@ -355,8 +367,28 @@ const ProjectsPage: React.FC = () => {
 
   // Sorteer en filter projecten
   const filteredProjects = useMemo(() => {
+    // Template project names to exclude
+    const templateProjects = [
+      "#0 Service Hours - (Nacalculatie)",
+      "#0 New Business - Klant - Opdracht - Pitch",
+      "#1 Gripp Intern"
+    ];
+    
     return projects
       .filter(project => {
+        // Exclude template projects based on user preference
+        if (!showTemplates) {
+          // Check for specific template projects
+          if (templateProjects.some(template => project.name?.includes(template))) {
+            return false;
+          }
+          
+          // Check for any project starting with #0 or #1
+          if (project.name?.startsWith("#0") || project.name?.startsWith("#1")) {
+            return false;
+          }
+        }
+        
         // Filter op zoekterm
         if (searchQuery && !project.name?.toLowerCase().includes(searchQuery.toLowerCase())) {
           return false;
@@ -458,7 +490,7 @@ const ProjectsPage: React.FC = () => {
         
         return 0;
       });
-  }, [projects, searchQuery, selectedClient, selectedPhase, sortOrder, selectedTag, selectedStatus]);
+  }, [projects, searchQuery, selectedClient, selectedPhase, sortOrder, selectedTag, selectedStatus, showTemplates]);
 
   // Functie om een specifiek project te vernieuwen
   const refreshSelectedProject = useCallback(async () => {
@@ -603,7 +635,7 @@ const ProjectsPage: React.FC = () => {
           <CardTitle>Filters</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
             <div className="relative">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-500" />
               <Input
@@ -677,6 +709,21 @@ const ProjectsPage: React.FC = () => {
                 <SelectItem value="progress-desc">Voortgang (hoog-laag)</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          
+          {/* Template projects toggle */}
+          <div className="flex items-center space-x-2">
+            <Checkbox 
+              id="show-templates" 
+              checked={showTemplates}
+              onCheckedChange={(checked) => setShowTemplates(checked === true)}
+            />
+            <label 
+              htmlFor="show-templates" 
+              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+            >
+              Toon template projecten (beginnen met #0 of #1)
+            </label>
           </div>
         </CardContent>
       </Card>

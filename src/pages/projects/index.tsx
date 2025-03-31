@@ -3,7 +3,7 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { RefreshCw, Search, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { RefreshCw, Search, Loader2, AlertCircle, CheckCircle, Save, RotateCcw, X } from 'lucide-react';
 import { useToast } from '../../components/ui/use-toast';
 import ProjectCard from '../../components/dashboard/ProjectCard';
 import ProjectDetails from '../../components/dashboard/ProjectDetails';
@@ -11,6 +11,8 @@ import { GrippProject } from '../../types/gripp';
 import { fetchActiveProjects, fetchProjectDetails, syncProjects, syncProjectById } from '../../api/dashboard/grippApi';
 import { dbService } from '../../api/dashboard/dbService';
 import { Checkbox } from '../../components/ui/checkbox';
+import { Badge } from '../../components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 
 const ProjectsPage: React.FC = () => {
   const { toast } = useToast();
@@ -32,6 +34,97 @@ const ProjectsPage: React.FC = () => {
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedTag, setSelectedTag] = useState('all');
   const [sortOrder, setSortOrder] = useState('deadline-asc');
+  
+  // Filter opslaan/laden functionaliteit
+  const saveFilters = useCallback(() => {
+    const filterSettings = {
+      searchQuery,
+      selectedClient,
+      selectedPhase,
+      selectedStatus,
+      selectedTag,
+      sortOrder
+    };
+    
+    try {
+      localStorage.setItem('projectFilterSettings', JSON.stringify(filterSettings));
+      toast({
+        title: "Filters opgeslagen",
+        description: "Je filterinstellingen zijn opgeslagen en kunnen later worden geladen.",
+      });
+    } catch (error) {
+      console.error('Error saving filter settings:', error);
+      toast({
+        title: "Fout bij opslaan",
+        description: "Er is een fout opgetreden bij het opslaan van de filterinstellingen.",
+        variant: "destructive",
+      });
+    }
+  }, [searchQuery, selectedClient, selectedPhase, selectedStatus, selectedTag, sortOrder, toast]);
+  
+  const loadSavedFilters = useCallback(() => {
+    try {
+      const savedSettings = localStorage.getItem('projectFilterSettings');
+      if (!savedSettings) {
+        toast({
+          title: "Geen opgeslagen filters",
+          description: "Er zijn geen eerder opgeslagen filterinstellingen gevonden.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      const settings = JSON.parse(savedSettings);
+      setSearchQuery(settings.searchQuery || '');
+      setSelectedClient(settings.selectedClient || 'all');
+      setSelectedPhase(settings.selectedPhase || 'all');
+      setSelectedStatus(settings.selectedStatus || 'all');
+      setSelectedTag(settings.selectedTag || 'all');
+      setSortOrder(settings.sortOrder || 'deadline-asc');
+      
+      toast({
+        title: "Filters geladen",
+        description: "Je opgeslagen filterinstellingen zijn toegepast.",
+      });
+    } catch (error) {
+      console.error('Error loading filter settings:', error);
+      toast({
+        title: "Fout bij laden",
+        description: "Er is een fout opgetreden bij het laden van de filterinstellingen.",
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
+  
+  const clearFilters = useCallback(() => {
+    setSearchQuery('');
+    setSelectedClient('all');
+    setSelectedPhase('all');
+    setSelectedStatus('all');
+    setSelectedTag('all');
+    setSortOrder('deadline-asc');
+    
+    toast({
+      title: "Filters gewist",
+      description: "Alle filterinstellingen zijn teruggezet naar de standaardwaarden.",
+    });
+  }, [toast]);
+  
+  // Check for saved filters on mount
+  useEffect(() => {
+    try {
+      const savedSettings = localStorage.getItem('projectFilterSettings');
+      if (savedSettings) {
+        // Toon een notificatie dat er opgeslagen filters zijn
+        toast({
+          title: "Opgeslagen filters beschikbaar",
+          description: "Je hebt eerder opgeslagen filterinstellingen die je kunt laden.",
+        });
+      }
+    } catch (error) {
+      console.error('Error checking for saved filters:', error);
+    }
+  }, [toast]);
 
   // Laad projecten functie met useCallback om re-renders te voorkomen
   const loadProjects = useCallback(async (forceRefresh = false) => {
@@ -299,6 +392,15 @@ const ProjectsPage: React.FC = () => {
 
   // Sorteer en filter projecten
   const filteredProjects = useMemo(() => {
+    console.log('Filter/sort running on projects:', projects.length);
+    if (projects.length === 0) {
+      console.log('No projects to filter/sort');
+      return [];
+    }
+    
+    // Log eerste paar projecten om te zien wat we hebben
+    console.log('First few projects:', projects.slice(0, 3).map(p => ({ id: p.id, name: p.name })));
+    
     return projects
       .filter(project => {
         // Filter op zoekterm
@@ -401,6 +503,8 @@ const ProjectsPage: React.FC = () => {
         }
       });
   }, [projects, searchQuery, selectedClient, selectedPhase, selectedStatus, selectedTag, sortOrder, calculateProjectProgress, getProjectStatus]);
+  
+  console.log('Filtered projects count:', filteredProjects.length);
 
   // Functie om een specifiek project te vernieuwen
   const refreshSelectedProject = useCallback(async () => {
@@ -484,219 +588,241 @@ const ProjectsPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="container mx-auto py-6">
+      <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">Projecten</h1>
-        <div className="flex gap-2">
+        
+        <div className="flex space-x-2">
           <Button 
+            variant="outline" 
             onClick={async () => {
               try {
-                console.log('Clearing IndexedDB cache and database...');
+                setLoadingState('loading');
+                setLoadingMessage('Cache wordt leeggemaakt...');
+                
+                // De cache leegmaken
                 await dbService.clearCache();
-                await dbService.clearDatabase();
-                console.log('Cache and database cleared successfully');
+                console.log('Cache cleared');
+                
+                // De projecten uit IndexedDB verwijderen
+                await dbService.clearProjects();
+                console.log('Projects cleared from IndexedDB');
+                
+                // Projecten direct van de API laden
+                await loadProjects(true);
+                
                 toast({
                   title: "Cache geleegd",
-                  description: "De cache is succesvol geleegd. Projecten worden opnieuw geladen.",
+                  description: "De cache is succesvol geleegd en projecten zijn opnieuw geladen.",
                 });
-                loadProjects(true);
-              } catch (err) {
-                console.error('Error clearing cache:', err);
+              } catch (error) {
+                console.error('Error clearing cache:', error);
+                setLoadingState('error');
+                setLoadingMessage('Er is een fout opgetreden bij het leegmaken van de cache');
+                
                 toast({
-                  title: "Fout bij leegmaken cache",
+                  title: "Fout",
                   description: "Er is een fout opgetreden bij het leegmaken van de cache.",
                   variant: "destructive",
                 });
               }
-            }} 
-            variant="outline"
-            className="flex items-center gap-2"
+            }}
           >
             Cache leegmaken
           </Button>
+          
           <Button 
-            onClick={() => loadProjects(true)} 
-            variant="outline"
-            className="flex items-center gap-2"
+            variant="outline" 
+            onClick={() => loadProjects(true)}
           >
             Direct van API laden
           </Button>
+          
           <Button 
-            onClick={handleSync} 
-            className="flex items-center gap-2"
             disabled={syncing}
+            onClick={handleSync}
           >
-            <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Synchroniseren...' : 'Synchroniseren'}
+            <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+            Synchroniseren
           </Button>
         </div>
       </div>
       
-      {/* Loading/Error state */}
-      {(loading || error) && renderLoadingState()}
-
-      {/* Filters */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Filters</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-            <div className="relative">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-500" />
-              <Input
-                placeholder="Zoek op projectnaam"
-                className="pl-8"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-            
-            <Select value={selectedClient} onValueChange={setSelectedClient}>
-              <SelectTrigger>
-                <SelectValue placeholder="Alle klanten" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Alle klanten</SelectItem>
-                {clients.map(client => (
-                  <SelectItem key={client} value={client}>{client}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            
-            <Select value={selectedPhase} onValueChange={setSelectedPhase}>
-              <SelectTrigger>
-                <SelectValue placeholder="Alle fases" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Alle fases</SelectItem>
-                {phases.map(phase => (
-                  <SelectItem key={phase} value={phase}>{phase}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            
-            <Select value={selectedStatus} onValueChange={setSelectedStatus}>
-              <SelectTrigger>
-                <SelectValue placeholder="Alle statussen" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Alle statussen</SelectItem>
-                <SelectItem value="normal" className="text-green-700">Normaal ({'<'} 75%)</SelectItem>
-                <SelectItem value="warning" className="text-amber-700">Opletten (75-100%)</SelectItem>
-                <SelectItem value="over-budget" className="text-red-700">Over budget ({'>'} 100%)</SelectItem>
-              </SelectContent>
-            </Select>
-            
-            <Select value={selectedTag} onValueChange={setSelectedTag}>
-              <SelectTrigger>
-                <SelectValue placeholder="Alle tags" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Alle tags</SelectItem>
-                {tags.map(tag => (
-                  <SelectItem key={tag} value={tag}>{tag}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            
-            <Select value={sortOrder} onValueChange={setSortOrder}>
-              <SelectTrigger>
-                <SelectValue placeholder="Sorteren op deadline (oplopend)" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="deadline-asc">Deadline (oplopend)</SelectItem>
-                <SelectItem value="deadline-desc">Deadline (aflopend)</SelectItem>
-                <SelectItem value="name-asc">Naam (A-Z)</SelectItem>
-                <SelectItem value="name-desc">Naam (Z-A)</SelectItem>
-                <SelectItem value="budget-desc">Budget (hoog-laag)</SelectItem>
-                <SelectItem value="budget-asc">Budget (laag-hoog)</SelectItem>
-                <SelectItem value="progress-asc">Voortgang (laag-hoog)</SelectItem>
-                <SelectItem value="progress-desc">Voortgang (hoog-laag)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Projecten grid */}
-      {!loading && !loadingDetails && !error && (
+      {error && (
+        <Alert variant="destructive" className="mb-6">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Fout</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      
+      {renderLoadingState()}
+      
+      {!error && loadingState !== 'loading' && loadingState !== 'syncing' && (
         <>
-          <div className="flex flex-wrap items-center gap-3 mb-3 text-sm">
-            <div className="text-gray-500">
-              {filteredProjects.length} projecten gevonden
-            </div>
-            
-            {filteredProjects.length > 0 && (
-              <>
-                <div className="bg-gray-200 h-4 w-px mx-1"></div>
-                {(() => {
-                  let totalBudget = 0;
-                  let totalWrittenHours = 0;
-                  let totalBudgetedHours = 0;
-                  let normalCount = 0;
-                  let warningCount = 0;
-                  let overBudgetCount = 0;
-                  
-                  filteredProjects.forEach(project => {
-                    const budget = parseFloat(project.totalexclvat || '0');
-                    totalBudget += budget;
-                    
-                    // Bereken status voor statistieken
-                    const status = getProjectStatus(project);
-                    if (status === 'normal') normalCount++;
-                    else if (status === 'warning') warningCount++;
-                    else if (status === 'over-budget') overBudgetCount++;
-                    
-                    if (project.projectlines && Array.isArray(project.projectlines)) {
-                      const writtenHours = project.projectlines.reduce((sum, line) => 
-                        sum + (line && line.amountwritten ? parseFloat(line.amountwritten) : 0), 0);
-                      totalWrittenHours += writtenHours;
-                      
-                      const budgetedHours = project.projectlines.reduce((sum, line) => 
-                        sum + (line && line.amount ? line.amount : 0), 0);
-                      totalBudgetedHours += budgetedHours;
-                    }
-                  });
-                  
-                  const averageRealizedRate = totalWrittenHours > 0 ? totalBudget / totalWrittenHours : 0;
-                  const averageStartRate = totalBudgetedHours > 0 ? totalBudget / totalBudgetedHours : 0;
-                  
-                  return (
-                    <>
-                      <span className="text-gray-500">Budget: <span className="font-medium">€{totalBudget.toLocaleString('nl-NL', {maximumFractionDigits: 0})}</span></span>
-                      <span className="text-gray-500">Uren: <span className="font-medium">{Math.round(totalWrittenHours)}</span></span>
-                      <span className="text-gray-500">Start uurtarief: <span className="font-medium">€{averageStartRate.toFixed(2)}</span></span>
-                      <span className="text-gray-500">Gerealiseerd: <span className="font-medium">€{averageRealizedRate.toFixed(2)}</span></span>
-                      
-                      <div className="bg-gray-200 h-4 w-px mx-1"></div>
-                      
-                      <span className="text-green-700 font-medium">{normalCount} normaal</span>
-                      <span className="text-amber-700 font-medium">{warningCount} opletten</span>
-                      <span className="text-red-700 font-medium">{overBudgetCount} over budget</span>
-                    </>
-                  );
-                })()}
-              </>
-            )}
-          </div>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Filters</CardTitle>
+              <div className="flex space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={saveFilters}
+                  title="Huidige filters opslaan"
+                >
+                  <Save className="h-4 w-4 mr-1" />
+                  Opslaan
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadSavedFilters}
+                  title="Opgeslagen filters laden"
+                >
+                  <RotateCcw className="h-4 w-4 mr-1" />
+                  Laden
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={clearFilters}
+                  title="Alle filters wissen"
+                >
+                  <X className="h-4 w-4 mr-1" />
+                  Wissen
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div className="relative">
+                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-500" />
+                  <Input
+                    placeholder="Zoek op projectnaam"
+                    className="pl-8"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                
+                <Select value={selectedClient} onValueChange={setSelectedClient}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Alle klanten" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Alle klanten</SelectItem>
+                    {clients.map(client => (
+                      <SelectItem key={client} value={client}>{client}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                
+                <Select value={selectedPhase} onValueChange={setSelectedPhase}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Alle fases" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Alle fases</SelectItem>
+                    {phases.map(phase => (
+                      <SelectItem key={phase} value={phase}>{phase}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                
+                <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Alle statussen" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Alle statussen</SelectItem>
+                    <SelectItem value="normal" className="text-green-700">Normaal ({'<'} 75%)</SelectItem>
+                    <SelectItem value="warning" className="text-amber-700">Opletten (75-100%)</SelectItem>
+                    <SelectItem value="over-budget" className="text-red-700">Over budget ({'>'} 100%)</SelectItem>
+                  </SelectContent>
+                </Select>
+                
+                <Select value={selectedTag} onValueChange={setSelectedTag}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Alle tags" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Alle tags</SelectItem>
+                    {tags.map(tag => (
+                      <SelectItem key={tag} value={tag}>{tag}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                
+                <Select value={sortOrder} onValueChange={setSortOrder}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sorteren op deadline (oplopend)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="deadline-asc">Deadline (oplopend)</SelectItem>
+                    <SelectItem value="deadline-desc">Deadline (aflopend)</SelectItem>
+                    <SelectItem value="name-asc">Naam (A-Z)</SelectItem>
+                    <SelectItem value="name-desc">Naam (Z-A)</SelectItem>
+                    <SelectItem value="budget-desc">Budget (hoog-laag)</SelectItem>
+                    <SelectItem value="budget-asc">Budget (laag-hoog)</SelectItem>
+                    <SelectItem value="progress-asc">Voortgang (laag-hoog)</SelectItem>
+                    <SelectItem value="progress-desc">Voortgang (hoog-laag)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardContent>
+          </Card>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredProjects.map(project => (
-              <ProjectCard 
-                key={project.id} 
-                project={project} 
-                onClick={handleProjectClick} 
-              />
-            ))}
+          <div className="mt-6">
+            <p className="text-sm text-muted-foreground mb-4">
+              {filteredProjects.length} projecten gevonden
+            </p>
             
-            {filteredProjects.length === 0 && (
-              <div className="col-span-full text-center py-10 text-gray-500">
-                Geen projecten gevonden met de huidige filters
+            {filteredProjects.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredProjects.map(project => (
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    onClick={() => handleProjectClick(project.id)}
+                    progress={calculateProjectProgress(project)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center p-8 border rounded-md">
+                <p className="text-muted-foreground">Geen projecten gevonden die voldoen aan de geselecteerde filters.</p>
               </div>
             )}
           </div>
         </>
+      )}
+      
+      {selectedProject && (
+        <Dialog open={!!selectedProject} onOpenChange={() => handleCloseDetails()}>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-start justify-between">
+                <span>{selectedProject.name}</span>
+                {calculateProjectProgress(selectedProject) > 0 && (
+                  <Badge 
+                    className={
+                      calculateProjectProgress(selectedProject) > 100 
+                        ? 'bg-red-500' 
+                        : calculateProjectProgress(selectedProject) > 75 
+                          ? 'bg-amber-500' 
+                          : 'bg-green-500'
+                    }
+                  >
+                    {Math.round(calculateProjectProgress(selectedProject))}%
+                  </Badge>
+                )}
+              </DialogTitle>
+              <DialogDescription>
+                {selectedProject.company?.searchname}
+              </DialogDescription>
+            </DialogHeader>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

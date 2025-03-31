@@ -297,9 +297,9 @@ export default function EmployeesPage() {
         let result;
         
         if (viewMode === 'week') {
-          result = await getEmployeeStats(selectedYear, selectedWeek, undefined, forceRefresh);
+          result = await getEmployeeStats(selectedYear, selectedWeek, true, Date.now());
         } else {
-          result = await getEmployeeMonthStats(selectedYear, selectedMonth, forceRefresh);
+          result = await getEmployeeMonthStats(selectedYear, selectedMonth, true);
         }
         
         // Set the from cache status and employees data

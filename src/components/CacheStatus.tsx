@@ -7,6 +7,8 @@ import { ReloadIcon } from '@radix-ui/react-icons';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getYear, getMonth, getWeek } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Database } from 'lucide-react';
 
 interface CacheStats {
   total: number;
@@ -52,6 +54,7 @@ export function CacheStatus({ compact = false }: CacheStatusProps) {
     nextMonth: false
   });
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isOpen, setIsOpen] = useState(false);
 
   const fetchCacheStatus = async () => {
     setIsLoading(true);
@@ -89,8 +92,8 @@ export function CacheStatus({ compact = false }: CacheStatusProps) {
         setAdjacentPeriodsCached({
           prevWeek: isDataCached(prevWeekYear, prevWeek),
           nextWeek: isDataCached(nextWeekYear, nextWeek),
-          prevMonth: isDataCached(prevMonthYear, undefined, prevMonth),
-          nextMonth: isDataCached(nextMonthYear, undefined, nextMonth)
+          nextMonth: isDataCached(nextMonthYear, undefined, nextMonth),
+          prevMonth: isDataCached(prevMonthYear, undefined, prevMonth)
         });
       } else {
         setError('Failed to fetch cache status');
@@ -138,33 +141,48 @@ export function CacheStatus({ compact = false }: CacheStatusProps) {
     return () => clearInterval(intervalId);
   }, []);
 
-  if (compact) {
-    return (
-      <div className="p-4">
-        <div className="flex flex-col gap-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg font-medium">Cache Status</h3>
+  // Render the collapsible button version
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          className="flex items-center gap-1"
+          title="Cache Status"
+        >
+          <Database className="h-4 w-4" />
+          <Badge variant="secondary" className="text-xs px-1 py-0 rounded-sm">
+            {isLoading ? '...' : (cacheStats?.total || 0)}
+          </Badge>
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex justify-between items-center">
+            <span>Cache Status</span>
             <Button 
               variant="ghost" 
               size="sm" 
-              onClick={() => setRefreshKey(prev => prev + 1)}
+              onClick={() => {
+                setRefreshKey(prev => prev + 1);
+                fetchCacheStatus();
+              }}
               disabled={isLoading}
             >
-              {isLoading ? (
-                <ReloadIcon className="h-4 w-4 animate-spin" />
-              ) : (
-                <ReloadIcon className="h-4 w-4" />
-              )}
+              <ReloadIcon className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
             </Button>
-          </div>
-          
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="mt-2">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="server">Server Cache</TabsTrigger>
               <TabsTrigger value="client">Client Cache</TabsTrigger>
             </TabsList>
             
-            <TabsContent value="server" className="space-y-4">
+            <TabsContent value="server" className="space-y-4 mt-4">
               {isLoading ? (
                 <div className="space-y-2">
                   <Skeleton className="h-4 w-full" />
@@ -186,20 +204,38 @@ export function CacheStatus({ compact = false }: CacheStatusProps) {
                     </Badge>
                   </div>
                   
+                  {cacheStats.keys.length > 0 && (
+                    <div className="mt-2">
+                      <h4 className="text-sm font-medium mb-1">Cached Keys:</h4>
+                      <div className="bg-gray-50 p-2 rounded text-xs max-h-32 overflow-auto">
+                        {cacheStats.keys.map((key, i) => (
+                          <div key={i} className="mb-1">{key}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
                   <Button 
                     variant="destructive" 
                     size="sm" 
                     onClick={clearCache}
-                    disabled={isLoading}
+                    disabled={isClearing}
                     className="w-full"
                   >
-                    Clear All Cache
+                    {isClearing ? (
+                      <>
+                        <ReloadIcon className="h-4 w-4 animate-spin mr-2" />
+                        Clearing...
+                      </>
+                    ) : (
+                      'Clear All Cache'
+                    )}
                   </Button>
                 </div>
               ) : null}
             </TabsContent>
             
-            <TabsContent value="client" className="space-y-4">
+            <TabsContent value="client" className="space-y-4 mt-4">
               {isLoading ? (
                 <div className="space-y-2">
                   <Skeleton className="h-4 w-full" />
@@ -219,10 +255,27 @@ export function CacheStatus({ compact = false }: CacheStatusProps) {
                     <Badge variant="outline" className="text-sm">
                       Month View: {clientCacheStats.monthViews}
                     </Badge>
-                    <Badge variant={currentPeriodCached ? "outline" : "secondary"} className={`text-sm ${currentPeriodCached ? 'bg-green-50' : ''}`}>
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-2">
+                    <Badge 
+                      variant={currentPeriodCached ? "outline" : "secondary"} 
+                      className={`text-sm ${currentPeriodCached ? 'bg-green-50' : ''}`}
+                    >
                       Current Period: {currentPeriodCached ? 'Cached' : 'Not Cached'}
                     </Badge>
                   </div>
+                  
+                  {clientCacheStats.keys.length > 0 && (
+                    <div className="mt-2">
+                      <h4 className="text-sm font-medium mb-1">Cached Keys:</h4>
+                      <div className="bg-gray-50 p-2 rounded text-xs max-h-32 overflow-auto">
+                        {clientCacheStats.keys.map((key, i) => (
+                          <div key={i} className="mb-1">{key}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   
                   <Button 
                     variant="destructive" 
@@ -238,171 +291,8 @@ export function CacheStatus({ compact = false }: CacheStatusProps) {
             </TabsContent>
           </Tabs>
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle className="flex justify-between items-center">
-          <span>Cache Status</span>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => setRefreshKey(prev => prev + 1)}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ReloadIcon className="h-4 w-4 animate-spin" />
-            ) : (
-              <ReloadIcon className="h-4 w-4" />
-            )}
-          </Button>
-        </CardTitle>
-        <CardDescription>
-          Server-side cache information
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-            {error}
-          </div>
-        )}
-        
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="server">Server Cache</TabsTrigger>
-            <TabsTrigger value="client">Client Cache</TabsTrigger>
-          </TabsList>
-          
-          <TabsContent value="server" className="space-y-4">
-            {cacheStats ? (
-              <div className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline" className="text-sm">
-                    Total: {cacheStats.total}
-                  </Badge>
-                  <Badge variant="outline" className="text-sm">
-                    Week View: {cacheStats.employeeWeek}
-                  </Badge>
-                  <Badge variant="outline" className="text-sm">
-                    Month View: {cacheStats.employeeMonth}
-                  </Badge>
-                </div>
-                
-                {cacheStats.keys.length > 0 && (
-                  <div className="mt-4">
-                    <h4 className="text-sm font-medium mb-2">Cached Keys:</h4>
-                    <div className="max-h-40 overflow-y-auto text-xs bg-gray-50 p-2 rounded">
-                      {cacheStats.keys.map((key) => (
-                        <div key={key} className="mb-1 break-all">
-                          {key}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-4">
-                {isLoading ? 'Loading cache status...' : 'No cache data available'}
-              </div>
-            )}
-          </TabsContent>
-          
-          <TabsContent value="client" className="space-y-4">
-            {clientCacheStats ? (
-              <div className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline" className="text-sm">
-                    Total: {clientCacheStats.total}
-                  </Badge>
-                  <Badge variant="outline" className="text-sm">
-                    Week View: {clientCacheStats.weekViews}
-                  </Badge>
-                  <Badge variant="outline" className="text-sm">
-                    Month View: {clientCacheStats.monthViews}
-                  </Badge>
-                  <Badge variant={currentPeriodCached ? "outline" : "secondary"} className={`text-sm ${currentPeriodCached ? 'bg-green-50' : ''}`}>
-                    Current Period: {currentPeriodCached ? 'Cached' : 'Not Cached'}
-                  </Badge>
-                </div>
-                
-                <div className="mt-2">
-                  <h4 className="text-sm font-medium mb-2">Adjacent Periods:</h4>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge variant={adjacentPeriodsCached.prevWeek ? "outline" : "secondary"} className={`text-sm ${adjacentPeriodsCached.prevWeek ? 'bg-green-50' : ''}`}>
-                      Previous Week: {adjacentPeriodsCached.prevWeek ? 'Cached' : 'Not Cached'}
-                    </Badge>
-                    <Badge variant={adjacentPeriodsCached.nextWeek ? "outline" : "secondary"} className={`text-sm ${adjacentPeriodsCached.nextWeek ? 'bg-green-50' : ''}`}>
-                      Next Week: {adjacentPeriodsCached.nextWeek ? 'Cached' : 'Not Cached'}
-                    </Badge>
-                    <Badge variant={adjacentPeriodsCached.prevMonth ? "outline" : "secondary"} className={`text-sm ${adjacentPeriodsCached.prevMonth ? 'bg-green-50' : ''}`}>
-                      Previous Month: {adjacentPeriodsCached.prevMonth ? 'Cached' : 'Not Cached'}
-                    </Badge>
-                    <Badge variant={adjacentPeriodsCached.nextMonth ? "outline" : "secondary"} className={`text-sm ${adjacentPeriodsCached.nextMonth ? 'bg-green-50' : ''}`}>
-                      Next Month: {adjacentPeriodsCached.nextMonth ? 'Cached' : 'Not Cached'}
-                    </Badge>
-                  </div>
-                </div>
-                
-                <div className="mt-2 text-xs text-muted-foreground">
-                  <p>Cache expiration: 30 minutes</p>
-                  <p>Preloading: Adjacent periods are automatically preloaded</p>
-                </div>
-                
-                {clientCacheStats.keys.length > 0 && (
-                  <div className="mt-4">
-                    <h4 className="text-sm font-medium mb-2">Cached Keys:</h4>
-                    <div className="max-h-40 overflow-y-auto text-xs bg-gray-50 p-2 rounded">
-                      {clientCacheStats.keys.map((key) => (
-                        <div key={key} className="mb-1 break-all">
-                          {key}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-4">
-                {isLoading ? 'Loading client cache status...' : 'No client cache data available'}
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-      <CardFooter className="flex gap-2">
-        <Button 
-          variant="destructive" 
-          size="sm" 
-          onClick={clearCache}
-          disabled={isClearing || !cacheStats || cacheStats.total === 0}
-          className="flex-1"
-        >
-          {isClearing ? (
-            <>
-              <ReloadIcon className="mr-2 h-4 w-4 animate-spin" />
-              Clearing Cache...
-            </>
-          ) : (
-            'Clear All Cache'
-          )}
-        </Button>
-        
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={clearClientCacheOnly}
-          disabled={!clientCacheStats || clientCacheStats.total === 0}
-          className="flex-1"
-        >
-          Clear Client Cache
-        </Button>
-      </CardFooter>
-    </Card>
+      </DialogContent>
+    </Dialog>
   );
 }
 

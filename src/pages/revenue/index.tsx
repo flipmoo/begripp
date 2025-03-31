@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { getRevenueHours, ProjectRevenue, clearRevenueCache } from '../../services/revenue.service';
 import { Button } from '../../components/ui/button';
 import { ReloadIcon } from '@radix-ui/react-icons';
-import { toast } from 'sonner';
+import { useToast } from '../../components/ui/use-toast';
 
 const monthNames = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
@@ -16,6 +16,7 @@ const Revenue: React.FC = () => {
   const [projects, setProjects] = useState<ProjectRevenue[]>([]);
   const [year, setYear] = useState(2024);
   const [isSyncing, setIsSyncing] = useState(false);
+  const { toast } = useToast();
 
   const fetchData = async () => {
     try {
@@ -38,7 +39,10 @@ const Revenue: React.FC = () => {
   const handleSync = async () => {
     try {
       setIsSyncing(true);
-      toast.info('Bezig met synchroniseren van omzetgegevens...');
+      toast({
+        title: "Synchroniseren",
+        description: "Bezig met synchroniseren van omzetgegevens...",
+      });
       
       // First sync the data with Gripp
       const syncResponse = await fetch(`http://localhost:3002/api/sync`, {
@@ -56,7 +60,10 @@ const Revenue: React.FC = () => {
         throw new Error('Failed to sync data with Gripp');
       }
       
-      toast.info('Data gesynchroniseerd, cache wordt geleegd...');
+      toast({
+        title: "Cache leegmaken",
+        description: "Data gesynchroniseerd, cache wordt geleegd...",
+      });
       
       // Wait a moment for sync to complete
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -69,13 +76,20 @@ const Revenue: React.FC = () => {
       // Clear client-side cache
       clearRevenueCache();
       
-      toast.success('Data succesvol gesynchroniseerd!');
+      toast({
+        title: "Succes",
+        description: "Data succesvol gesynchroniseerd!",
+      });
       
       // Refetch the data
       await fetchData();
     } catch (error) {
       console.error('Error syncing data:', error);
-      toast.error('Er is een fout opgetreden bij het synchroniseren van de data.');
+      toast({
+        title: "Fout",
+        description: "Er is een fout opgetreden bij het synchroniseren van de data.",
+        variant: "destructive",
+      });
     } finally {
       setIsSyncing(false);
     }

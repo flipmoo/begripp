@@ -173,9 +173,15 @@ const ProjectsPage: React.FC = () => {
 
   // Effect to load projects on component mount
   useEffect(() => {
-    loadProjects();
+    // Eerst de opgeslagen filters ophalen en toepassen
+    loadFiltersFromStorage();
     
-    // Laad opgeslagen filters bij het openen van de pagina
+    // Dan de projecten laden
+    loadProjects();
+  }, []);
+
+  // Functie om filters te laden uit localStorage
+  const loadFiltersFromStorage = useCallback(() => {
     try {
       const savedSettings = localStorage.getItem('projectFilterSettings');
       if (savedSettings) {
@@ -187,15 +193,16 @@ const ProjectsPage: React.FC = () => {
         setSelectedTag(settings.selectedTag || 'all');
         setSortOrder(settings.sortOrder || 'deadline-asc');
         
-        console.log('Filters automatisch geladen bij pagina-opening');
+        console.log('Filters geladen uit localStorage');
       }
     } catch (error) {
-      console.error('Error loading saved filters on mount:', error);
+      console.error('Error loading saved filters:', error);
     }
-  }, [loadProjects]);
+  }, []);
   
-  // Sla filters automatisch op bij elke wijziging
+  // Effect om filters op te slaan bij elke wijziging
   useEffect(() => {
+    // Voorkom dat dit effect wordt uitgevoerd bij initiële render
     const filterSettings = {
       searchQuery,
       selectedClient,
@@ -207,7 +214,7 @@ const ProjectsPage: React.FC = () => {
     
     try {
       localStorage.setItem('projectFilterSettings', JSON.stringify(filterSettings));
-      console.log('Filters automatisch opgeslagen');
+      console.log('Filters automatisch opgeslagen in localStorage');
     } catch (error) {
       console.error('Error auto-saving filter settings:', error);
     }

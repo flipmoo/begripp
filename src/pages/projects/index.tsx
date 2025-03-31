@@ -110,22 +110,6 @@ const ProjectsPage: React.FC = () => {
     });
   }, [toast]);
   
-  // Check for saved filters on mount
-  useEffect(() => {
-    try {
-      const savedSettings = localStorage.getItem('projectFilterSettings');
-      if (savedSettings) {
-        // Toon een notificatie dat er opgeslagen filters zijn
-        toast({
-          title: "Opgeslagen filters beschikbaar",
-          description: "Je hebt eerder opgeslagen filterinstellingen die je kunt laden.",
-        });
-      }
-    } catch (error) {
-      console.error('Error checking for saved filters:', error);
-    }
-  }, [toast]);
-
   // Laad projecten functie met useCallback om re-renders te voorkomen
   const loadProjects = useCallback(async (forceRefresh = false) => {
     setLoadingState('loading');
@@ -190,7 +174,44 @@ const ProjectsPage: React.FC = () => {
   // Effect to load projects on component mount
   useEffect(() => {
     loadProjects();
+    
+    // Laad opgeslagen filters bij het openen van de pagina
+    try {
+      const savedSettings = localStorage.getItem('projectFilterSettings');
+      if (savedSettings) {
+        const settings = JSON.parse(savedSettings);
+        setSearchQuery(settings.searchQuery || '');
+        setSelectedClient(settings.selectedClient || 'all');
+        setSelectedPhase(settings.selectedPhase || 'all');
+        setSelectedStatus(settings.selectedStatus || 'all');
+        setSelectedTag(settings.selectedTag || 'all');
+        setSortOrder(settings.sortOrder || 'deadline-asc');
+        
+        console.log('Filters automatisch geladen bij pagina-opening');
+      }
+    } catch (error) {
+      console.error('Error loading saved filters on mount:', error);
+    }
   }, []);
+  
+  // Sla filters automatisch op bij elke wijziging
+  useEffect(() => {
+    const filterSettings = {
+      searchQuery,
+      selectedClient,
+      selectedPhase,
+      selectedStatus,
+      selectedTag,
+      sortOrder
+    };
+    
+    try {
+      localStorage.setItem('projectFilterSettings', JSON.stringify(filterSettings));
+      console.log('Filters automatisch opgeslagen');
+    } catch (error) {
+      console.error('Error auto-saving filter settings:', error);
+    }
+  }, [searchQuery, selectedClient, selectedPhase, selectedStatus, selectedTag, sortOrder]);
 
   // Synchroniseer projecten met de Gripp API
   const handleSync = useCallback(async () => {

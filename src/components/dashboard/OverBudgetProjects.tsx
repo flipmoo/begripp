@@ -1,15 +1,18 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Progress } from '../ui/progress';
 import { GrippProject } from '../../types/gripp';
-import { useNavigate } from 'react-router-dom';
+import { Dialog, DialogContent } from '../ui/dialog';
+import ProjectDetails from './ProjectDetails';
+import { RefreshButton } from '../ui/refresh-button';
 
 interface OverBudgetProjectsProps {
   projects: GrippProject[];
 }
 
 const OverBudgetProjects: React.FC<OverBudgetProjectsProps> = ({ projects }) => {
-  const navigate = useNavigate();
+  const [selectedProject, setSelectedProject] = useState<GrippProject | null>(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   
   // Format currency
   const formatCurrency = (value: number) => {
@@ -19,6 +22,20 @@ const OverBudgetProjects: React.FC<OverBudgetProjectsProps> = ({ projects }) => 
       minimumFractionDigits: 2, 
       maximumFractionDigits: 2 
     });
+  };
+  
+  // Get progress color based on percentage
+  const getProgressColor = (progress: number) => {
+    if (progress > 100) return 'text-red-500';
+    if (progress >= 75) return 'text-amber-500';
+    return 'text-green-500';
+  };
+  
+  // Get progress indicator color for the bar
+  const getProgressBarColor = (progress: number) => {
+    if (progress > 100) return 'bg-red-500';
+    if (progress >= 75) return 'bg-amber-500';
+    return 'bg-green-500';
   };
   
   // Check if a project has "Vaste prijs" tag
@@ -88,66 +105,169 @@ const OverBudgetProjects: React.FC<OverBudgetProjectsProps> = ({ projects }) => 
     }
   };
 
+  // Calculate hourly rate difference percentage
+  const calculateHourlyRateDifference = (start: number, realized: number) => {
+    if (start === 0) return 0;
+    return ((realized - start) / start) * 100;
+  };
+  
   // Get projects that are over budget (progress > 100%) and have fixed price
   const overBudgetProjects = projects
-    .filter(project => !project.archived && hasFixedPriceTag(project))
-    .map(project => ({
-      ...project,
-      progress: calculateProjectProgress(project),
-      ...calculateProjectRates(project)
-    }))
-    .sort((a, b) => b.progress - a.progress)
-    .slice(0, 10);
+    .filter(project => {
+      const notArchived = !project.archived;
+      return notArchived;
+    })
+    .filter(project => {
+      const hasFixed = hasFixedPriceTag(project);
+      return hasFixed;
+    })
+    .map(project => {
+      const progress = calculateProjectProgress(project);
+      const rates = calculateProjectRates(project);
+      return {
+        ...project,
+        progress,
+        ...rates
+      };
+    })
+    .filter(project => {
+      const isOverBudget = project.progress > 100;
+      return isOverBudget;
+    })
+    .sort((a, b) => b.progress - a.progress);
 
-  const handleProjectClick = (projectId: number) => {
-    navigate(`/projects/${projectId}`);
+  const handleProjectClick = (project: GrippProject) => {
+    setSelectedProject(project);
+    setIsDialogOpen(true);
+  };
+
+  const handleCloseDialog = () => {
+    setIsDialogOpen(false);
+  };
+
+  const handleRefreshProject = () => {
+    setIsDialogOpen(false);
+  };
+
+  // Simple refresh handler that dispatches an event to the dashboard
+  const refreshProjects = () => {
+    console.log('Refreshing dashboard data from OverBudgetProjects component');
+    const refreshEvent = new CustomEvent('refresh-dashboard-data');
+    window.dispatchEvent(refreshEvent);
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Top 10 Vaste Prijs Projecten</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {overBudgetProjects.length === 0 ? (
-          <div className="text-center py-4 text-gray-500">
-            Geen vaste prijs projecten gevonden
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {overBudgetProjects.map(project => (
-              <div 
-                key={project.id} 
-                className="space-y-1 cursor-pointer hover:bg-gray-50 p-2 rounded-md"
-                onClick={() => handleProjectClick(project.id)}
-              >
-                <div className="flex justify-between">
-                  <span className="font-medium">{project.name}</span>
-                  <span className={`font-medium ${project.progress > 100 ? 'text-red-500' : 'text-green-500'}`}>
-                    {Math.round(project.progress)}%
-                  </span>
+    <>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">
+            Overschreden Budget Projecten ({overBudgetProjects.length})
+          </CardTitle>
+          <RefreshButton 
+            variant="ghost" 
+            tooltipText="Ververs project budget overzicht" 
+            onClick={refreshProjects}
+          />
+        </CardHeader>
+        <CardContent>
+          {overBudgetProjects.length === 0 ? (
+            <div className="text-center text-sm text-gray-500 py-8">
+              Geen projecten met overschreden budget gevonden.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {overBudgetProjects.map((project) => (
+                <div 
+                  key={`project-${project.id}`}
+                  className="border rounded-md overflow-hidden cursor-pointer transition-all hover:shadow-md"
+                  onClick={() => handleProjectClick(project)}
+                >
+                  <div className="p-3">
+                    <div className="font-medium">{project.name}</div>
+                    
+                    <div className="mt-2 space-y-1">
+                      <div className="flex justify-between items-center text-sm">
+                        <span className={getProgressColor(project.progress)}>
+                          {Math.round(project.progress)}%
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {project.organizer 
+                            ? `${project.organizer.firstname} ${project.organizer.lastname}` 
+                            : 'Geen organisator'}
+                        </span>
+                      </div>
+                      <Progress 
+                        value={project.progress > 100 ? 100 : project.progress} 
+                        className={`h-2 ${getProgressBarColor(project.progress)}`}
+                      />
+                    </div>
+                    <div className="text-xs text-gray-600 mt-2">
+                      Budget: {formatCurrency(parseFloat(project.totalexclvat || '0'))}
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-gray-50 border-t border-gray-100">
+                    <div className="flex items-center justify-between">
+                      <div className="text-left">
+                        <div className="text-xs text-gray-500">Start uurtarief</div>
+                        <div className="text-sm font-medium text-gray-700">{formatCurrency(project.startHourlyRate)}</div>
+                      </div>
+
+                      <div className="flex items-center px-2">
+                        {project.startHourlyRate > project.realizedHourlyRate ? (
+                          <div className="flex items-center gap-1">
+                            <span className="text-red-500 text-sm">→</span>
+                            <span className="text-xs text-red-500 whitespace-nowrap">
+                              -{Math.abs(Math.round(calculateHourlyRateDifference(project.startHourlyRate, project.realizedHourlyRate)))}%
+                            </span>
+                          </div>
+                        ) : project.startHourlyRate < project.realizedHourlyRate ? (
+                          <div className="flex items-center gap-1">
+                            <span className="text-green-500 text-sm">→</span>
+                            <span className="text-xs text-green-500 whitespace-nowrap">
+                              +{Math.round(calculateHourlyRateDifference(project.startHourlyRate, project.realizedHourlyRate))}%
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <span className="text-gray-400 text-sm">=</span>
+                            <span className="text-xs text-gray-400">0%</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="text-right">
+                        <div className="text-xs text-gray-500">Gerealiseerd</div>
+                        <div className={`text-sm font-medium ${
+                          project.startHourlyRate > project.realizedHourlyRate 
+                            ? 'text-red-500' 
+                            : project.startHourlyRate < project.realizedHourlyRate 
+                              ? 'text-green-500' 
+                              : 'text-gray-700'
+                        }`}>
+                          {formatCurrency(project.realizedHourlyRate)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-xs text-gray-500">
-                  <span>{project.company?.searchname || 'Onbekende klant'}</span>
-                </div>
-                <Progress 
-                  value={Math.min(project.progress, 100)} 
-                  className="h-2 bg-gray-200" 
-                />
-                <div className="flex justify-between text-sm text-gray-500">
-                  <span>Budget: {formatCurrency(parseFloat(project.totalexclvat || '0'))}</span>
-                </div>
-                <div className="flex justify-between text-xs text-gray-500">
-                  <span>Start: {formatCurrency(project.startHourlyRate)}</span>
-                  <span>Gerealiseerd: {formatCurrency(project.realizedHourlyRate)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="max-w-3xl">
+          {selectedProject && <ProjectDetails 
+            project={selectedProject} 
+            onClose={handleCloseDialog} 
+            onRefresh={handleRefreshProject}
+          />}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
 
-export default OverBudgetProjects; 
+export default OverBudgetProjects;

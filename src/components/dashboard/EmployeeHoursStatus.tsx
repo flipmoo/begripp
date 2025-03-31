@@ -31,28 +31,43 @@ const EmployeeHoursStatus: React.FC = () => {
           now.getDate() >= 7 ? Math.floor((now.getDate() - 7) / 7) + 1 : 1 : 
           Math.floor(now.getDate() / 7) + 1;
         
+        // Always force refresh for dashboard components to make them more responsive
+        const forceRefresh = true;
+        
+        // Create a custom callback that will handle dashboard-specific processing
+        const dashboardCallback = (data: EmployeeWithStats[]) => {
+          // Filter and process data specifically for the dashboard view
+          const incompleteEmployees = data
+            .filter(employee => employee.active !== false)
+            .filter(employee => {
+              const percentage = employee.expectedHours > 0 ? 
+                (employee.writtenHours / employee.expectedHours) * 100 : 100;
+              return percentage < 100;
+            })
+            .map(employee => ({
+              ...employee,
+              percentage: employee.expectedHours > 0 ? 
+                (employee.writtenHours / employee.expectedHours) * 100 : 100
+            }))
+            .sort((a, b) => a.percentage - b.percentage);
+          
+          setEmployees(incompleteEmployees);
+        };
+        
         // Fetch employee data for the current year and previous week
-        const employeeData = await getEmployeeStats(currentYear, prevWeek);
+        await getEmployeeStats(
+          currentYear, 
+          prevWeek, 
+          dashboardCallback, 
+          forceRefresh, 
+          false, // Not preloading
+          true   // Is dashboard request
+        );
         
-        // Filter for active employees with incomplete hours
-        const incompleteEmployees = employeeData
-          .filter(employee => employee.active !== false) // Only active employees
-          .filter(employee => {
-            // Calculate percentage of written hours vs expected hours
-            const percentage = employee.expectedHours > 0 ? 
-              (employee.writtenHours / employee.expectedHours) * 100 : 100;
-            
-            // Return employees with less than 100% hours written
-            return percentage < 100;
-          })
-          .map(employee => ({
-            ...employee,
-            percentage: employee.expectedHours > 0 ? 
-              (employee.writtenHours / employee.expectedHours) * 100 : 100
-          }))
-          .sort((a, b) => a.percentage - b.percentage); // Sort by percentage (lowest first)
-        
-        setEmployees(incompleteEmployees);
+        // Reset retry count after successful fetch
+        if (retryCount > 0) {
+          setRetryCount(0);
+        }
       } catch (err) {
         console.error('Error fetching employee hours:', err);
         setError('Er is een fout opgetreden bij het laden van de medewerker uren. Controleer of de API-server draait.');

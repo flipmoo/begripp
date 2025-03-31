@@ -231,36 +231,63 @@ export const testApiConnection = async (): Promise<boolean> => {
 };
 
 /**
- * Haal actieve projecten op
+ * Check if a project has "Vaste prijs" tag
  */
-export async function fetchActiveProjects(): Promise<GrippProject[]> {
-  console.log('fetchActiveProjects called');
-  try {
-    console.log('Making API request to /dashboard/projects/active');
-    const response = await dashboardApi.get<GrippApiResponse<GrippProjectResponse[]>>('/dashboard/projects/active');
-    
-    console.log('API response received:', response.status, response.statusText);
-    
-    if (response.data.error) {
-      console.error('Error fetching active projects:', response.data.error);
-      return [];
+const filterByFixedPriceTag = (project: any) => {
+  if (!project.tags) return false;
+  
+  // Als tags een string is (JSON formaat), probeer te parsen
+  if (typeof project.tags === 'string') {
+    try {
+      const parsedTags = JSON.parse(project.tags);
+      return parsedTags.some((tag: { searchname?: string; name?: string }) => 
+        (tag.searchname === "Vaste prijs") || (tag.name === "Vaste prijs")
+      );
+    } catch (error) {
+      console.error('Error parsing tags JSON:', error);
+      return false;
     }
-    
-    if (!response.data.response) {
-      console.error('No response data for active projects');
-      return [];
-    }
-    
-    console.log('Raw projects data:', response.data.response.length, 'projects');
-    const transformedProjects = response.data.response.map(transformGrippProject);
-    console.log('Transformed projects:', transformedProjects.length, 'projects');
-    
-    return transformedProjects;
-  } catch (error) {
-    console.error('Failed to fetch active projects:', error);
-    return [];
+  } 
+  // Als tags een array is, gebruik direct
+  else if (Array.isArray(project.tags)) {
+    return project.tags.some((tag: any) => {
+      if (typeof tag === 'string') return tag === "Vaste prijs";
+      return (tag.searchname === "Vaste prijs") || (tag.name === "Vaste prijs");
+    });
   }
-}
+  return false;
+};
+
+/**
+ * Haal actieve projecten op van de API
+ */
+export const fetchActiveProjects = async (queryParams = ''): Promise<GrippProject[]> => {
+  try {
+    console.log(`Fetching active projects with params: ${queryParams}`);
+    
+    // Add a timestamp to prevent caching
+    const timestamp = Date.now();
+    const url = `/dashboard/projects/active${queryParams}${
+      queryParams.includes('?') ? '&' : '?'
+    }_t=${timestamp}`;
+    
+    const response = await dashboardApi.get(url);
+
+    if (!response.data) {
+      throw new Error('No data received from API');
+    }
+
+    const projects = response.data.response;
+    
+    console.log(`Received ${projects.length} active projects from API`);
+    
+    // Process projects
+    return projects.map(transformGrippProject);
+  } catch (error) {
+    console.error('Error fetching active projects:', error);
+    throw error;
+  }
+};
 
 /**
  * Haal project details op
@@ -286,15 +313,30 @@ export const fetchProjectDetails = async (projectId: number): Promise<GrippProje
   }
 };
 
-/**
- * Synchroniseer projecten
- */
-export async function syncProjects(): Promise<void> {
+// Synchroniseer projecten van Gripp API
+export const syncProjects = async (): Promise<void> => {
+  console.log('Starting syncProjects');
   try {
-    await dashboardApi.post('/dashboard/sync/projects');
-    console.log('Projects synchronized successfully');
+    // Force a true refresh by adding a cache-busting parameter
+    const timestamp = new Date().getTime();
+    const response = await dashboardApi.post(`/sync/projects?_force=true&_t=${timestamp}`, {
+      force: true
+    }, {
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
+    });
+
+    if (!response.data) {
+      throw new Error('No data received from API');
+    }
+
+    console.log('syncProjects completed successfully with response:', response.data);
+    return response.data;
   } catch (error) {
-    console.error('Failed to synchronize projects:', error);
+    console.error('Failed to sync projects:', error);
     throw error;
   }
 }

@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Progress } from '../ui/progress';
 import { GrippProject } from '../../types/gripp';
 import { CalendarClock } from 'lucide-react';
+import { Badge } from '../ui/badge';
 
 // Extend Window interface to allow our custom property
 declare global {
@@ -50,19 +51,6 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick }) => {
       console.error('Error formatting deadline:', error);
       return 'Ongeldige datum';
     }
-  };
-
-  // Bepaal card kleur op basis van project kleur of voortgang
-  const getCardStyle = () => {
-    if (project.color) {
-      return { borderTop: `4px solid ${project.color}` };
-    }
-    
-    // Fallback naar voortgang kleur
-    if (progress > 90) return { borderTop: '4px solid #ef4444' }; // Rood
-    if (progress > 75) return { borderTop: '4px solid #f97316' }; // Oranje
-    if (progress > 50) return { borderTop: '4px solid #eab308' }; // Geel
-    return { borderTop: '4px solid #22c55e' }; // Groen
   };
 
   // Bereken start uurtarief (totaal bedrag / gebudgetteerde uren)
@@ -200,24 +188,80 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick }) => {
     );
   };
 
+  // Functie om status badge te bepalen op basis van voortgang
+  const getProgressStatus = () => {
+    if (progress > 100) {
+      return { 
+        label: 'Over budget', 
+        variant: 'destructive' as const,
+        className: '' 
+      };
+    }
+    
+    if (progress >= 75) {
+      return { 
+        label: 'Opletten', 
+        variant: 'outline' as const,
+        className: 'bg-amber-100 text-amber-700 border-amber-200'
+      };
+    }
+    
+    return { 
+      label: 'Normaal', 
+      variant: 'outline' as const,
+      className: 'bg-green-100 text-green-700 border-green-200'
+    };
+  };
+
+  const progressStatus = getProgressStatus();
+
+  // Functie om progress bar kleur te bepalen op basis van voortgang
+  const getProgressBarColor = () => {
+    if (progress > 100) return 'bg-red-500';
+    if (progress >= 75) return 'bg-amber-500';
+    return 'bg-green-500';
+  };
+
+  // Functie om de kaart achtergrondkleur te bepalen op basis van de voortgang
+  const getCardBackgroundColor = () => {
+    if (progress > 100) return 'bg-red-50 border-red-200';
+    if (progress >= 75) return 'bg-amber-50 border-amber-200';
+    return 'bg-green-50 border-green-200';
+  };
+
   return (
     <Card 
-      className="cursor-pointer hover:shadow-md transition-shadow"
-      style={getCardStyle()}
+      className="cursor-pointer overflow-hidden transition-shadow hover:shadow-md border-0"
       onClick={() => onClick(project.id)}
     >
-      <CardHeader className="pb-2">
-        <div>
-          <CardTitle className="text-xl font-medium mb-1">{project.name}</CardTitle>
-          <div className="text-base text-gray-700">{project.company?.searchname || 'Geen klant'}</div>
+      <CardHeader className="pb-2 bg-white">
+        <div className="flex justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-lg font-medium text-gray-800">{project.name}</CardTitle>
+              <Badge 
+                variant={progressStatus.variant} 
+                className={`text-xs font-normal px-2 py-0.5 ${
+                  progress > 100 
+                    ? 'bg-red-50 text-red-600 border border-red-200' 
+                    : progress >= 75 
+                      ? 'bg-amber-50 text-amber-600 border border-amber-200' 
+                      : 'bg-green-50 text-green-600 border border-green-200'
+                }`}
+              >
+                {progressStatus.label}
+              </Badge>
+            </div>
+            <div className="text-sm text-gray-600">{project.company?.searchname || 'Geen klant'}</div>
+          </div>
+          <div className="text-xs text-gray-500 mt-1">#{project.number}</div>
         </div>
-        <div className="text-sm text-gray-500 mt-1">#{project.number}</div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="bg-white pt-0">
         <div className="space-y-4">
-          <div className="flex items-center text-sm">
+          <div className="flex items-center text-xs text-gray-600">
             <div className="flex items-center gap-1">
-              <CalendarClock className="h-4 w-4 text-gray-500" />
+              <CalendarClock className="h-3.5 w-3.5 text-gray-500" />
               <span>{formatDeadline()}</span>
             </div>
           </div>
@@ -225,32 +269,53 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick }) => {
           {renderTags()}
           
           <div className="space-y-1">
-            <div className="flex justify-between text-sm">
-              <span>Voortgang</span>
-              <span>{Math.round(progress)}%</span>
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-600">Voortgang</span>
+              <span className={
+                progress > 100 
+                  ? 'text-red-600 font-medium' 
+                  : progress >= 75 
+                    ? 'text-amber-600 font-medium' 
+                    : 'text-green-600 font-medium'
+              }>{Math.round(progress)}%</span>
             </div>
-            <Progress value={progress} className="h-2" />
+            <Progress value={progress} className="h-1.5" indicatorClassName={getProgressBarColor()} />
           </div>
-          
-          <div className="text-sm">
-            <div className="flex justify-between">
-              <span>Budget</span>
-              <span className="font-medium">
-                € {parseFloat(project.totalexclvat || '0').toLocaleString('nl-NL', { 
-                  minimumFractionDigits: 2, 
-                  maximumFractionDigits: 2 
-                })}
-              </span>
-            </div>
 
-            <div className="flex justify-between mt-1">
-              <span>Start uurtarief</span>
-              <span className="font-medium">{formatCurrency(startHourlyRate)}</span>
-            </div>
+          <div className="pt-3 border-t border-gray-100">
+            <div className="flex justify-between text-xs">
+              <div className="flex flex-col gap-2">
+                <div>
+                  <div className="text-gray-500">Budget</div>
+                  <div className="text-sm font-medium text-gray-700">
+                    {formatCurrency(parseFloat(project.totalexclvat || '0'))}
+                  </div>
+                </div>
+              </div>
 
-            <div className="flex justify-between mt-1">
-              <span>Gerealiseerd uurtarief</span>
-              <span className="font-medium">{formatCurrency(realizedHourlyRate)}</span>
+              <div className="flex flex-col gap-2">
+                <div>
+                  <div className="text-gray-500 text-right">Start uurtarief</div>
+                  <div className="text-sm font-medium text-gray-700 text-right">
+                    {formatCurrency(startHourlyRate)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <div>
+                  <div className="text-gray-500 text-right">Gerealiseerd</div>
+                  <div className={`text-sm font-medium text-right ${
+                    startHourlyRate > realizedHourlyRate 
+                      ? 'text-red-500' 
+                      : startHourlyRate < realizedHourlyRate 
+                        ? 'text-green-500' 
+                        : 'text-gray-700'
+                  }`}>
+                    {formatCurrency(realizedHourlyRate)}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

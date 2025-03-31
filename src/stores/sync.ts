@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { clearEmployeeCache } from '../services/employee.service';
 
-// Use the same API base URL as in employee.service.ts
+// Update API base URL to use port 3002
 const API_BASE = 'http://localhost:3002/api';
 
 interface SyncState {
@@ -21,6 +21,10 @@ export const useSyncStore = create<SyncState>((set) => ({
         try {
             console.log(`Syncing data for period ${startDate} to ${endDate}`);
             
+            // Clear client-side cache before making API call
+            // This ensures fresh data even if the API call fails
+            clearEmployeeCache();
+            
             const response = await fetch(`${API_BASE}/sync`, {
                 method: 'POST',
                 headers: {
@@ -39,7 +43,7 @@ export const useSyncStore = create<SyncState>((set) => ({
 
             console.log('Sync successful:', data);
             
-            // Clear employee cache after successful sync
+            // Clear employee cache on server after successful sync
             await clearEmployeeCache();
             
             set({ lastSync: new Date(), syncError: null });

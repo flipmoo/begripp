@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { getCacheStatus, clearEmployeeCache, clearClientCache, isDataCached } from '@/services/employee.service';
+import { getCacheStatus, clearEmployeeCache, isDataCached } from '@/services/employee.service';
 import { ReloadIcon } from '@radix-ui/react-icons';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getYear, getMonth, getWeek } from 'date-fns';
@@ -120,7 +120,7 @@ export function CacheStatus({ compact = false }: CacheStatusProps) {
 
   const clearClientCacheOnly = () => {
     try {
-      clearClientCache();
+      clearEmployeeCache();
       // Refresh cache status
       fetchCacheStatus();
     } catch (err) {
@@ -404,4 +404,6 @@ export function CacheStatus({ compact = false }: CacheStatusProps) {
       </CardFooter>
     </Card>
   );
-} 
+}
+
+export default CacheStatus; 

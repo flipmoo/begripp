@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { getDateRangeForView } from '../utils/date';
 
-// Use the same API base URL as in employee.service.ts
+// Update API base URL to use port 3002
 const API_BASE = 'http://localhost:3002/api';
 
 type AbsenceHours = {
@@ -81,14 +81,11 @@ export const useAbsenceStore = create<AbsenceState>((set, get) => ({
       // Process responses into AbsenceHours structure
       const absenceHours: AbsenceHours = {};
 
-      responses.forEach(response => {
-        if (!response.result?.rows?.length) return;
-
-        response.result.rows.forEach((absence: AbsenceRequest) => {
-          const employeeId = absence.employee.id;
-          if (!absenceHours[employeeId]) {
-            absenceHours[employeeId] = {};
-          }
+      absences.forEach((absence: Absence) => {
+        const employeeId = absence.employee.id;
+        if (!absenceHours[employeeId]) {
+          absenceHours[employeeId] = {};
+        }
 
         // Get the date from the absence
         const dateStr = absence.startdate.split('T')[0];

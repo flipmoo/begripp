@@ -212,6 +212,8 @@ export class GrippClient {
      */
     async getProjects(): Promise<GrippProject[]> {
         try {
+            console.log('Getting projects from Gripp API...');
+            
             // Maak een request om actieve projecten op te halen
             const request = {
                 method: 'project.get',
@@ -263,17 +265,23 @@ export class GrippClient {
             
             // @ts-expect-error - We weten dat dit werkt, ook al matcht het type niet exact
             const response = await this.executeRequest<GrippProject>(request);
-            console.log(`Received ${response.result.rows.length} projects from Gripp API`);
             
             if (response.error) {
                 console.error('Error from Gripp API:', response.error);
-                return [];
+                throw new Error(`Gripp API returned an error: ${JSON.stringify(response.error)}`);
             }
             
+            if (!response.result || !response.result.rows) {
+                console.error('Unexpected response format from Gripp API:', response);
+                throw new Error('Unexpected response format from Gripp API');
+            }
+            
+            console.log(`Received ${response.result.rows.length} projects from Gripp API`);
             return response.result.rows;
         } catch (error) {
             console.error('Error fetching projects from Gripp:', error);
-            return [];
+            // Throw the error instead of returning an empty array
+            throw error;
         }
     }
 }

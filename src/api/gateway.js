@@ -69,7 +69,7 @@ app.get('/api/docs', (req, res) => {
 
 // Route alle overige requests naar huidige API server (transparant fallback)
 app.use('/', createProxyMiddleware({ 
-  target: 'http://localhost:3002',
+  target: 'http://localhost:3003',
   changeOrigin: true,
   // Debug logging
   onProxyReq: (proxyReq, req) => {

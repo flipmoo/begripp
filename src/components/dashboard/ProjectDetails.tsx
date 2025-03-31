@@ -63,6 +63,13 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
 
   const progress = calculateProgress();
   
+  // Functie om progress bar kleur te bepalen op basis van voortgang
+  const getProgressBarColor = (progressValue: number) => {
+    if (progressValue > 100) return 'bg-red-500';
+    if (progressValue >= 75) return 'bg-amber-500';
+    return 'bg-green-500';
+  };
+
   // Format deadline
   const formatDate = (dateObj: { date: string } | null) => {
     if (!dateObj) return 'Niet ingesteld';
@@ -298,6 +305,14 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
               <span>#{project.number}</span>
             </div>
             
+            {project.color && (
+              <div className="flex items-center gap-2">
+                <div className="h-4 w-4 rounded-full" style={{ backgroundColor: project.color }}></div>
+                <span className="font-medium">Projectkleur:</span>
+                <span>{project.color}</span>
+              </div>
+            )}
+            
             <div className="flex items-center gap-2">
               <Users className="h-4 w-4 text-gray-500" />
               <span className="font-medium">Teamleden:</span>
@@ -349,7 +364,7 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
                 <span>Totale voortgang</span>
                 <span>{Math.round(progress)}%</span>
               </div>
-              <Progress value={progress} className="h-2" />
+              <Progress value={progress} className="h-2" indicatorClassName={getProgressBarColor(progress)} />
             </div>
             
             <div className="flex items-center gap-2">
@@ -455,7 +470,7 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
                           Waarde: {formatCurrency(line.totalAmount)}
                         </span>
                       </div>
-                      <Progress value={line.progress} className="h-2" />
+                      <Progress value={line.progress} className="h-2" indicatorClassName={getProgressBarColor(line.progress)} />
                     </div>
                   ))
                 )}
@@ -483,7 +498,7 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
                           Waarde: {formatCurrency(line.totalAmount)}
                         </span>
                       </div>
-                      <Progress value={line.progress} className="h-2" />
+                      <Progress value={line.progress} className="h-2" indicatorClassName={getProgressBarColor(line.progress)} />
                     </div>
                   ))
                 )}

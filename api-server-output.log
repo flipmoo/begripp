@@ -1,0 +1,5 @@
+npm error Missing script: "api-server"
+npm error
+npm error To see a list of scripts, run:
+npm error   npm run
+npm error A complete log of this run can be found in: /Users/koenstraatman/.npm/_logs/2025-03-31T08_42_48_966Z-debug-0.log

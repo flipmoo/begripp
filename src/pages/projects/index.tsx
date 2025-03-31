@@ -20,11 +20,16 @@ const ProjectsPage: React.FC = () => {
   const [selectedProject, setSelectedProject] = useState<GrippProject | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
   
+  // Loading state tracking
+  const [loadingState, setLoadingState] = useState<'idle' | 'loading' | 'syncing' | 'complete' | 'error'>('idle');
+  const [loadingMessage, setLoadingMessage] = useState<string>('');
+  
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClient, setSelectedClient] = useState('all');
   const [selectedPhase, setSelectedPhase] = useState('all');
   const [selectedTag, setSelectedTag] = useState('all');
+  const [selectedStatus, setSelectedStatus] = useState('all');
   const [sortOrder, setSortOrder] = useState('deadline-asc');
 
   // Laad projecten functie met useCallback om re-renders te voorkomen
@@ -33,17 +38,26 @@ const ProjectsPage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-
+      
       if (forceRefresh) {
+        setLoadingState('loading');
+        setLoadingMessage('Projecten worden direct van de API geladen...');
+        
         console.log('Force refresh: skipping cache and fetching from API directly');
         // Als er geen gecachte projecten zijn, haal ze op van de API
         console.log('Fetching projects from API...');
+        console.log('API call to: /dashboard/projects/active');
         const activeProjects = await fetchActiveProjects();
-        console.log('Loaded projects from API:', activeProjects.length);
-        console.log('First 3 API projects:', activeProjects.slice(0, 3).map(p => ({ id: p.id, name: p.name })));
+        console.log('API Response received. Raw response size:', activeProjects ? JSON.stringify(activeProjects).length : 'undefined');
         
         if (activeProjects && activeProjects.length > 0) {
+          console.log('Project data appears valid with', activeProjects.length, 'projects');
+          console.log('First 3 API projects:', activeProjects.slice(0, 3).map(p => ({ id: p.id, name: p.name })));
+          
           setProjects(activeProjects);
+          console.log('Set projects state with', activeProjects.length, 'projects');
+          setLoadingState('complete');
+          setLoadingMessage(`${activeProjects.length} projecten geladen.`);
           
           // Sla projecten op in IndexedDB
           try {
@@ -54,53 +68,85 @@ const ProjectsPage: React.FC = () => {
             console.error('Error saving projects to IndexedDB:', dbError);
           }
         } else {
+          console.error('No projects returned from API or empty array. API returned:', activeProjects);
           setError('Geen projecten gevonden');
+          setLoadingState('error');
+          setLoadingMessage('Er zijn geen projecten gevonden. Probeer de synchronisatie opnieuw uit te voeren.');
           console.log('No projects returned from API');
         }
         setLoading(false);
         return;
       }
 
+      // We laden uit de cache
+      setLoadingState('loading');
+      setLoadingMessage('Projecten worden uit de cache geladen...');
+      
       // Probeer eerst projecten uit de IndexedDB te laden
       try {
+        console.log('Attempting to load projects from IndexedDB...');
         const cachedProjects = await dbService.getAllProjects();
+        console.log('IndexedDB returned', cachedProjects ? cachedProjects.length : 0, 'projects');
+        
         if (cachedProjects && cachedProjects.length > 0) {
           console.log('Loaded projects from cache:', cachedProjects.length);
           console.log('First 3 cached projects:', cachedProjects.slice(0, 3).map(p => ({ id: p.id, name: p.name })));
           setProjects(cachedProjects);
+          setLoadingState('complete');
+          setLoadingMessage(`${cachedProjects.length} projecten geladen uit cache.`);
           setLoading(false);
           return;
         } else {
           console.log('No projects found in cache or empty array returned');
+          setLoadingMessage('Geen projecten in cache gevonden. Laden vanaf API...');
         }
       } catch (dbError) {
         console.error('Error loading projects from IndexedDB:', dbError);
+        setLoadingMessage('Fout bij laden uit cache. Proberen vanaf API...');
       }
 
       // Als er geen gecachte projecten zijn, haal ze op van de API
-      console.log('Fetching projects from API...');
-      const activeProjects = await fetchActiveProjects();
-      console.log('Loaded projects from API:', activeProjects.length);
-      console.log('First 3 API projects:', activeProjects.slice(0, 3).map(p => ({ id: p.id, name: p.name })));
+      console.log('No cached projects available, fetching from API directly');
+      setLoadingMessage('Projecten worden opgehaald van de server...');
       
-      if (activeProjects && activeProjects.length > 0) {
-        setProjects(activeProjects);
+      console.log('API call to: /dashboard/projects/active');
+      try {
+        const activeProjects = await fetchActiveProjects();
+        console.log('API Response received. Raw data size:', activeProjects ? JSON.stringify(activeProjects).length : 'undefined');
         
-        // Sla projecten op in IndexedDB
-        try {
-          console.log('Saving projects to IndexedDB...');
-          await dbService.saveProjects(activeProjects);
-          console.log('Projects saved to IndexedDB successfully');
-        } catch (dbError) {
-          console.error('Error saving projects to IndexedDB:', dbError);
+        if (activeProjects && activeProjects.length > 0) {
+          console.log('Project data valid with', activeProjects.length, 'projects');
+          console.log('First 3 API projects:', activeProjects.slice(0, 3).map(p => ({ id: p.id, name: p.name })));
+          setProjects(activeProjects);
+          setLoadingState('complete');
+          setLoadingMessage(`${activeProjects.length} projecten geladen.`);
+          
+          // Sla projecten op in IndexedDB
+          try {
+            console.log('Saving projects to IndexedDB...');
+            await dbService.saveProjects(activeProjects);
+            console.log('Projects saved to IndexedDB successfully');
+          } catch (dbError) {
+            console.error('Error saving projects to IndexedDB:', dbError);
+          }
+        } else {
+          console.error('No projects returned from API or empty array. API returned:', activeProjects);
+          setError('Geen projecten gevonden');
+          setLoadingState('error');
+          setLoadingMessage('Er zijn geen projecten gevonden van de API. Probeer de synchronisatie opnieuw uit te voeren.');
+          console.log('No projects returned from API');
         }
-      } else {
-        setError('Geen projecten gevonden');
-        console.log('No projects returned from API');
+      } catch (apiError) {
+        console.error('Error calling API:', apiError);
+        setError('API fout: ' + (apiError.message || 'Onbekende fout'));
+        setLoadingState('error');
+        setLoadingMessage('Er is een fout opgetreden bij het API verzoek. Probeer het later opnieuw.');
       }
     } catch (err) {
       console.error('Error loading projects:', err);
       setError('Er is een fout opgetreden bij het laden van de projecten');
+      setLoadingState('error');
+      setLoadingMessage('Er is een fout opgetreden bij het laden van de projecten. Controleer de console voor details.');
     } finally {
       setLoading(false);
     }
@@ -115,32 +161,95 @@ const ProjectsPage: React.FC = () => {
   const handleSync = useCallback(async () => {
     try {
       setSyncing(true);
+      setLoadingState('syncing');
+      setLoadingMessage('Projecten worden gesynchroniseerd...');
+      
       toast({
         title: "Synchronisatie gestart",
         description: "Projecten data wordt gesynchroniseerd...",
       });
       
+      // Synchroniseer projecten met de Gripp API
+      console.log('Starting project synchronization');
       await syncProjects();
+      console.log('Sync request completed');
       
-      // Laad de bijgewerkte projecten
-      await loadProjects();
-      
+      // Wacht kort om de server tijd te geven om de database bij te werken
+      setLoadingMessage('Even geduld terwijl de server bijwerkt...');
       toast({
-        title: "Synchronisatie voltooid",
-        description: "Projecten data is bijgewerkt.",
-        variant: "default",
+        title: "Database bijwerken",
+        description: "Project database wordt bijgewerkt...",
       });
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Laad de bijgewerkte projecten direct van de API
+      setLoadingMessage('Bijgewerkte projecten worden opgehaald...');
+      toast({
+        title: "Data opnieuw laden",
+        description: "Projecten worden opnieuw geladen van de server...",
+      });
+      
+      console.log('Forcing projects refresh');
+      
+      // Forceer een directe refresh van de API
+      const timestamp = new Date().getTime();
+      const refreshedProjects = await fetchActiveProjects(`?refresh=true&_t=${timestamp}`);
+      
+      if (refreshedProjects && refreshedProjects.length > 0) {
+        console.log(`Successfully loaded ${refreshedProjects.length} projects after sync`);
+        
+        // Update state direct met de nieuwe projecten
+        setProjects(refreshedProjects);
+        setLoadingState('complete');
+        setLoadingMessage(`${refreshedProjects.length} projecten geladen.`);
+        
+        // Werk ook IndexedDB bij voor toekomstige laadcycli
+        try {
+          console.log('Saving projects to IndexedDB cache');
+          await dbService.saveProjects(refreshedProjects);
+          console.log('Projects saved to IndexedDB cache');
+        } catch (dbError) {
+          console.error('Error saving projects to IndexedDB:', dbError);
+        }
+        
+        toast({
+          title: "Synchronisatie voltooid",
+          description: `Projecten data is bijgewerkt met ${refreshedProjects.length} projecten.`,
+          variant: "default",
+        });
+      } else {
+        console.error('No projects returned after sync or empty array');
+        setLoadingState('error');
+        setLoadingMessage('Geen projecten gevonden na synchronisatie. Probeer het later opnieuw.');
+        
+        toast({
+          title: "Waarschuwing",
+          description: "Geen projecten gevonden na synchronisatie.",
+          variant: "destructive",
+        });
+      }
     } catch (err) {
       console.error('Error syncing projects:', err);
+      setLoadingState('error');
+      setLoadingMessage('Synchronisatie mislukt. Probeer het later opnieuw.');
+      
       toast({
         title: "Synchronisatie mislukt",
         description: "Er is een fout opgetreden bij het synchroniseren van de projecten.",
         variant: "destructive",
       });
+      
+      // Probeer toch de projecten te laden (niet geforceerd) om te zorgen
+      // dat de gebruiker niet met een lege UI zit
+      try {
+        await loadProjects(false);
+      } catch (loadError) {
+        console.error('Error loading projects after sync failure:', loadError);
+      }
     } finally {
       setSyncing(false);
     }
-  }, [loadProjects, toast]);
+  }, [toast]);
 
   // Navigeer naar project details
   const handleProjectClick = useCallback(async (id: number) => {
@@ -219,6 +328,31 @@ const ProjectsPage: React.FC = () => {
     return Array.from(uniqueTags).sort();
   }, [projects]);
 
+  // Functie om de voortgang van een project te berekenen
+  const calculateProjectProgress = useCallback((project: GrippProject) => {
+    if (!project.projectlines || !Array.isArray(project.projectlines)) return 0;
+    
+    try {
+      const written = project.projectlines.reduce((sum, line) => 
+        sum + (line && line.amountwritten ? parseFloat(line.amountwritten) : 0), 0);
+      const budgeted = project.projectlines.reduce((sum, line) => 
+        sum + (line && line.amount ? line.amount : 0), 0);
+      return budgeted > 0 ? (written / budgeted) * 100 : 0;
+    } catch (error) {
+      console.error('Error calculating project progress:', error);
+      return 0;
+    }
+  }, []);
+
+  // Functie om de status van een project te bepalen op basis van voortgang
+  const getProjectStatus = useCallback((project: GrippProject) => {
+    const progress = calculateProjectProgress(project);
+    
+    if (progress > 100) return 'over-budget';
+    if (progress >= 75) return 'warning';
+    return 'normal';
+  }, [calculateProjectProgress]);
+
   // Sorteer en filter projecten
   const filteredProjects = useMemo(() => {
     return projects
@@ -236,6 +370,14 @@ const ProjectsPage: React.FC = () => {
         // Filter op fase
         if (selectedPhase && selectedPhase !== 'all' && project.phase?.searchname !== selectedPhase) {
           return false;
+        }
+        
+        // Filter op status
+        if (selectedStatus && selectedStatus !== 'all') {
+          const status = getProjectStatus(project);
+          if (status !== selectedStatus) {
+            return false;
+          }
         }
         
         // Filter op tag
@@ -268,6 +410,16 @@ const ProjectsPage: React.FC = () => {
         return true;
       })
       .sort((a, b) => {
+        // Sorteer op voortgang (oplopend)
+        if (sortOrder === 'progress-asc') {
+          return calculateProjectProgress(a) - calculateProjectProgress(b);
+        }
+        
+        // Sorteer op voortgang (aflopend)
+        if (sortOrder === 'progress-desc') {
+          return calculateProjectProgress(b) - calculateProjectProgress(a);
+        }
+        
         // Sorteer op deadline (oplopend)
         if (sortOrder === 'deadline-asc') {
           if (!a.deadline && !b.deadline) return 0;
@@ -306,7 +458,7 @@ const ProjectsPage: React.FC = () => {
         
         return 0;
       });
-  }, [projects, searchQuery, selectedClient, selectedPhase, sortOrder, selectedTag]);
+  }, [projects, searchQuery, selectedClient, selectedPhase, sortOrder, selectedTag, selectedStatus]);
 
   // Functie om een specifiek project te vernieuwen
   const refreshSelectedProject = useCallback(async () => {
@@ -355,6 +507,32 @@ const ProjectsPage: React.FC = () => {
       setLoadingDetails(false);
     }
   }, [selectedProject, toast]);
+
+  // Render loading/error state
+  const renderLoadingState = () => {
+    if (loading) {
+      return (
+        <div className="flex flex-col items-center justify-center p-8 mt-8">
+          <div className="animate-spin mb-4">
+            <RefreshCw className="h-8 w-8 text-primary" />
+          </div>
+          <p className="text-lg font-medium text-center">{loadingMessage || 'Projecten worden geladen...'}</p>
+        </div>
+      );
+    }
+    
+    if (error) {
+      return (
+        <div className="flex flex-col items-center justify-center p-8 mt-8 border border-red-200 rounded-lg bg-red-50">
+          <p className="text-lg font-medium text-center text-red-800 mb-4">{error}</p>
+          <p className="text-sm text-center text-red-600 mb-4">{loadingMessage}</p>
+          <Button onClick={() => loadProjects(true)}>Opnieuw proberen</Button>
+        </div>
+      );
+    }
+    
+    return null;
+  };
 
   // Als er een project is geselecteerd, toon de details
   if (selectedProject) {
@@ -415,6 +593,9 @@ const ProjectsPage: React.FC = () => {
           </Button>
         </div>
       </div>
+      
+      {/* Loading/Error state */}
+      {(loading || error) && renderLoadingState()}
 
       {/* Filters */}
       <Card>
@@ -457,6 +638,18 @@ const ProjectsPage: React.FC = () => {
               </SelectContent>
             </Select>
             
+            <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+              <SelectTrigger>
+                <SelectValue placeholder="Alle statussen" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Alle statussen</SelectItem>
+                <SelectItem value="normal" className="text-green-700">Normaal ({'<'} 75%)</SelectItem>
+                <SelectItem value="warning" className="text-amber-700">Opletten (75-100%)</SelectItem>
+                <SelectItem value="over-budget" className="text-red-700">Over budget ({'>'} 100%)</SelectItem>
+              </SelectContent>
+            </Select>
+            
             <Select value={selectedTag} onValueChange={setSelectedTag}>
               <SelectTrigger>
                 <SelectValue placeholder="Alle tags" />
@@ -480,6 +673,8 @@ const ProjectsPage: React.FC = () => {
                 <SelectItem value="name-desc">Naam (Z-A)</SelectItem>
                 <SelectItem value="budget-desc">Budget (hoog-laag)</SelectItem>
                 <SelectItem value="budget-asc">Budget (laag-hoog)</SelectItem>
+                <SelectItem value="progress-asc">Voortgang (laag-hoog)</SelectItem>
+                <SelectItem value="progress-desc">Voortgang (hoog-laag)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -501,10 +696,19 @@ const ProjectsPage: React.FC = () => {
                   let totalBudget = 0;
                   let totalWrittenHours = 0;
                   let totalBudgetedHours = 0;
+                  let normalCount = 0;
+                  let warningCount = 0;
+                  let overBudgetCount = 0;
                   
                   filteredProjects.forEach(project => {
                     const budget = parseFloat(project.totalexclvat || '0');
                     totalBudget += budget;
+                    
+                    // Bereken status voor statistieken
+                    const status = getProjectStatus(project);
+                    if (status === 'normal') normalCount++;
+                    else if (status === 'warning') warningCount++;
+                    else if (status === 'over-budget') overBudgetCount++;
                     
                     if (project.projectlines && Array.isArray(project.projectlines)) {
                       const writtenHours = project.projectlines.reduce((sum, line) => 
@@ -526,6 +730,12 @@ const ProjectsPage: React.FC = () => {
                       <span className="text-gray-500">Uren: <span className="font-medium">{Math.round(totalWrittenHours)}</span></span>
                       <span className="text-gray-500">Start uurtarief: <span className="font-medium">€{averageStartRate.toFixed(2)}</span></span>
                       <span className="text-gray-500">Gerealiseerd: <span className="font-medium">€{averageRealizedRate.toFixed(2)}</span></span>
+                      
+                      <div className="bg-gray-200 h-4 w-px mx-1"></div>
+                      
+                      <span className="text-green-700 font-medium">{normalCount} normaal</span>
+                      <span className="text-amber-700 font-medium">{warningCount} opletten</span>
+                      <span className="text-red-700 font-medium">{overBudgetCount} over budget</span>
                     </>
                   );
                 })()}
@@ -550,23 +760,6 @@ const ProjectsPage: React.FC = () => {
           </div>
         </>
       )}
-
-      {/* Foutmelding */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-          {error}
-        </div>
-      )}
-
-      {/* Laad indicator */}
-      {loading || loadingDetails ? (
-        <div className="text-center py-10">
-          <RefreshCw className="h-8 w-8 animate-spin mx-auto text-gray-400" />
-          <p className="mt-2 text-gray-500">
-            {loadingDetails ? 'Project details laden...' : 'Projecten laden...'}
-          </p>
-        </div>
-      ) : null}
     </div>
   );
 };

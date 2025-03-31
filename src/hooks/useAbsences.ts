@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Absence, AbsencesByEmployee, AbsencesByDate } from '../services/absence.service';
+import { API_BASE } from '../services/api';
 
 interface UseAbsencesResult {
   absences: Absence[];
@@ -21,7 +22,7 @@ export function useAbsences(startDate: string, endDate: string): UseAbsencesResu
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/absences?startDate=${startDate}&endDate=${endDate}`);
+      const response = await fetch(`${API_BASE}/absences?startDate=${startDate}&endDate=${endDate}`);
       if (!response.ok) {
         throw new Error('Failed to fetch absences');
       }

@@ -69,41 +69,58 @@ export class DashboardDatabaseService {
   }
 
   /**
-   * Sla projecten op in de database
+   * Slaat de projecten op in de database
    */
   async saveProjects(projects: GrippProject[]): Promise<void> {
-    console.log('dbService.saveProjects called with', projects.length, 'projects');
     try {
       await this.init();
       const transaction = this.db!.transaction(PROJECTS_STORE, 'readwrite');
       const store = transaction.objectStore(PROJECTS_STORE);
       
-      // Leeg de store eerst
-      const clearRequest = store.clear();
-      await new Promise<void>((resolve, reject) => {
-        clearRequest.onerror = () => reject(clearRequest.error);
-        clearRequest.onsuccess = () => {
-          console.log('dbService.saveProjects cleared projects store');
+      // Bewaar elk project in de database
+      const promises = projects.map(project => {
+        return new Promise<void>((resolve, reject) => {
+          const request = store.put(project);
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => resolve();
+        });
+      });
+      
+      // Wacht tot alle projecten zijn opgeslagen
+      await Promise.all(promises);
+      console.log('dbService.saveProjects saved', projects.length, 'projects to IndexedDB');
+      
+      // Update de laatste wijzigingstijd
+      await this.updateLastModified();
+    } catch (error) {
+      console.error('Error saving projects to IndexedDB:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Verwijdert alle projecten uit de database
+   */
+  async clearProjects(): Promise<void> {
+    console.log('dbService.clearProjects called');
+    try {
+      await this.init();
+      const transaction = this.db!.transaction(PROJECTS_STORE, 'readwrite');
+      const store = transaction.objectStore(PROJECTS_STORE);
+      
+      return new Promise<void>((resolve, reject) => {
+        const request = store.clear();
+        request.onerror = () => {
+          console.error('Error clearing projects from IndexedDB:', request.error);
+          reject(request.error);
+        };
+        request.onsuccess = () => {
+          console.log('Successfully cleared all projects from IndexedDB');
           resolve();
         };
       });
-      
-      // Voeg alle projecten toe
-      for (const project of projects) {
-        const addRequest = store.add(project);
-        await new Promise<void>((resolve, reject) => {
-          addRequest.onerror = () => reject(addRequest.error);
-          addRequest.onsuccess = () => resolve();
-        });
-      }
-      
-      // Update de timestamp voor cache invalidatie
-      const timestamp = new Date().toISOString();
-      await this.updateLastModified();
-      
-      console.log('dbService.saveProjects saved', projects.length, 'projects and updated timestamp to', timestamp);
     } catch (error) {
-      console.error('Error saving projects to IndexedDB:', error);
+      console.error('Error clearing projects from IndexedDB:', error);
       throw error;
     }
   }

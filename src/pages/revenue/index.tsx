@@ -1,13 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { Table } from '../../components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-
-type ProjectRevenue = {
-  projectId: number;
-  projectName: string;
-  months: number[];
-}
+import { getRevenueHours, ProjectRevenue } from '../../services/revenue.service';
 
 const monthNames = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
@@ -23,8 +17,8 @@ const Revenue: React.FC = () => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const response = await axios.get(`http://localhost:3002/api/revenue/hours?year=${year}`);
-        setProjects(response.data);
+        const data = await getRevenueHours(year);
+        setProjects(data);
         setError(null);
       } catch (err) {
         console.error('Error fetching revenue data:', err);

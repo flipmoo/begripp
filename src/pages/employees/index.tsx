@@ -1,10 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { getWeek, getYear, getMonth } from 'date-fns';
-import { getEmployeeStats, getEmployeeMonthStats, type EmployeeWithStats, isDataCached, updateFunctionTitles } from '@/services/employee.service';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { getWeek, getYear, getMonth, format } from 'date-fns';
+import { getEmployeeStats, getEmployeeMonthStats, type EmployeeWithStats, isDataCached, updateFunctionTitles, enrichEmployeesWithAbsences } from '@/services/employee.service';
+import { Absence, AbsencesByEmployee } from '@/services/absence.service';
+import { API_BASE } from '@/services/api';
 import { useFilterPresets } from '@/hooks/useFilterPresets';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from "@/components/ui/skeleton";
 import { InfoCircledIcon, MagnifyingGlassIcon, Cross2Icon, MixerHorizontalIcon } from '@radix-ui/react-icons';
+import { RefreshCw } from 'lucide-react';
 import { DateSelector } from '@/components/DateSelector';
 import { EmployeeAbsenceModal } from '@/components/EmployeeAbsenceModal';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -19,6 +22,14 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { generateEmployeeCardsUrl } from '@/utils/url';
 import { AbsenceSyncButton } from '@/components/AbsenceSyncButton';
 import { DataSyncButton } from '@/components/DataSyncButton';
+import { getWeekNumber, getWeekDays } from '@/utils/date-utils';
+import { IconPerson, IconSync } from '@/components/Icons';
+import EmployeeTable from '@/components/EmployeeTable';
+import WeekSelector from '@/components/WeekSelector';
+import Spinner from '@/components/Spinner';
+import ErrorMessage from '@/components/ErrorMessage';
+import CacheStatus from '@/components/CacheStatus';
+import { Badge } from '@/components/ui/badge';
 
 export default function EmployeesPage() {
   const initialDate = new Date();
@@ -57,6 +68,10 @@ export default function EmployeesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isFromCache, setIsFromCache] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeWithStats | null>(null);
+  const [absences, setAbsences] = useState<AbsencesByEmployee>({});
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   
   // Filter states
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
@@ -93,6 +108,8 @@ export default function EmployeesPage() {
   const selectedWeek = getWeek(selectedDate, { weekStartsOn: 1, firstWeekContainsDate: 4 });
   const selectedYear = getYear(selectedDate);
   const selectedMonth = getMonth(selectedDate);
+
+  const weekDays = useMemo(() => getWeekDays(selectedYear, selectedWeek), [selectedYear, selectedWeek]);
 
   // Update URL when filters change
   useEffect(() => {
@@ -148,38 +165,150 @@ export default function EmployeesPage() {
 
   // Load employees when date or view mode changes
   useEffect(() => {
-    loadEmployees();
+    fetchData();
   }, [selectedDate, viewMode]);
 
-  // Load employees data
-  const loadEmployees = async () => {
-    setIsLoading(true);
+  const fetchData = async (forceRefresh = false) => {
     try {
-      // Update function titles from Gripp
-      await updateFunctionTitles();
+      // Always show loading at start
+      setIsLoading(true);
       
-      let data: EmployeeWithStats[];
-      
-      if (viewMode === 'week') {
-        // Check if data is in cache
-        const isCached = isDataCached(selectedYear, selectedWeek);
-        setIsFromCache(isCached);
-        
-        data = await getEmployeeStats(selectedYear, selectedWeek);
-      } else {
-        // Check if data is in cache
-        const isCached = isDataCached(selectedYear, undefined, selectedMonth);
-        setIsFromCache(isCached);
-        
-        data = await getEmployeeMonthStats(selectedYear, selectedMonth);
+      if (forceRefresh) {
+        setIsRefreshing(true);
       }
       
-      setEmployees(data);
-    } catch (error) {
-      console.error('Error loading employees:', error);
-      setEmployees([]);
+      setError(null);
+
+      // Direct timeout op fetch operaties
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 seconden timeout
+      
+      try {
+        // Fetch employee data directly
+        let result;
+        
+        if (viewMode === 'week') {
+          result = await getEmployeeStats(selectedYear, selectedWeek, undefined, forceRefresh);
+        } else {
+          result = await getEmployeeMonthStats(selectedYear, selectedMonth, forceRefresh);
+        }
+        
+        // Set the from cache status and employees data
+        setIsFromCache(result.fromCache);
+        
+        // Get week days for the selected week
+        const weekDays = getWeekDays(selectedYear, selectedWeek);
+        
+        // Calculate start and end dates for the period
+        const startDate = viewMode === 'week' 
+          ? weekDays[0] // First day of the week
+          : new Date(selectedYear, selectedMonth, 1); // First day of the month
+        
+        const endDate = viewMode === 'week'
+          ? weekDays[weekDays.length - 1] // Last day of the week
+          : new Date(selectedYear, selectedMonth + 1, 0); // Last day of the month
+            
+        // Fetch absences with abort controller
+        try {
+          console.log(`Fetching absences from ${format(startDate, 'yyyy-MM-dd')} to ${format(endDate, 'yyyy-MM-dd')}`);
+          const absencesResponse = await fetch(
+            `${API_BASE}/absences?startDate=${format(startDate, 'yyyy-MM-dd')}&endDate=${format(endDate, 'yyyy-MM-dd')}`,
+            { signal: controller.signal }
+          );
+          
+          if (absencesResponse.ok) {
+            const absencesData = await absencesResponse.json();
+            console.log(`Found ${absencesData.length} absence records for the period`);
+            
+            // Group absences by employee
+            const absencesByEmployee: AbsencesByEmployee = {};
+            if (Array.isArray(absencesData)) {
+              absencesData.forEach((absence: Absence) => {
+                const employeeId = absence.employee.id;
+                if (!absencesByEmployee[employeeId]) {
+                  absencesByEmployee[employeeId] = [];
+                }
+                absencesByEmployee[employeeId].push(absence);
+              });
+            }
+            
+            // Combine data - use result.data instead of just result
+            const enrichedEmployees = enrichEmployeesWithAbsences(result.data, absencesByEmployee);
+            setEmployees(enrichedEmployees);
+            setAbsences(absencesByEmployee);
+          } else {
+            // Alleen de employees data gebruiken als absences mislukken
+            console.error('Error fetching absences:', absencesResponse.status);
+            setEmployees(result.data);
+          }
+        } catch (absenceErr) {
+          // Alleen de employees data gebruiken als absences mislukken
+          console.error('Error fetching absences:', absenceErr);
+          setEmployees(result.data);
+        }
+        
+        // Reset refreshing state
+        if (forceRefresh) {
+          setIsRefreshing(false);
+        }
+        
+        // Wis de timeout omdat we klaar zijn
+        clearTimeout(timeoutId);
+      } catch (err) {
+        // Cancel timeout als er een fout optreedt
+        clearTimeout(timeoutId);
+        
+        // Reset refreshing state
+        if (forceRefresh) {
+          setIsRefreshing(false);
+        }
+        
+        // Log de fout en toon een foutmelding
+        console.error('Error fetching data:', err);
+        
+        if (err.name === 'AbortError') {
+          setError('Het laden van data duurde te lang. Probeer het opnieuw.');
+        } else {
+          setError('Er is een fout opgetreden bij het laden van data.');
+        }
+        
+        // Toon fallback data als we geen employees hebben
+        if (employees.length === 0) {
+          setEmployees([{
+            id: 0,
+            name: "Fout bij laden",
+            function: "Ververs de pagina",
+            expectedHours: 0,
+            leaveHours: 0,
+            writtenHours: 0,
+            actualHours: 0,
+            active: true
+          }]);
+        }
+      }
+    } catch (err) {
+      console.error('Unexpected error in fetchData:', err);
+      setError('Er is een onverwachte fout opgetreden.');
+      
+      // Toon fallback data als we geen employees hebben
+      if (employees.length === 0) {
+        setEmployees([{
+          id: 0,
+          name: "Fout bij laden",
+          function: "Ververs de pagina",
+          expectedHours: 0,
+          leaveHours: 0,
+          writtenHours: 0,
+          actualHours: 0,
+          active: true
+        }]);
+      }
     } finally {
+      // Always turn off loading indicators, even on error
       setIsLoading(false);
+      if (forceRefresh) {
+        setIsRefreshing(false);
+      }
     }
   };
 
@@ -287,7 +416,7 @@ export default function EmployeesPage() {
       
       // Reload employees if view mode changed
       if (preset.filters.viewMode !== viewMode) {
-        setTimeout(() => loadEmployees(), 0);
+        setTimeout(() => fetchData(), 0);
       }
     }
   };
@@ -300,310 +429,77 @@ export default function EmployeesPage() {
   };
 
   // Functie om data te verversen na synchronisatie
-  const refreshData = useCallback(() => {
-    loadEmployees();
-  }, [loadEmployees]);
+  const handleRefresh = () => {
+    fetchData(true);
+  };
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h1 className="text-3xl font-bold">Employee Hours Overview</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as 'week' | 'month')}>
-            <TabsList>
-              <TabsTrigger value="week">Week View</TabsTrigger>
-              <TabsTrigger value="month">Month View</TabsTrigger>
-            </TabsList>
-          </Tabs>
-          <DateSelector selectedDate={selectedDate} onDateChange={setSelectedDate} viewMode={viewMode} />
-          {isFromCache && (
-            <CacheStatusPopup 
-              year={selectedYear} 
-              week={viewMode === 'week' ? selectedWeek : undefined} 
-              month={viewMode === 'month' ? selectedMonth : undefined} 
-            />
-          )}
-          <Link to={generateEmployeeCardsUrl({
-            year: selectedYear,
-            week: viewMode === 'week' ? selectedWeek : undefined,
-            month: viewMode === 'month' ? selectedMonth : undefined,
-            viewMode,
-            search: searchQuery,
-            active: showOnlyActive,
-            minPercentage: percentageRange[0],
-            maxPercentage: percentageRange[1],
-            sortBy,
-            sortDirection,
-            excluded: excludedEmployees,
-            preset: selectedPreset || undefined
-          })}>
-            <Button variant="outline">Card View</Button>
-          </Link>
-          <AbsenceSyncButton onSyncComplete={refreshData} />
-          <DataSyncButton onSyncComplete={refreshData} />
-        </div>
-      </div>
-
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <div className="relative w-full sm:w-auto">
-            <MagnifyingGlassIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
-            <Input
-              type="search"
-              placeholder="Zoeken..."
-              className="pl-8 w-full sm:w-[200px]"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            {searchQuery && (
-              <button 
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-2 text-gray-500 hover:text-gray-700"
-              >
-                <Cross2Icon className="h-4 w-4" />
-              </button>
+    <div className="container mx-auto px-4 py-8">
+      <div className="flex flex-col space-y-4">
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-bold flex items-center">
+            <IconPerson className="mr-2 h-6 w-6" />
+            Employees Overview
+          </h1>
+          <div className="flex items-center gap-2">
+            {isFromCache && (
+              <Badge variant="outline" className="bg-green-50 text-xs">
+                From Cache
+              </Badge>
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isRefreshing}
+              onClick={handleRefresh}
+              className="flex items-center gap-2"
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              asChild
+            >
+              <Link to={generateEmployeeCardsUrl({
+                year: selectedYear,
+                month: selectedMonth + 1,
+                week: selectedWeek,
+                viewMode
+              })}>
+                <IconPerson className="w-4 h-4 mr-2" />
+                Cards
+              </Link>
+            </Button>
+            <DataSyncButton onSync={handleRefresh} />
+            <CacheStatus />
           </div>
-          
-          <Popover open={isFilterOpen} onOpenChange={setIsFilterOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" className="flex items-center gap-2">
-                <MixerHorizontalIcon className="h-4 w-4" />
-                Filters
-                {(showOnlyActive || percentageRange[0] > 0 || percentageRange[1] < 200 || excludedEmployees.length > 0) && (
-                  <span className="ml-1 h-2 w-2 rounded-full bg-blue-500"></span>
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-80">
-              <div className="space-y-4">
-                <h3 className="font-medium">Filter Options</h3>
-                
-                <div className="space-y-2">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox 
-                      id="active-only" 
-                      checked={showOnlyActive} 
-                      onCheckedChange={(checked) => setShowOnlyActive(checked === true)}
-                    />
-                    <Label htmlFor="active-only">Show only active employees</Label>
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label>Difference Percentage Range</Label>
-                  <div className="pt-4">
-                    <Slider 
-                      value={percentageRange}
-                      min={0}
-                      max={200}
-                      step={5}
-                      onValueChange={setPercentageRange}
-                    />
-                    <div className="flex justify-between mt-2 text-sm text-gray-500">
-                      <span>{percentageRange[0]}%</span>
-                      <span>{percentageRange[1]}%</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Excluded Employees</Label>
-                  <div className="max-h-32 overflow-y-auto space-y-2 border rounded-md p-2">
-                    {employees.map(emp => (
-                      <div key={emp.id} className="flex items-center space-x-2">
-                        <Checkbox 
-                          id={`exclude-${emp.id}`}
-                          checked={excludedEmployees.includes(emp.id)}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setExcludedEmployees(prev => [...prev, emp.id]);
-                            } else {
-                              setExcludedEmployees(prev => prev.filter(id => id !== emp.id));
-                            }
-                          }}
-                        />
-                        <Label htmlFor={`exclude-${emp.id}`} className="text-sm">
-                          {emp.name}
-                        </Label>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Filter Presets</Label>
-                  <div className="space-y-2">
-                    <div className="flex gap-2">
-                      <Input 
-                        id="preset-name"
-                        placeholder="Preset name"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && e.currentTarget.value) {
-                            saveCurrentFilterAsPreset(e.currentTarget.value);
-                            e.currentTarget.value = '';
-                          }
-                        }}
-                      />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          const input = document.getElementById('preset-name') as HTMLInputElement;
-                          if (input.value) {
-                            saveCurrentFilterAsPreset(input.value);
-                            input.value = '';
-                          }
-                        }}
-                      >
-                        Save
-                      </Button>
-                    </div>
-                    
-                    <div className="max-h-32 overflow-y-auto space-y-2 border rounded-md p-2">
-                      {presets.map(preset => (
-                        <div key={preset.id} className="flex items-center justify-between">
-                          <Button
-                            variant={selectedPreset === preset.id ? "default" : "ghost"}
-                            size="sm"
-                            className="flex-1 justify-start"
-                            onClick={() => loadPreset(preset.id)}
-                          >
-                            {preset.name}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeletePreset(preset.id)}
-                          >
-                            <Cross2Icon className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))}
-                      {presets.length === 0 && (
-                        <div className="text-sm text-gray-500 text-center py-2">
-                          No presets saved
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="flex justify-end">
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={resetFilters}
-                    className="mr-2"
-                  >
-                    Reset
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    onClick={() => setIsFilterOpen(false)}
-                  >
-                    Apply
-                  </Button>
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
-        </div>
-      </div>
-
-      <div className="space-y-6">
-        <div className="rounded-md border">
-          {isLoading ? (
-            <div className="p-8 flex justify-center">
-              <div className="space-y-2 w-full max-w-md">
-                <Skeleton className="h-8 w-full" />
-                <Skeleton className="h-8 w-full" />
-                <Skeleton className="h-8 w-full" />
-                <Skeleton className="h-8 w-full" />
-                <Skeleton className="h-8 w-full" />
-              </div>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[250px]">EMPLOYEE</TableHead>
-                  <TableHead>FUNCTION</TableHead>
-                  <TableHead>CONTRACT PERIOD</TableHead>
-                  <TableHead className="text-right">CONTRACT HOURS</TableHead>
-                  <TableHead className="text-right">HOLIDAY HOURS</TableHead>
-                  <TableHead className="text-right">EXPECTED HOURS</TableHead>
-                  <TableHead className="text-right">LEAVE HOURS</TableHead>
-                  <TableHead className="text-right">WRITTEN HOURS</TableHead>
-                  <TableHead className="text-right">ACTUAL HOURS</TableHead>
-                  <TableHead className="text-right">PERCENTAGE</TableHead>
-                  <TableHead className="text-right">ACTIONS</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredEmployees.length > 0 ? (
-                  filteredEmployees.map((employee) => (
-                    <TableRow key={employee.id}>
-                      <TableCell className="font-medium">{employee.name}</TableCell>
-                      <TableCell>{employee.function || '-'}</TableCell>
-                      <TableCell>{employee.contractPeriod || '-'}</TableCell>
-                      <TableCell className="text-right">{employee.contractHours || 0}</TableCell>
-                      <TableCell className="text-right">{employee.holidayHours || 0}</TableCell>
-                      <TableCell className="text-right">{employee.expectedHours}</TableCell>
-                      <TableCell className="text-right">{employee.leaveHours}</TableCell>
-                      <TableCell className="text-right">{employee.writtenHours}</TableCell>
-                      <TableCell className="text-right">{employee.actualHours}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <span className={getPercentageColor(calculatePercentage(employee.actualHours, employee.expectedHours))}>
-                            {calculatePercentage(employee.actualHours, employee.expectedHours)}%
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setSelectedEmployee(employee)}
-                        >
-                          <InfoCircledIcon className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={11} className="text-center py-6 text-gray-500">
-                      Geen medewerkers gevonden die voldoen aan de filters.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          )}
         </div>
         
-        <div className="text-sm text-gray-500">
-          {filteredEmployees.length} medewerker{filteredEmployees.length !== 1 ? 's' : ''} weergegeven
-          {filteredEmployees.length !== employees.length && ` (van ${employees.length} totaal)`}
-        </div>
-      </div>
-
-      {selectedEmployee && (
-        <EmployeeAbsenceModal
-          employee={selectedEmployee}
-          onClose={() => setSelectedEmployee(null)}
-          isOpen={!!selectedEmployee}
-          startDate={viewMode === 'week' 
-            ? new Date(selectedYear, 0, 1 + (selectedWeek - 1) * 7).toISOString().split('T')[0]
-            : new Date(selectedYear, selectedMonth, 1).toISOString().split('T')[0]
-          }
-          endDate={viewMode === 'week'
-            ? new Date(selectedYear, 0, 1 + selectedWeek * 7 - 1).toISOString().split('T')[0]
-            : new Date(selectedYear, selectedMonth + 1, 0).toISOString().split('T')[0]
-          }
+        <WeekSelector 
+          year={selectedYear}
+          week={selectedWeek}
+          onYearChange={(newYear) => setSelectedDate(new Date(newYear, selectedDate.getMonth(), selectedDate.getDate()))}
+          onWeekChange={(newWeek) => setSelectedDate(new Date(selectedDate.getFullYear(), 0, 1 + (newWeek - 1) * 7))}
+          className="mb-6"
         />
-      )}
+        
+        {error && <ErrorMessage message={error} className="mb-6" />}
+        
+        {isLoading ? (
+          <div className="flex justify-center items-center h-64">
+            <Spinner size="large" />
+            <span className="ml-2 text-gray-500">Loading employee data...</span>
+          </div>
+        ) : (
+          <EmployeeTable 
+            employees={filteredEmployees}
+            weekDays={weekDays}
+            absences={absences}
+          />
+        )}
+      </div>
     </div>
   );
 } 

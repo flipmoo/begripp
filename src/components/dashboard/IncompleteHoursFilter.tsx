@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Progress } from '../ui/progress';
 import { Button } from '../ui/button';
@@ -26,13 +26,17 @@ interface EmployeeWithPercentage extends EmployeeWithStats {
   excluded: boolean;
 }
 
+export interface IncompleteHoursFilterRef {
+  refreshData: () => void;
+}
+
 interface IncompleteHoursFilterProps {
   onFilterChange?: (filteredEmployees: EmployeeWithPercentage[]) => void;
 }
 
 const STORAGE_KEY = 'incomplete-hours-filters';
 
-const IncompleteHoursFilter: React.FC<IncompleteHoursFilterProps> = ({ onFilterChange }) => {
+const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHoursFilterProps>(({ onFilterChange }, ref) => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
@@ -41,6 +45,14 @@ const IncompleteHoursFilter: React.FC<IncompleteHoursFilterProps> = ({ onFilterC
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   
+  // Expose refreshData function to parent
+  useImperativeHandle(ref, () => ({
+    refreshData: () => {
+      // Force a refresh by incrementing retryCount
+      setRetryCount(prev => prev + 1);
+    }
+  }));
+
   // Laad de opgeslagen filters uit localStorage
   const loadSavedFilters = (): SavedFilters | null => {
     try {
@@ -140,6 +152,28 @@ const IncompleteHoursFilter: React.FC<IncompleteHoursFilterProps> = ({ onFilterC
       });
     }
   };
+  
+  // Helper function to auto-save filters without showing toast notifications
+  const autoSaveFilters = (overrides: Partial<SavedFilters> = {}) => {
+    setTimeout(() => {
+      try {
+        const filtersToSave: SavedFilters = {
+          periodType,
+          selectedYear,
+          selectedPeriod,
+          percentageRange,
+          showExcluded,
+          excludedEmployees: Array.from(excludedEmployees),
+          ...overrides // Apply any overrides
+        };
+        
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(filtersToSave));
+        console.log('Filters automatically saved');
+      } catch (error) {
+        console.error('Error auto-saving filters:', error);
+      }
+    }, 0);
+  };
 
   // Fetch employee data when filters change
   useEffect(() => {
@@ -148,13 +182,34 @@ const IncompleteHoursFilter: React.FC<IncompleteHoursFilterProps> = ({ onFilterC
         setLoading(true);
         setError(null);
         
-        let employeeData: EmployeeWithStats[];
+        let result;
+        
+        // Force refresh when filters change to avoid using cached data with different criteria
+        // We still want to respect the cache when just loading the component initially
+        const isFilterChange = retryCount > 0;
         
         if (periodType === 'week') {
-          employeeData = await getEmployeeStats(selectedYear, selectedPeriod);
+          result = await getEmployeeStats(
+            selectedYear, 
+            selectedPeriod, 
+            undefined, 
+            isFilterChange, 
+            false, // Not preloading
+            true   // Is dashboard request
+          );
         } else {
-          employeeData = await getEmployeeMonthStats(selectedYear, selectedPeriod);
+          result = await getEmployeeMonthStats(
+            selectedYear, 
+            selectedPeriod, 
+            isFilterChange, 
+            false, // Not preloading
+            true   // Is dashboard request
+          );
         }
+        
+        // Verwerk het resultaat direct, zonder additionele checks 
+        // die kunnen leiden tot onnodige rerenders
+        const employeeData = result.data || [];
         
         // Transform to EmployeeWithPercentage and mark excluded employees
         const transformedEmployees = employeeData
@@ -173,6 +228,10 @@ const IncompleteHoursFilter: React.FC<IncompleteHoursFilterProps> = ({ onFilterC
           .sort((a, b) => a.percentage - b.percentage); // Sort by percentage (lowest first)
         
         setEmployees(transformedEmployees);
+        // Reset retry count after successful fetch
+        if (retryCount > 0) {
+          setRetryCount(0);
+        }
       } catch (err) {
         console.error('Error fetching employee hours:', err);
         setError('Er is een fout opgetreden bij het laden van de medewerker uren. Controleer of de API-server draait.');
@@ -229,6 +288,10 @@ const IncompleteHoursFilter: React.FC<IncompleteHoursFilterProps> = ({ onFilterC
       } else {
         newSet.add(employeeId);
       }
+      
+      // After updating the state, automatically save filters
+      autoSaveFilters({ excludedEmployees: Array.from(newSet) });
+      
       return newSet;
     });
     
@@ -240,6 +303,9 @@ const IncompleteHoursFilter: React.FC<IncompleteHoursFilterProps> = ({ onFilterC
           : employee
       )
     );
+    
+    // Force refresh data after toggling exclusion
+    setRetryCount(prev => prev + 1);
   };
 
   return (
@@ -265,7 +331,14 @@ const IncompleteHoursFilter: React.FC<IncompleteHoursFilterProps> = ({ onFilterC
               <Label>Periode type</Label>
               <Select 
                 value={periodType} 
-                onValueChange={(value) => setPeriodType(value as 'week' | 'month')}
+                onValueChange={(value) => {
+                  setPeriodType(value as 'week' | 'month');
+                  // Force refresh when period type changes
+                  setRetryCount(prev => prev + 1);
+                  
+                  // Auto-save the filters when period type changes
+                  autoSaveFilters({ periodType: value as 'week' | 'month' });
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecteer periode type" />
@@ -282,7 +355,14 @@ const IncompleteHoursFilter: React.FC<IncompleteHoursFilterProps> = ({ onFilterC
               <Label>Jaar</Label>
               <Select 
                 value={selectedYear.toString()} 
-                onValueChange={(value) => setSelectedYear(parseInt(value))}
+                onValueChange={(value) => {
+                  setSelectedYear(parseInt(value));
+                  // Force refresh when year changes
+                  setRetryCount(prev => prev + 1);
+                  
+                  // Auto-save the filters when year changes
+                  autoSaveFilters({ selectedYear: parseInt(value) });
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecteer jaar" />
@@ -302,7 +382,14 @@ const IncompleteHoursFilter: React.FC<IncompleteHoursFilterProps> = ({ onFilterC
               <Label>{periodType === 'week' ? 'Week' : 'Maand'}</Label>
               <Select 
                 value={selectedPeriod.toString()} 
-                onValueChange={(value) => setSelectedPeriod(parseInt(value))}
+                onValueChange={(value) => {
+                  setSelectedPeriod(parseInt(value));
+                  // Force refresh when period changes
+                  setRetryCount(prev => prev + 1);
+                  
+                  // Auto-save the filters when period changes
+                  autoSaveFilters({ selectedPeriod: parseInt(value) });
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder={`Selecteer ${periodType === 'week' ? 'week' : 'maand'}`} />
@@ -332,6 +419,13 @@ const IncompleteHoursFilter: React.FC<IncompleteHoursFilterProps> = ({ onFilterC
               max={100}
               step={5}
               onValueChange={(value) => setPercentageRange(value as [number, number])}
+              onValueCommit={(value) => {
+                // Only trigger refresh when the user finishes dragging
+                setRetryCount(prev => prev + 1);
+                
+                // Auto-save the filters when percentage range changes
+                autoSaveFilters({ percentageRange: value as [number, number] });
+              }}
               className="py-4"
             />
           </div>
@@ -341,7 +435,13 @@ const IncompleteHoursFilter: React.FC<IncompleteHoursFilterProps> = ({ onFilterC
             <Checkbox 
               id="show-excluded" 
               checked={showExcluded}
-              onCheckedChange={(checked) => setShowExcluded(checked === true)}
+              onCheckedChange={(checked) => {
+                setShowExcluded(checked === true);
+                setRetryCount(prev => prev + 1);
+                
+                // Auto-save the filters when show excluded changes
+                autoSaveFilters({ showExcluded: checked === true });
+              }}
             />
             <Label htmlFor="show-excluded">Toon uitgesloten medewerkers</Label>
           </div>
@@ -413,6 +513,6 @@ const IncompleteHoursFilter: React.FC<IncompleteHoursFilterProps> = ({ onFilterC
       </CardContent>
     </Card>
   );
-};
+});
 
 export default IncompleteHoursFilter; 

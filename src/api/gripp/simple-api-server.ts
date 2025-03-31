@@ -14,10 +14,11 @@ import { syncHours, syncAllData, syncAbsenceRequests } from '../../services/sync
 import { projectService, ProjectService } from './services/project';
 import { cacheService, CACHE_KEYS } from './cache-service';
 import { GrippRequest, executeRequest } from './client';
+import { API_PORT, killProcessOnPort } from '../../config/ports';
 
 const exec = promisify(execCallback);
 const app = express();
-const port = 3002;
+const port = API_PORT; // Use centralized port configuration
 
 // Create Express router
 export const router = express.Router();
@@ -942,10 +943,10 @@ router.post('/auto-sync/run-now', async (req, res) => {
   }
 });
 
-// Dashboard test endpoint
+// Ensure Dashboard test endpoint exists and matches the one in api-server.ts
 router.get('/dashboard/test', async (req, res) => {
-  console.log('Dashboard test endpoint called');
-  return res.status(200).json({ message: 'Dashboard API is available' });
+  console.log('Dashboard test endpoint called from simple-api-server');
+  return res.status(200).json({ message: 'Dashboard API is available', server: 'simple-api-server' });
 });
 
 // Dashboard invoices endpoint
@@ -984,7 +985,24 @@ router.get('/dashboard/projects/active', async (req, res) => {
       return res.status(500).json({ error: 'Database not connected' });
     }
 
+    console.log('Fetching active projects for dashboard');
+    
+    // Optioneel forceren van refresh door query parameter (voor testen)
+    const forceRefresh = req.query.refresh === 'true';
+    
+    // Clear de project cache als nodig
+    if (forceRefresh) {
+      console.log('Force refresh requested, clearing project cache');
+      cacheService.clear('projects');
+    }
+    
+    // Zet cache-control headers om browser caching te voorkomen
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
     const projects = await projectService.getActiveProjects(db);
+    console.log(`Returning ${projects.length} active projects`);
     res.json({ response: projects });
   } catch (error) {
     console.error('Error fetching active projects:', error);
@@ -1016,16 +1034,98 @@ router.get('/dashboard/projects/:id', async (req, res) => {
 });
 
 router.post('/dashboard/sync/projects', async (req, res) => {
+  console.log('Project synchronization requested');
   try {
+    // Controleer of de database beschikbaar is
     if (!db) {
-      return res.status(500).json({ error: 'Database not connected' });
+      console.error('Database connection not available for project sync');
+      return res.status(503).json({ 
+        error: 'Database not connected', 
+        message: 'De database connectie is niet beschikbaar. Probeer het later opnieuw.'
+      });
     }
 
+    // Voeg Cache-Control headers toe om caching te voorkomen
+    res.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.header('Pragma', 'no-cache');
+    res.header('Expires', '0');
+    res.header('Surrogate-Control', 'no-store');
+
+    console.log('Starting project synchronization via API...');
+    
+    try {
+      // Test de database verbinding
+      await db.get('SELECT 1');
+      console.log('Database connection verified');
+    } catch (dbTestError) {
+      console.error('Database connection test failed:', dbTestError);
+      return res.status(500).json({ 
+        error: 'Database connection error',
+        message: 'De database verbinding is niet beschikbaar. Controleer of de database toegankelijk is.',
+        details: dbTestError instanceof Error ? dbTestError.message : String(dbTestError)
+      });
+    }
+    
+    const syncStartTime = Date.now();
     await projectService.syncProjects(db);
-    res.json({ status: 'ok', message: 'Projects synchronized successfully' });
+    const syncDuration = Date.now() - syncStartTime;
+    
+    console.log(`Project synchronization completed successfully in ${syncDuration}ms`);
+    
+    return res.json({ 
+      status: 'ok', 
+      message: 'Projects synchronized successfully',
+      timestamp: new Date().toISOString(),
+      duration_ms: syncDuration
+    });
   } catch (error) {
     console.error('Error synchronizing projects:', error);
-    res.status(500).json({ error: 'Failed to synchronize projects' });
+    
+    // Extract detailed error information
+    const errorDetails = error instanceof Error 
+      ? {
+          message: error.message,
+          stack: error.stack,
+          name: error.name,
+          // Include additional properties for specific error types
+          code: (error as any).code,
+          errno: (error as any).errno,
+          cause: error.cause,
+        }
+      : { message: String(error) };
+    
+    console.error('Detailed error information:', errorDetails);
+    
+    // Bepaal de juiste HTTP status code op basis van het type fout
+    let statusCode = 500;
+    let userFriendlyMessage = 'Er is een onverwachte fout opgetreden tijdens het synchroniseren van projecten.';
+    
+    // Controleer op specifieke fouttypen
+    if (error instanceof Error) {
+      const errorMessage = error.message.toLowerCase();
+      if (errorMessage.includes('database') && (
+          errorMessage.includes('connection') || 
+          errorMessage.includes('access') || 
+          errorMessage.includes('permission')
+      )) {
+        statusCode = 503;
+        userFriendlyMessage = 'Database probleem. De service is tijdelijk niet beschikbaar. Probeer het later opnieuw.';
+      } else if (errorMessage.includes('api') && errorMessage.includes('gripp')) {
+        statusCode = 502;
+        userFriendlyMessage = 'Probleem bij het verbinden met de Gripp API. Controleer de API-instellingen.';
+      } else if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
+        statusCode = 504;
+        userFriendlyMessage = 'Timeout bij het ophalen van projecten. De server kon de aanvraag niet op tijd verwerken.';
+      }
+    }
+    
+    // Stuur een gedetailleerde foutrespons
+    return res.status(statusCode).json({ 
+      error: 'Failed to synchronize projects',
+      message: userFriendlyMessage,
+      timestamp: new Date().toISOString(),
+      details: errorDetails
+    });
   }
 });
 
@@ -1257,35 +1357,148 @@ app.get('/api/invoices/overdue', async (req, res) => {
 app.use('/api', router);
 
 // Start the server with error handling
-const server = app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
-  
-  // Initialize the database
-  getDatabase().then(database => {
-    db = database;
-    console.log('Database connected');
-    
-    // Create the project service if it doesn't exist yet
-    let projectServiceInstance = projectService;
-    if (!projectServiceInstance) {
-      projectServiceInstance = new ProjectService();
-    }
-  }).catch(err => {
-    console.error('Failed to connect to database:', err);
-  });
-}).on('error', async (error: NodeJS.ErrnoException) => {
-  if (error.code === 'EADDRINUSE') {
-    console.error(`Port ${port} is already in use. Trying to close existing connection...`);
-    try {
-      await exec(`lsof -i :${port} | grep LISTEN | awk '{print $2}' | xargs kill -9`);
-      console.log(`Successfully killed process on port ${port}. Restarting server...`);
-      server.listen(port);
-    } catch (err) {
-      console.error(`Failed to kill process on port ${port}:`, err);
+const startServer = () => {
+  app.listen(port, () => {
+    console.log(`Simple API Server running on port ${port}`);
+  }).on('error', async (error: any) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(`Port ${port} is already in use. Killing existing process and retrying...`);
+      
+      try {
+        // Kill the process on port using the centralized function
+        await killProcessOnPort(port);
+        console.log(`Killed process on port ${port}, retrying in 1 second...`);
+        
+        // Retry after a short delay
+        setTimeout(() => {
+          startServer();
+        }, 1000);
+      } catch (killError) {
+        console.error(`Failed to kill process on port ${port}:`, killError);
+        console.error(`Cannot start Simple API server. Please manually kill process on port ${port}`);
+        process.exit(1);
+      }
+    } else {
+      console.error('Failed to start Simple API server:', error);
       process.exit(1);
     }
-  } else {
-    console.error('Failed to start server:', error);
-    process.exit(1);
-  }
+  });
+};
+
+// Start the server
+startServer();
+
+// Add API restart endpoint (similar to api-server.ts)
+app.get('/api/restart', async (req, res) => {
+  console.log('API restart requested from simple-api-server');
+  
+  // Set headers to prevent caching
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Content-Type', 'text/html');
+  
+  // Send response immediately before restarting
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>API Server Restarting</title>
+        <style>
+          body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+          h1 { color: #333; }
+          .message { margin: 20px 0; color: #666; }
+          .spinner { 
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 2s linear infinite;
+            margin: 20px auto;
+          }
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        </style>
+      </head>
+      <body>
+        <h1>API Server Restarting</h1>
+        <div class="spinner"></div>
+        <p class="message">Het API server wordt herstart...</p>
+        <p class="message">Dit venster zal automatisch sluiten na succesvol herstarten.</p>
+        <script>
+          // Script to check if API is back online
+          setTimeout(function checkApiStatus() {
+            fetch('http://localhost:${API_PORT}/api/dashboard/test')
+              .then(response => {
+                if (response.ok) {
+                  // API is back online
+                  document.querySelector('.message').textContent = 'API server succesvol herstart!';
+                  setTimeout(() => window.close(), 2000);
+                } else {
+                  // API still starting up
+                  setTimeout(checkApiStatus, 1000);
+                }
+              })
+              .catch(() => {
+                // API not available, check again after delay
+                setTimeout(checkApiStatus, 1000);
+              });
+          }, 5000); // Initial delay to allow server to start shutting down
+        </script>
+      </body>
+    </html>
+  `);
+  
+  // Schedule the restart after response is sent
+  setTimeout(async () => {
+    try {
+      console.log('Initiating API server restart...');
+      
+      // Get the current process ID
+      const pid = process.pid;
+      console.log(`Current process ID: ${pid}`);
+      
+      // Fork a new process to start the server after this one exits
+      const { spawn } = require('child_process');
+      
+      // Get the path to the script that started this server
+      const scriptPath = process.argv[1];
+      console.log(`Script path: ${scriptPath}`);
+      
+      // Spawn a new process that will start the server after a delay
+      const restarter = spawn('node', [
+        '-e',
+        `
+        setTimeout(() => {
+          console.log('Restarting API server...');
+          const { spawn } = require('child_process');
+          const path = require('path');
+          const tsx = path.resolve(process.cwd(), 'node_modules', '.bin', 'tsx');
+          const child = spawn('${process.execPath}', ['${scriptPath}'], {
+            detached: true,
+            stdio: 'ignore',
+            env: process.env
+          });
+          child.unref();
+          process.exit(0);
+        }, 2000);
+        `
+      ], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      
+      restarter.unref();
+      
+      // Exit this process after a short delay
+      setTimeout(() => {
+        console.log('Exiting current API server instance...');
+        process.exit(0);
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Failed to restart API server:', error);
+    }
+  }, 1000);
 });

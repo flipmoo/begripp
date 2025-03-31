@@ -28,8 +28,8 @@ import { Badge } from '../../components/ui/badge';
 import { format, parseISO, isAfter } from 'date-fns';
 import { nl } from 'date-fns/locale';
 
-// Define API base URL
-const API_BASE = 'http://localhost:3002/api';
+// Define API base URL - use relative path to work with Vite proxy
+const API_BASE = '/api';
 
 // Format date function
 const formatDate = (dateString: string) => {

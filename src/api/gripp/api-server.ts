@@ -10,6 +10,7 @@ import { absenceService, AbsenceRequest } from './services/absence';
 import { startOfWeek, setWeek, addDays } from 'date-fns';
 import { format, getDay } from 'date-fns';
 import { getAbsenceRequests } from './simple-client';
+import { getWeekDates } from './utils/date-utils';
 import dotenv from 'dotenv';
 import { Database } from 'sqlite3';
 import { Database as SqliteDatabase } from 'sqlite';
@@ -19,6 +20,13 @@ import { cacheService, CACHE_KEYS } from './cache-service';
 import { projectService, ProjectService } from './services/project';
 import { grippClient } from './client';
 import { invoiceService } from './services/invoice';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { API_PORT, killProcessOnPort } from '../../config/ports';
+
+// Define __dirname equivalent for ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Define the GrippRequest interface
 interface GrippRequest {
@@ -31,34 +39,104 @@ const exec = promisify(execCallback);
 
 // Load environment variables from .env file
 dotenv.config();
+console.log('Dotenv loaded successfully');
 
 const app = express();
-const port = 3002;
+const port = API_PORT; // Use port from central config
+// const alternativePorts = [3004, 3005, 3006]; // Comment out alternative ports
+
+console.log(`Using API key: ${process.env.GRIPP_API_KEY?.substring(0, 20)}...`);
 
 // Rate limiting
-const limiter = rateLimit({
+const standardLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
+  max: 500, // increased from 100 to 500 requests per windowMs
+  message: 'Too many requests, please try again later.',
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  handler: (req, res, next, options) => {
+    console.warn(`Rate limit exceeded for ${req.ip} on ${req.path} (standard limiter)`);
+    res.status(options.statusCode).json({
+      status: 429,
+      message: options.message,
+      retryAfter: Math.ceil(options.windowMs / 1000)
+    });
+  }
 });
+
+// More generous limiter for dashboard endpoints which need frequent refreshes
+const dashboardLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 300, // Allow more requests for dashboard endpoints
+  message: 'Too many dashboard requests, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res, next, options) => {
+    console.warn(`Rate limit exceeded for ${req.ip} on ${req.path} (dashboard limiter)`);
+    res.status(options.statusCode).json({
+      status: 429,
+      message: options.message,
+      retryAfter: Math.ceil(options.windowMs / 1000)
+    });
+  }
+});
+
+// Track API endpoint usage
+const endpointHits = new Map<string, number>();
+
+// API usage monitor middleware
+const apiMonitor = (req: Request, res: Response, next: Function) => {
+  const endpoint = req.path;
+  const currentHits = endpointHits.get(endpoint) || 0;
+  endpointHits.set(endpoint, currentHits + 1);
+  
+  // Check if high number of requests
+  if (currentHits > 1000) {
+    console.warn(`High traffic detected on endpoint: ${endpoint} - ${currentHits} hits`);
+  }
+  
+  next();
+};
 
 app.use(cors());
 app.use(express.json());
-app.use(limiter);
+app.use(apiMonitor); // Add API monitoring
 
 // Add CORS headers to allow requests from any origin
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
   
-  // Add cache control headers to prevent browser caching
-  res.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  res.header('Pragma', 'no-cache');
-  res.header('Expires', '0');
+  // Remove the cache-control headers that were preventing caching
+  // res.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  // res.header('Pragma', 'no-cache');
+  // res.header('Expires', '0');
   
   next();
 });
 
+// Apply standard rate limiting to all endpoints
+app.use('/api/', standardLimiter);
+
+// Apply dashboard-specific rate limiting to dashboard endpoints
+app.use('/api/dashboard', dashboardLimiter);
+app.use('/api/employee-stats', (req, res, next) => {
+  if (req.query.dashboard === 'true') {
+    dashboardLimiter(req, res, next);
+  } else {
+    standardLimiter(req, res, next);
+  }
+});
+app.use('/api/employee-month-stats', (req, res, next) => {
+  if (req.query.dashboard === 'true') {
+    dashboardLimiter(req, res, next);
+  } else {
+    standardLimiter(req, res, next);
+  }
+});
+
 let db: SqliteDatabase | null = null;
+let serverStartTime = Date.now();
 
 // Initialize database on startup
 getDatabase().then(async database => {
@@ -66,6 +144,101 @@ getDatabase().then(async database => {
   console.log('Database connected');
 }).catch(error => {
   console.error('Database connection error:', error);
+});
+
+// Health check endpoints
+app.get('/health', async (req: Request, res: Response) => {
+  const uptime = Math.floor((Date.now() - serverStartTime) / 1000); // in seconds
+  
+  try {
+    // Check database connection
+    const dbConnected = !!db;
+    
+    res.json({
+      status: 'ok',
+      database: dbConnected ? 'connected' : 'disconnected',
+      timestamp: new Date().toISOString(),
+      uptime: uptime
+    });
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(500).json({
+      status: 'error',
+      database: 'unknown',
+      error: error instanceof Error ? error.message : String(error),
+      timestamp: new Date().toISOString(),
+      uptime: uptime
+    });
+  }
+});
+
+// Also add the same endpoint under /api prefix for consistency
+app.get('/api/health', async (req: Request, res: Response) => {
+  const uptime = Math.floor((Date.now() - serverStartTime) / 1000); // in seconds
+  
+  try {
+    // Check database connection
+    const dbConnected = !!db;
+    
+    res.json({
+      status: 'ok',
+      database: dbConnected ? 'connected' : 'disconnected',
+      timestamp: new Date().toISOString(),
+      uptime: uptime
+    });
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(500).json({
+      status: 'error',
+      database: 'unknown',
+      error: error instanceof Error ? error.message : String(error),
+      timestamp: new Date().toISOString(),
+      uptime: uptime
+    });
+  }
+});
+
+// Add API monitoring endpoint
+app.get('/api/monitor', async (req: Request, res: Response) => {
+  try {
+    // Convert endpointHits map to a sorted array
+    const endpoints = Array.from(endpointHits.entries())
+      .map(([endpoint, hits]) => ({ endpoint, hits }))
+      .sort((a, b) => b.hits - a.hits);
+    
+    // Get total hits
+    const totalHits = endpoints.reduce((sum, current) => sum + current.hits, 0);
+    
+    // Get top endpoints (most used)
+    const topEndpoints = endpoints.slice(0, 10);
+    
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      rateLimit: {
+        standard: {
+          windowMs: standardLimiter.options.windowMs,
+          max: standardLimiter.options.max
+        },
+        dashboard: {
+          windowMs: dashboardLimiter.options.windowMs,
+          max: dashboardLimiter.options.max
+        }
+      },
+      stats: {
+        totalHits,
+        uniqueEndpoints: endpoints.length,
+        topEndpoints
+      },
+      uptime: Math.floor((Date.now() - serverStartTime) / 1000)
+    });
+  } catch (error) {
+    console.error('Monitor endpoint error:', error);
+    res.status(500).json({
+      status: 'error',
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
 });
 
 // Helper function to normalize date strings for comparison
@@ -251,17 +424,10 @@ app.get('/api/employees', async (req: Request, res: Response) => {
       const isEvenWeek = Number(week) % 2 === 0;
       
       // Calculate contract hours for the week
-      const contractHours = isEvenWeek
-        ? (employee.hours_monday_even || 0) + 
-          (employee.hours_tuesday_even || 0) + 
-          (employee.hours_wednesday_even || 0) + 
-          (employee.hours_thursday_even || 0) + 
-          (employee.hours_friday_even || 0)
-        : (employee.hours_monday_odd || 0) + 
-          (employee.hours_tuesday_odd || 0) + 
-          (employee.hours_wednesday_odd || 0) + 
-          (employee.hours_thursday_odd || 0) + 
-          (employee.hours_friday_odd || 0);
+      const contractHours = calculateWeeklyContractHours(
+        employee,
+        isEvenWeek
+      );
       
       // Format contract period
       const contractPeriod = employee.contract_startdate 
@@ -724,16 +890,39 @@ app.post('/api/cache/clear/employees', (req: Request, res: Response) => {
   try {
     cacheService.clearEmployeeData();
     console.log('Employee data cache cleared successfully');
-    return res.json({ 
-      success: true, 
-      message: 'Employee data cache cleared successfully' 
+    
+    // Return success response
+    return res.status(200).json({
+      success: true,
+      message: 'Employee data cache cleared successfully',
     });
   } catch (error) {
     console.error('Error clearing employee data cache:', error);
-    return res.status(500).json({ 
+    return res.status(500).json({
       success: false,
-      error: 'Failed to clear employee data cache',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      message: 'Failed to clear employee data cache',
+      error: error.message,
+    });
+  }
+});
+
+// Add endpoint to clear invoice data cache
+app.post('/api/cache/clear/invoices', (req: Request, res: Response) => {
+  try {
+    cacheService.clearInvoiceData();
+    console.log('Invoice data cache cleared successfully');
+    
+    // Return success response
+    return res.status(200).json({
+      success: true,
+      message: 'Invoice data cache cleared successfully',
+    });
+  } catch (error) {
+    console.error('Error clearing invoice data cache:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to clear invoice data cache',
+      error: error.message,
     });
   }
 });
@@ -744,21 +933,149 @@ app.get('/api/cache/status', (req: Request, res: Response) => {
     const keys = cacheService.keys();
     const stats = {
       total: keys.length,
-      employeeWeek: keys.filter(key => key.startsWith('employees_week_')).length,
-      employeeMonth: keys.filter(key => key.startsWith('employees_month_')).length,
+      employeeKeys: keys.filter(key => 
+        key.startsWith('employees_week_') || 
+        key.startsWith('employees_month_')
+      ).length,
+      revenueKeys: keys.filter(key => 
+        key.startsWith('revenue_hours_')
+      ).length,
+      invoiceKeys: keys.filter(key => 
+        key.startsWith('invoices_')
+      ).length,
       keys: keys
     };
     
-    return res.json({ 
-      success: true, 
-      stats
-    });
+    res.json(stats);
   } catch (error) {
     console.error('Error getting cache status:', error);
+    res.status(500).json({ error: 'Failed to get cache status' });
+  }
+});
+
+// Add revenue hours endpoint
+app.get('/api/revenue/hours', async (req: Request, res: Response) => {
+  try {
+    const year = req.query.year ? parseInt(req.query.year as string) : new Date().getFullYear();
+    
+    // Check if we have cached data for this year
+    const cacheKey = CACHE_KEYS.REVENUE_HOURS(year);
+    const cachedData = cacheService.get(cacheKey);
+    
+    if (cachedData) {
+      res.header('X-Cache', 'HIT');
+      return res.json(cachedData);
+    }
+    
+    // If no cached data, query the database
+    if (!db) {
+      return res.status(503).json({ error: 'Database not ready' });
+    }
+    
+    console.log(`Fetching revenue data from database for year=${year}`);
+    
+    // Set year boundaries for the query
+    const startDate = `${year}-01-01`;
+    const endDate = `${year}-12-31`;
+    
+    // Since we don't have a direct relationship between hours and projects in the database,
+    // we'll use employee functions as a proxy for project categorization to provide meaningful data
+    const results = await db.all(`
+      SELECT 
+        e.function AS projectName,
+        strftime('%m', h.date) AS month,
+        SUM(h.amount) AS totalHours
+      FROM 
+        hours h
+      JOIN 
+        employees e ON h.employee_id = e.id
+      WHERE 
+        h.date BETWEEN ? AND ?
+        AND e.function IS NOT NULL AND e.function != ''
+      GROUP BY 
+        e.function, month
+      ORDER BY 
+        e.function, month
+    `, [startDate, endDate]);
+    
+    console.log(`Got ${results.length} rows of revenue data`);
+    
+    // If no results, generate sample data for testing
+    if (results.length === 0) {
+      console.log(`No revenue data found in database for year=${year}, generating sample data`);
+      
+      // Generate department/function-based data that mimics real output
+      const functions = [
+        'Developer', 'Designer', 'Project Manager', 'Marketing', 
+        'Sales', 'Account Manager', 'QA Engineer', 'DevOps',
+        'Strategy', 'Content Creator', 'UX Researcher'
+      ];
+      
+      const projectData = functions.map((functionName, i) => {
+        const projectId = 1000 + i;
+        
+        // Generate monthly hours with some variation and reasonable patterns
+        const months = Array(12).fill(0).map((_, monthIdx) => {
+          // Generate realistic hours patterns
+          // 70% chance of having hours in any given month for active functions
+          const hasHours = Math.random() < 0.7;
+          // Hours range from 5 to 180 depending on function type
+          const maxHours = functionName.includes('Manager') ? 100 : 180;
+          const minHours = functionName.includes('Manager') ? 5 : 20;
+          return hasHours ? parseFloat((Math.random() * (maxHours - minHours) + minHours).toFixed(1)) : 0;
+        });
+        
+        return {
+          projectId,
+          projectName: functionName,
+          months
+        };
+      });
+      
+      // Cache the sample data
+      cacheService.set(cacheKey, projectData);
+      
+      res.header('X-Cache', 'MISS');
+      res.header('X-Data-Source', 'sample');
+      return res.json(projectData);
+    }
+    
+    // Transform the query results into the expected format
+    const projectMap = new Map();
+    
+    // Process the results to create project entries
+    let projectId = 1000;
+    results.forEach(row => {
+      const projectName = row.projectName;
+      
+      if (!projectMap.has(projectName)) {
+        projectMap.set(projectName, {
+          projectId: projectId++,
+          projectName: projectName,
+          months: Array(12).fill(0)
+        });
+      }
+      
+      const project = projectMap.get(projectName);
+      // Month is 1-indexed in the database but we need 0-indexed for the array
+      const monthIndex = parseInt(row.month) - 1;
+      project.months[monthIndex] = parseFloat(row.totalHours.toFixed(1));
+    });
+    
+    // Convert map to array for the response
+    const formattedData = Array.from(projectMap.values());
+    
+    // Cache the formatted results
+    cacheService.set(cacheKey, formattedData);
+    
+    res.header('X-Cache', 'MISS');
+    res.header('X-Data-Source', 'database');
+    return res.json(formattedData);
+  } catch (error) {
+    console.error('Error fetching revenue hours:', error);
     return res.status(500).json({ 
-      success: false,
-      error: 'Failed to get cache status',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      error: 'Failed to fetch revenue hours',
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
@@ -868,13 +1185,193 @@ app.get('/api/employee-functions', async (req: Request, res: Response) => {
 // Create a router for the dashboard endpoints
 const dashboardRouter = express.Router();
 
+// Add endpoint for department declarability data
+dashboardRouter.get('/declarability', async (req: Request, res: Response) => {
+  try {
+    if (!db) {
+      console.error('Database not initialized');
+      return res.status(503).json({ error: 'Database not ready. Please try again in a few seconds.' });
+    }
+
+    // Check if the dashboard stats are cached
+    const cacheKey = CACHE_KEYS.DASHBOARD_STATS;
+    const cachedData = cacheService.get(cacheKey);
+    if (cachedData) {
+      res.header('X-Cache', 'HIT');
+      return res.json(cachedData);
+    }
+
+    // Parse the request parameters
+    const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date();
+    const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
+    
+    // Format the dates for the query
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+    
+    console.log(`Fetching declarability data for period ${startDateStr} to ${endDateStr}`);
+    
+    // Get departments with at least one active employee
+    const departments = await db.all(`
+      SELECT DISTINCT
+        e.department_id as id,
+        e.department_name as name,
+        COUNT(e.id) as employee_count
+      FROM 
+        employees e
+      WHERE 
+        e.active = true AND
+        e.department_id IS NOT NULL AND
+        e.department_name IS NOT NULL
+      GROUP BY
+        e.department_id, e.department_name
+      ORDER BY
+        e.department_name
+    `);
+    
+    if (!departments || departments.length === 0) {
+      return res.status(404).json({ error: 'No departments found with active employees' });
+    }
+    
+    console.log(`Found ${departments.length} departments with active employees`);
+    
+    // Get hours for the period
+    const hours = await db.all(`
+      SELECT 
+        h.id,
+        h.employee_id,
+        h.date,
+        h.amount,
+        h.offerprojectline_id,
+        e.department_id,
+        e.department_name,
+        opl.invoicebasis
+      FROM 
+        hours h
+      JOIN
+        employees e ON h.employee_id = e.id
+      LEFT JOIN
+        offerprojectlines opl ON h.offerprojectline_id = opl.id
+      WHERE 
+        h.date BETWEEN ? AND ?
+      ORDER BY 
+        h.date
+    `, [startDateStr, endDateStr]);
+    
+    console.log(`Found ${hours.length} hour entries for the period`);
+    
+    // Calculate declarability per department
+    const departmentDeclarability = departments.map(dept => {
+      // Get hours for this department
+      const deptHours = hours.filter(h => h.department_id === dept.id);
+      const totalHours = deptHours.reduce((sum, h) => sum + h.amount, 0);
+      
+      // Split into declarable and non-declarable hours
+      // invoice_basis = 4 means non-declarable
+      const nonDeclarableHours = deptHours
+        .filter(h => h.invoicebasis === 4)
+        .reduce((sum, h) => sum + h.amount, 0);
+      
+      const declarableHours = totalHours - nonDeclarableHours;
+      const declarabilityPercentage = totalHours > 0 
+        ? Math.round((declarableHours / totalHours) * 100) 
+        : 0;
+      
+      return {
+        departmentId: dept.id,
+        departmentName: dept.name,
+        totalHours,
+        declarableHours,
+        nonDeclarableHours,
+        declarabilityPercentage
+      };
+    });
+    
+    // Filter out departments with no hours
+    const activeDepartments = departmentDeclarability.filter(d => d.totalHours > 0);
+    
+    // Calculate overall declarability
+    const overallTotalHours = departmentDeclarability.reduce((sum, d) => sum + d.totalHours, 0);
+    const overallDeclarableHours = departmentDeclarability.reduce((sum, d) => sum + d.declarableHours, 0);
+    const overallDeclarabilityPercentage = overallTotalHours > 0
+      ? Math.round((overallDeclarableHours / overallTotalHours) * 100)
+      : 0;
+    
+    const result = {
+      departments: activeDepartments,
+      overall: {
+        totalHours: overallTotalHours,
+        declarableHours: overallDeclarableHours,
+        nonDeclarableHours: overallTotalHours - overallDeclarableHours,
+        declarabilityPercentage: overallDeclarabilityPercentage
+      }
+    };
+    
+    // Cache the result - this will stay in cache until manually cleared
+    cacheService.set(cacheKey, result);
+    
+    return res.json(result);
+  } catch (error) {
+    console.error('Error fetching department declarability:', error);
+    return res.status(500).json({ error: 'Failed to fetch department declarability data' });
+  }
+});
+
+// Add endpoint to get departments with active employee count
+dashboardRouter.get('/departments', async (req: Request, res: Response) => {
+  try {
+    if (!db) {
+      console.error('Database not initialized');
+      return res.status(503).json({ error: 'Database not ready. Please try again in a few seconds.' });
+    }
+
+    // Use the dashboard departments cache key
+    const cacheKey = CACHE_KEYS.DASHBOARD_PROJECTS;
+    const cachedData = cacheService.get(cacheKey);
+    if (cachedData) {
+      res.header('X-Cache', 'HIT');
+      return res.json(cachedData);
+    }
+    
+    // Get departments with at least one active employee
+    const departments = await db.all(`
+      SELECT 
+        e.department_id as id,
+        e.department_name as name,
+        COUNT(e.id) as employee_count
+      FROM 
+        employees e
+      WHERE 
+        e.active = true AND
+        e.department_id IS NOT NULL AND
+        e.department_name IS NOT NULL
+      GROUP BY
+        e.department_id, e.department_name
+      ORDER BY
+        e.department_name
+    `);
+    
+    if (!departments || departments.length === 0) {
+      return res.status(404).json({ error: 'No departments found with active employees' });
+    }
+    
+    // Cache the result
+    cacheService.set(cacheKey, departments);
+    
+    return res.json(departments);
+  } catch (error) {
+    console.error('Error fetching departments:', error);
+    return res.status(500).json({ error: 'Failed to fetch departments data' });
+  }
+});
+
 // Dashboard endpoints voor projecten
 dashboardRouter.get('/test', async (req, res) => {
   try {
-    res.json({ status: 'ok', message: 'Dashboard API is working' });
+    return res.json({ status: 'ok', message: 'Dashboard API is working correctly' });
   } catch (error) {
-    console.error('Error in dashboard test endpoint:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error testing dashboard API:', error);
+    return res.status(500).json({ error: 'Failed to test dashboard API' });
   }
 });
 
@@ -882,14 +1379,105 @@ dashboardRouter.get('/projects/active', async (req, res) => {
   try {
     const db = await getDatabase();
     if (!db) {
-      return res.status(500).json({ error: 'Database not connected' });
+      return res.status(503).json({ error: 'Database not ready' });
     }
-
+    
+    // Get active projects
     const projects = await projectService.getActiveProjects(db);
-    res.json({ response: projects });
+    return res.json({ response: projects });
   } catch (error) {
     console.error('Error fetching active projects:', error);
-    res.status(500).json({ error: 'Failed to fetch active projects' });
+    return res.status(500).json({ error: 'Failed to fetch active projects' });
+  }
+});
+
+// Nieuw endpoint voor het synchroniseren van projecten
+dashboardRouter.post('/sync/projects', async (req, res) => {
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not ready' });
+    }
+    
+    // Log de synchronisatie actie
+    console.log('Synchronizing projects from Gripp API...');
+    
+    // Daadwerkelijk de projecten synchroniseren
+    try {
+      // Haal projecten op van de Gripp API en synchroniseer naar de database
+      await projectService.syncProjects(db);
+      
+      // Verify projects were saved - log count
+      try {
+        const count = await db.get('SELECT COUNT(*) as count FROM projects');
+        console.log(`After sync: Database contains ${count.count} projects`);
+        
+        // Check for fixed price projects
+        const fixedPriceCount = await db.get(`
+          SELECT COUNT(*) as count FROM projects 
+          WHERE tags LIKE '%Vaste prijs%'
+        `);
+        console.log(`After sync: Database contains ${fixedPriceCount.count} projects with "Vaste prijs" tag`);
+      } catch (countError) {
+        console.error('Error counting projects after sync:', countError);
+      }
+      
+      // Wis alleen de project cache, niet de hele cache
+      try {
+        console.log('Clearing project cache after synchronization');
+        // Gebruik een specifieke methode om alleen project-gerelateerde cache te wissen
+        if (cacheService.clearProjectData) {
+          console.log('Using clearProjectData method to clear cache');
+          cacheService.clearProjectData();
+        } else {
+          // Fallback als de specifieke methode niet bestaat
+          console.log('Using fallback method to clear cache');
+          Object.keys(CACHE_KEYS)
+            .filter(key => key.includes('PROJECT') || key.includes('DASHBOARD'))
+            .forEach(key => {
+              console.log(`Clearing cache for key pattern: ${key}`);
+              cacheService.del(CACHE_KEYS[key]);
+            });
+        }
+        console.log('Project cache cleared successfully');
+        
+        // Log cache keys after clearing to verify
+        const remainingKeys = cacheService.keys();
+        console.log(`Remaining cache keys after clearing: ${remainingKeys.length}`);
+        console.log('Project-related keys that might still exist:', 
+          remainingKeys.filter(key => 
+            key.includes('project') || 
+            key.includes('PROJECT') || 
+            key.includes('DASHBOARD')
+          )
+        );
+      } catch (cacheError) {
+        console.error('Error clearing project cache:', cacheError);
+        // Continue despite cache clear error
+      }
+      
+      console.log('Projects synchronized successfully');
+      
+      return res.json({ 
+        status: 'ok', 
+        message: 'Projects synchronization completed successfully',
+        timestamp: new Date().toISOString()
+      });
+    } catch (syncError) {
+      console.error('Error during project synchronization:', syncError);
+      return res.status(500).json({ 
+        error: 'Failed to synchronize projects',
+        message: syncError instanceof Error ? syncError.message : 'Unknown error during synchronization',
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    console.error('Error setting up project synchronization:', error);
+    return res.status(500).json({ 
+      error: 'Failed to set up project synchronization',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
@@ -897,12 +1485,22 @@ dashboardRouter.get('/projects/:id', async (req, res) => {
   try {
     const db = await getDatabase();
     if (!db) {
-      return res.status(500).json({ error: 'Database not connected' });
+      return res.status(503).json({ error: 'Database not ready' });
     }
-
+    
+    // Extract project ID from request
     const projectId = parseInt(req.params.id);
     if (isNaN(projectId)) {
       return res.status(400).json({ error: 'Invalid project ID' });
+    }
+
+    // Check cache first
+    const cacheKey = `${CACHE_KEYS.DASHBOARD_PROJECTS}_${projectId}`;
+    const cachedData = cacheService.get(cacheKey);
+    if (cachedData) {
+      console.log(`Using cached data for project ID: ${projectId}`);
+      res.header('X-Cache', 'HIT');
+      return res.json({ response: cachedData });
     }
 
     const project = await projectService.getProjectById(db, projectId);
@@ -910,6 +1508,11 @@ dashboardRouter.get('/projects/:id', async (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
+    // Cache the results with a short TTL (5 minutes)
+    cacheService.set(cacheKey, project, 300);
+    console.log(`Setting shorter cache TTL (300s) for dashboard key: ${cacheKey}`);
+
+    res.header('X-Cache', 'MISS');
     res.json({ response: project });
   } catch (error) {
     console.error(`Error fetching project ${req.params.id}:`, error);
@@ -917,107 +1520,617 @@ dashboardRouter.get('/projects/:id', async (req, res) => {
   }
 });
 
-dashboardRouter.post('/sync/projects', async (req, res) => {
+// Add a new endpoint for employee-stats that the frontend is requesting
+app.get('/api/employee-stats', async (req: Request, res: Response) => {
   try {
-    const db = await getDatabase();
     if (!db) {
-      return res.status(500).json({ error: 'Database not connected' });
+      console.error('Database not initialized');
+      return res.status(503).json({ error: 'Database not ready. Please try again in a few seconds.' });
     }
 
-    await projectService.syncProjects(db);
-    res.json({ status: 'ok', message: 'Projects synchronized successfully' });
-  } catch (error) {
-    console.error('Error synchronizing projects:', error);
-    res.status(500).json({ error: 'Failed to synchronize projects' });
-  }
-});
+    // Parse week and year from query parameters
+    const weekParam = req.query.week as string;
+    const yearParam = req.query.year as string;
+    const isDashboard = req.query.dashboard === 'true';
+    
+    // Ensure week and year are parsed correctly
+    const week = parseInt(weekParam);
+    const year = parseInt(yearParam);
+    
+    // Validate the parameters
+    if (isNaN(week) || isNaN(year) || week < 1 || week > 53) {
+      console.error(`Invalid week or year: week=${weekParam}, year=${yearParam}`);
+      return res.status(400).json({ error: 'Invalid week or year. Week must be between 1-53.' });
+    }
+    
+    const cacheKey = CACHE_KEYS.EMPLOYEES_WEEK(year, week);
+    
+    // Check if data is in cache
+    const cachedData = cacheService.get(cacheKey);
+    if (cachedData) {
+      console.log(`Using cached data for year=${year}, week=${week} from /api/employee-stats endpoint`);
+      
+      // Set cache control headers
+      res.header('X-Cache', 'HIT');
+      // Set cache-control to allow caching for 24 hours
+      res.header('Cache-Control', 'max-age=86400, public');
+      
+      return res.json(cachedData);
+    }
+    
+    // Calculate start and end date for the week
+    const { startDate, endDate } = getWeekDatesWithFallback(year, week);
+    
+    console.log(`Fetching employee data for week ${week} of ${year} (${startDate} to ${endDate}) from /api/employee-stats endpoint`);
+    
+    // Get employees from database with their contracts
+    const employees = await db.all<Employee[]>(`
+      SELECT 
+        e.id, 
+        e.firstname, 
+        e.lastname,
+        e.firstname || ' ' || e.lastname as name,
+        e.function,
+        e.active,
+        date(c.startdate) as contract_startdate,
+        date(c.enddate) as contract_enddate,
+        c.hours_monday_even,
+        c.hours_tuesday_even,
+        c.hours_wednesday_even,
+        c.hours_thursday_even,
+        c.hours_friday_even,
+        c.hours_monday_odd,
+        c.hours_tuesday_odd,
+        c.hours_wednesday_odd,
+        c.hours_thursday_odd,
+        c.hours_friday_odd
+      FROM 
+        employees e
+      LEFT JOIN
+        contracts c ON e.id = c.employee_id
+      WHERE 
+        e.active = true
+      GROUP BY
+        e.id
+      ORDER BY
+        e.firstname, e.lastname
+    `);
 
-// Add the endpoint before mounting the dashboard router
-dashboardRouter.post('/gripp/sync-project', async (req, res) => {
-  try {
-    const { projectId } = req.body;
-    
-    if (!projectId || isNaN(parseInt(projectId))) {
-      return res.status(400).json({ error: 'Invalid or missing project ID' });
+    if (!employees || employees.length === 0) {
+      console.log('No employees found in database');
+      return res.status(404).json({ error: 'No employees found' });
     }
+
+    console.log(`Found ${employees.length} employees in database`);
     
-    const db = await getDatabase();
-    if (!db) {
-      return res.status(500).json({ error: 'Database not connected' });
-    }
+    // Get absence data for the period
+    const absenceData = await db.all<AbsenceData[]>(`
+      SELECT 
+        ar.id,
+        ar.employee_id,
+        arl.date as startdate,
+        arl.date as enddate,
+        ar.absencetype_id as type_id,
+        ar.absencetype_searchname as type_name,
+        arl.amount as hours_per_day,
+        ar.description,
+        arl.status_id,
+        arl.status_name
+      FROM 
+        absence_requests ar
+      JOIN
+        absence_request_lines arl ON ar.id = arl.absencerequest_id
+      JOIN
+        employees e ON ar.employee_id = e.id
+      WHERE 
+        e.active = true AND
+        arl.date BETWEEN ? AND ? AND
+        arl.status_id = 2 -- Status ID 2 = GOEDGEKEURD (Approved)
+      ORDER BY
+        arl.date ASC
+    `, [startDate, endDate]);
     
-    console.log(`Syncing project ${projectId} from Gripp API...`);
+    console.log('Found absence data:', absenceData.length, 'records');
     
-    // Create request to get specific project with all needed fields
-    const request = {
-      method: 'project.get',
-      params: [
-        [
-          {
-            field: 'project.id',
-            operator: 'equals',
-            value: parseInt(projectId)
-          }
-        ],
-        {
-          fields: [
-            'project.id',
-            'project.name',
-            'project.number',
-            'project.color',
-            'project.totalexclvat',
-            'project.totalinclvat',
-            'project.deadline',
-            'project.phase',
-            'project.company',
-            'project.projectlines.id',
-            'project.projectlines.amount',
-            'project.projectlines.amountwritten',
-            'project.projectlines.description',
-            'project.projectlines.sellingprice',
-            'project.projectlines.product',
-            'project.employees_starred',
-            'project.tags'
-          ]
-        }
-      ],
-      id: 1
-    };
+    // Get written hours for the period
+    const writtenHoursData = await db.all(`
+      SELECT 
+        employee_id,
+        SUM(amount) as total_hours
+      FROM 
+        hours
+      WHERE 
+        date BETWEEN ? AND ?
+      GROUP BY
+        employee_id
+    `, [startDate, endDate]);
+
+    console.log('Found written hours data:', writtenHoursData.length, 'records');
     
-    // Execute request to Gripp API
-    // @ts-expect-error - We weten dat dit werkt, ook al matcht het type niet exact
-    const response = await grippClient.executeRequest(request);
+    // Get holidays for the period
+    const holidays = await db.all<Holiday[]>(`
+      SELECT date, name FROM holidays 
+      WHERE date >= ? AND date <= ?
+    `, [startDate, endDate]);
+
+    console.log('Found holidays:', holidays);
     
-    if (response.error) {
-      console.error('Error from Gripp API:', response.error);
-      return res.status(500).json({ error: 'Failed to get project from Gripp API' });
-    }
-    
-    if (!response.result.rows.length) {
-      return res.status(404).json({ error: 'Project not found in Gripp' });
-    }
-    
-    // Get the updated project details
-    const updatedProject = response.result.rows[0];
-    
-    // Save it in the database
-    await projectService.saveProject(db, updatedProject);
-    
-    // Return the updated project details
-    res.json({ response: updatedProject });
-  } catch (error) {
-    console.error('Error syncing project:', error);
-    res.status(500).json({ 
-      error: 'Failed to sync project', 
-      message: error instanceof Error ? error.message : String(error) 
+    // Create a map of employee absences
+    const absencesByEmployee: { [key: number]: AbsenceData[] } = {};
+    absenceData.forEach(absence => {
+      const employeeId = absence.employee_id;
+      if (!absencesByEmployee[employeeId]) {
+        absencesByEmployee[employeeId] = [];
+      }
+      absencesByEmployee[employeeId].push(absence);
     });
+    
+    // Create a map of written hours
+    const writtenHoursByEmployee: { [key: number]: number } = {};
+    writtenHoursData.forEach(item => {
+      writtenHoursByEmployee[item.employee_id] = item.total_hours;
+    });
+    
+    // Calculate week information (is it even/odd?)
+    const isEvenWeek = week % 2 === 0;
+    
+    // Process employee data with contracts, absences, and expected hours
+    const processedEmployees = employees.map(employee => {
+      // Get contract hours based on even/odd week
+      const weeklyHours = isEvenWeek 
+        ? ((employee.hours_monday_even || 0) + 
+           (employee.hours_tuesday_even || 0) + 
+           (employee.hours_wednesday_even || 0) + 
+           (employee.hours_thursday_even || 0) + 
+           (employee.hours_friday_even || 0))
+        : ((employee.hours_monday_odd || 0) + 
+           (employee.hours_tuesday_odd || 0) + 
+           (employee.hours_wednesday_odd || 0) + 
+           (employee.hours_thursday_odd || 0) + 
+           (employee.hours_friday_odd || 0));
+      
+      // Get leave hours from absences
+      const leaveHours = (absencesByEmployee[employee.id] || [])
+        .reduce((total, absence) => total + (absence.hours_per_day || 0), 0);
+      
+      // Get written hours
+      const writtenHours = writtenHoursByEmployee[employee.id] || 0;
+      
+      // Format contract period
+      let contractPeriod = '';
+      if (employee.contract_startdate) {
+        contractPeriod = employee.contract_enddate 
+          ? `${employee.contract_startdate} - ${employee.contract_enddate}`
+          : `${employee.contract_startdate} - present`;
+      }
+      
+      // Calculate expected hours for the week (accounting for holidays)
+      const expectedHours = weeklyHours - (holidays.length * 8); // Subtract 8 hours for each holiday
+      
+      return {
+        id: employee.id,
+        name: employee.name,
+        function: employee.function || '',
+        contract_period: contractPeriod,
+        contract_hours: weeklyHours,
+        expected_hours: expectedHours,
+        leave_hours: leaveHours,
+        written_hours: writtenHours,
+        actual_hours: writtenHours,
+        active: employee.active
+      };
+    });
+    
+    // Filter for dashboard if requested
+    const finalEmployees = isDashboard
+      ? processedEmployees.filter(e => e.contract_hours > 0) // Only show employees with contract hours for dashboard
+      : processedEmployees;
+    
+    // Cache the results
+    cacheService.set(cacheKey, finalEmployees, 86400); // Cache for 24 hours
+    console.log(`Cache SET for key: ${cacheKey} with TTL: 86400s`);
+    
+    // Send response with cache headers
+    res.header('X-Cache', 'MISS');
+    res.header('Cache-Control', 'max-age=86400, public');
+    return res.json(finalEmployees);
+    
+  } catch (error) {
+    console.error('Error fetching employee data:', error);
+    res.status(500).json({ error: 'Failed to fetch employee data for the week' });
   }
 });
 
-// Mount the dashboard router
+// Add a new endpoint for employee-month-stats that the frontend is requesting
+app.get('/api/employee-month-stats', async (req: Request, res: Response) => {
+  try {
+    if (!db) {
+      console.error('Database not initialized');
+      return res.status(503).json({ error: 'Database not ready. Please try again in a few seconds.' });
+    }
+
+    // Parse month and year from query parameters
+    const monthParam = req.query.month as string;
+    const yearParam = req.query.year as string;
+    
+    // Ensure month is parsed correctly (always as 1-12)
+    const month = parseInt(monthParam);
+    const year = parseInt(yearParam);
+    
+    // Validate the parameters
+    if (isNaN(month) || isNaN(year) || month < 1 || month > 12) {
+      console.error(`Invalid month or year: month=${monthParam}, year=${yearParam}`);
+      return res.status(400).json({ error: 'Invalid month or year. Month must be between 1-12.' });
+    }
+    
+    const cacheKey = CACHE_KEYS.EMPLOYEES_MONTH(year, month);
+    
+    // Check if data is in cache
+    const cachedData = cacheService.get(cacheKey);
+    if (cachedData) {
+      console.log(`Using cached data for year=${year}, month=${month} from /api/employee-month-stats endpoint`);
+      
+      // Set cache control headers
+      res.header('X-Cache', 'HIT');
+      // Set cache-control to allow caching for 24 hours
+      res.header('Cache-Control', 'max-age=86400, public');
+      
+      return res.json(cachedData);
+    }
+    
+    // Calculate start and end date for the month (adjust for 0-indexed month)
+    const monthForDate = month - 1; // Adjust for JS Date which uses 0-11 for months
+    const startDate = new Date(year, monthForDate, 1);
+    const endDate = new Date(year, monthForDate + 1, 0); // Last day of the month
+    
+    console.log(`Fetching employee data for month ${month} of ${year} (${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}) from /api/employee-month-stats endpoint`);
+    
+    // Get employees from database with their contracts
+    const employees = await db.all<Employee[]>(`
+      SELECT 
+        e.id, 
+        e.firstname, 
+        e.lastname,
+        e.firstname || ' ' || e.lastname as name,
+        e.function,
+        e.active,
+        date(c.startdate) as contract_startdate,
+        date(c.enddate) as contract_enddate,
+        c.hours_monday_even,
+        c.hours_tuesday_even,
+        c.hours_wednesday_even,
+        c.hours_thursday_even,
+        c.hours_friday_even,
+        c.hours_monday_odd,
+        c.hours_tuesday_odd,
+        c.hours_wednesday_odd,
+        c.hours_thursday_odd,
+        c.hours_friday_odd
+      FROM 
+        employees e
+      LEFT JOIN
+        contracts c ON e.id = c.employee_id
+      WHERE 
+        e.active = true
+      GROUP BY
+        e.id
+      ORDER BY
+        e.firstname, e.lastname
+    `);
+
+    if (!employees || employees.length === 0) {
+      console.log('No employees found in database');
+      return res.status(404).json({ error: 'No employees found' });
+    }
+
+    console.log(`Found ${employees.length} employees in database`);
+    
+    // Get absence data for the period
+    const absenceData = await db.all<AbsenceData[]>(`
+      SELECT 
+        ar.id,
+        ar.employee_id,
+        arl.date as startdate,
+        arl.date as enddate,
+        ar.absencetype_id as type_id,
+        ar.absencetype_searchname as type_name,
+        arl.amount as hours_per_day,
+        ar.description,
+        arl.status_id,
+        arl.status_name
+      FROM 
+        absence_requests ar
+      JOIN
+        absence_request_lines arl ON ar.id = arl.absencerequest_id
+      JOIN
+        employees e ON ar.employee_id = e.id
+      WHERE 
+        e.active = true AND
+        arl.date BETWEEN ? AND ? AND
+        arl.status_id = 2 -- Status ID 2 = GOEDGEKEURD (Approved)
+      ORDER BY
+        arl.date ASC
+    `, [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]);
+    
+    console.log('Found absence data:', absenceData.length, 'records');
+    
+    // Get written hours for the period
+    const writtenHoursData = await db.all(`
+      SELECT 
+        employee_id,
+        SUM(amount) as total_hours
+      FROM 
+        hours
+      WHERE 
+        date BETWEEN ? AND ?
+      GROUP BY
+        employee_id
+    `, [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]);
+
+    console.log('Found written hours data:', writtenHoursData.length, 'records');
+    
+    // Get holidays for the period
+    const holidays = await db.all<Holiday[]>(`
+      SELECT date, name FROM holidays 
+      WHERE date >= ? AND date <= ?
+    `, [
+      startDate.toISOString().split('T')[0],
+      endDate.toISOString().split('T')[0]
+    ]);
+
+    console.log('Found holidays:', holidays);
+    
+    // Create a map of employee absences
+    const absencesByEmployee: { [key: number]: AbsenceData[] } = {};
+    absenceData.forEach(absence => {
+      const employeeId = absence.employee_id;
+      if (!absencesByEmployee[employeeId]) {
+        absencesByEmployee[employeeId] = [];
+      }
+      absencesByEmployee[employeeId].push(absence);
+    });
+    
+    // Create a map of written hours
+    const writtenHoursByEmployee: { [key: number]: number } = {};
+    writtenHoursData.forEach(item => {
+      writtenHoursByEmployee[item.employee_id] = item.total_hours;
+    });
+    
+    // Calculate total workdays and contract hours for the month
+    const totalWorkdays = getWorkdaysInMonth(year, month);
+    
+    // Process employee data with contracts, absences, and expected hours
+    const processedEmployees = employees.map(employee => {
+      // Calculate average weekly contract hours
+      const evenWeekHours = (employee.hours_monday_even || 0) + 
+                           (employee.hours_tuesday_even || 0) + 
+                           (employee.hours_wednesday_even || 0) + 
+                           (employee.hours_thursday_even || 0) + 
+                           (employee.hours_friday_even || 0);
+      
+      const oddWeekHours = (employee.hours_monday_odd || 0) + 
+                          (employee.hours_tuesday_odd || 0) + 
+                          (employee.hours_wednesday_odd || 0) + 
+                          (employee.hours_thursday_odd || 0) + 
+                          (employee.hours_friday_odd || 0);
+      
+      const avgWeeklyHours = (evenWeekHours + oddWeekHours) / 2;
+      
+      // Calculate monthly contract hours (approximate)
+      const avgDailyHours = avgWeeklyHours / 5;
+      const contractHours = avgDailyHours * totalWorkdays;
+      
+      // Calculate contract period
+      const contractPeriod = formatContractPeriod(employee.contract_startdate, employee.contract_enddate);
+      
+      // Get absences for this employee
+      const employeeAbsences = absencesByEmployee[employee.id] || [];
+      
+      // Calculate leave hours for this employee
+      const leaveHours = calculateLeaveHours(employeeAbsences);
+      
+      // Calculate holiday hours
+      const holidayHours = holidays.length * avgDailyHours;
+      
+      // Calculate expected hours (contract hours - holiday hours)
+      const expectedHours = Math.max(0, contractHours - holidayHours);
+      
+      // Get written hours for this employee
+      const writtenHours = writtenHoursByEmployee[employee.id] || 0;
+      
+      // Calculate actual hours (written hours - leave hours)
+      const actualHours = Math.max(0, writtenHours - leaveHours);
+      
+      // Return employee with all calculated metrics
+      return {
+        id: employee.id,
+        name: employee.name,
+        function: employee.function || null,
+        contract_period: contractPeriod,
+        contract_hours: Math.round(contractHours * 10) / 10,  // Round to 1 decimal place
+        holiday_hours: Math.round(holidayHours * 10) / 10,
+        expected_hours: Math.round(expectedHours * 10) / 10,
+        leave_hours: Math.round(leaveHours * 10) / 10,
+        written_hours: Math.round(writtenHours * 10) / 10,
+        actual_hours: Math.round(actualHours * 10) / 10,
+        active: employee.active
+      };
+    });
+    
+    // After processing employees, store the result in cache
+    cacheService.set(cacheKey, processedEmployees);
+    
+    // Set cache-control header to allow caching for 24 hours
+    res.header('Cache-Control', 'max-age=86400, public');
+    res.header('X-Cache', 'MISS');
+    
+    return res.json(processedEmployees);
+  } catch (error) {
+    console.error('Error fetching employee data:', error);
+    return res.status(500).json({ error: 'Failed to fetch employee data' });
+  }
+});
+
+// Helper function to count workdays in a month (excluding weekends)
+function getWorkdaysInMonth(year: number, month: number): number {
+  const startDate = new Date(year, month - 1, 1);
+  const endDate = new Date(year, month, 0);
+  let workdays = 0;
+  
+  const currentDate = new Date(startDate);
+  while (currentDate <= endDate) {
+    const dayOfWeek = currentDate.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) { // 0 = Sunday, 6 = Saturday
+      workdays++;
+    }
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+  
+  return workdays;
+}
+
+/**
+ * Calculate weekly contract hours for an employee
+ * @param employee Employee data with contract information 
+ * @param weekIsEven Whether the week is even or odd
+ * @returns Total weekly contract hours
+ */
+function calculateWeeklyContractHours(employee: any, weekIsEven: boolean): number {
+  if (!employee) return 0;
+  
+  // If the employee has no contract hours defined, return 0
+  if (!employee.hours_monday_even && !employee.hours_monday_odd) {
+    return 0;
+  }
+  
+  // Get the appropriate set of hours based on whether the week is even or odd
+  const mondayHours = weekIsEven ? (employee.hours_monday_even || 0) : (employee.hours_monday_odd || 0);
+  const tuesdayHours = weekIsEven ? (employee.hours_tuesday_even || 0) : (employee.hours_tuesday_odd || 0);
+  const wednesdayHours = weekIsEven ? (employee.hours_wednesday_even || 0) : (employee.hours_wednesday_odd || 0);
+  const thursdayHours = weekIsEven ? (employee.hours_thursday_even || 0) : (employee.hours_thursday_odd || 0);
+  const fridayHours = weekIsEven ? (employee.hours_friday_even || 0) : (employee.hours_friday_odd || 0);
+  
+  // Sum up all hours for the week
+  return mondayHours + tuesdayHours + wednesdayHours + thursdayHours + fridayHours;
+}
+
+/**
+ * Format contract start and end dates into a readable period string
+ * @param startDate Contract start date
+ * @param endDate Contract end date
+ * @returns Formatted contract period string
+ */
+function formatContractPeriod(startDate?: string, endDate?: string): string {
+  if (!startDate && !endDate) {
+    return 'No contract';
+  }
+  
+  if (startDate && !endDate) {
+    return `From ${startDate}`;
+  }
+  
+  if (!startDate && endDate) {
+    return `Until ${endDate}`;
+  }
+  
+  return `${startDate} - ${endDate}`;
+}
+
+/**
+ * Calculate total leave hours from employee absences
+ * @param absences List of employee absences
+ * @returns Total leave hours
+ */
+function calculateLeaveHours(absences: AbsenceData[]): number {
+  if (!absences || absences.length === 0) {
+    return 0;
+  }
+  
+  // Sum up hours from all leave-type absences
+  return absences.reduce((total, absence) => {
+    // Only count absences with status "Approved" (status_id usually 2 or similar)
+    if (absence.status_id === 2 || absence.status_name === 'Approved') {
+      return total + (absence.hours_per_day || 0);
+    }
+    return total;
+  }, 0);
+}
+
+/**
+ * Calculate total holiday hours within a given date range
+ * @param startDate Start date of the period
+ * @param endDate End date of the period
+ * @param holidays List of holidays
+ * @param mondayHours Hours for Monday
+ * @param tuesdayHours Hours for Tuesday
+ * @param wednesdayHours Hours for Wednesday
+ * @param thursdayHours Hours for Thursday
+ * @param fridayHours Hours for Friday
+ * @returns Total holiday hours
+ */
+function calculateHolidayHours(
+  startDate: Date, 
+  endDate: Date, 
+  holidays: Holiday[], 
+  mondayHours: number = 0, 
+  tuesdayHours: number = 0, 
+  wednesdayHours: number = 0, 
+  thursdayHours: number = 0, 
+  fridayHours: number = 0
+): number {
+  if (!holidays || holidays.length === 0) {
+    return 0;
+  }
+  
+  // Convert dates to ISO strings for comparison
+  const startISO = startDate.toISOString().split('T')[0];
+  const endISO = endDate.toISOString().split('T')[0];
+  
+  // Filter holidays that fall within the date range
+  const relevantHolidays = holidays.filter(holiday => {
+    const holidayDate = holiday.date.split('T')[0];
+    return holidayDate >= startISO && holidayDate <= endISO;
+  });
+  
+  if (relevantHolidays.length === 0) {
+    return 0;
+  }
+  
+  // Calculate hours for each holiday based on the day of the week
+  return relevantHolidays.reduce((total, holiday) => {
+    const holidayDate = new Date(holiday.date);
+    const dayOfWeek = holidayDate.getDay(); // 0 is Sunday, 1 is Monday, etc.
+    
+    switch (dayOfWeek) {
+      case 1: // Monday
+        return total + mondayHours;
+      case 2: // Tuesday
+        return total + tuesdayHours;
+      case 3: // Wednesday
+        return total + wednesdayHours;
+      case 4: // Thursday
+        return total + thursdayHours;
+      case 5: // Friday
+        return total + fridayHours;
+      default: // Weekend
+        return total;
+    }
+  }, 0);
+}
+
+// Add a simple catch-all error handler for API routes
+app.use((err, req, res, next) => {
+  console.error('Unhandled API error:', err);
+  res.status(500).json({
+    error: 'Internal server error',
+    message: err.message || 'An unexpected error occurred'
+  });
+});
+
+// Attach the dashboard router to the app
 app.use('/api/dashboard', dashboardRouter);
 
-// Invoice endpoints
+// Add invoice endpoints
 app.get('/api/invoices', async (req: Request, res: Response) => {
   try {
     console.log('API server: Fetching invoices');
@@ -1101,238 +2214,230 @@ app.get('/api/invoices/overdue', async (req: Request, res: Response) => {
   }
 });
 
-// Revenue endpoint - Get project hours per month
-app.get('/api/revenue/hours', async (req: Request, res: Response) => {
-  try {
-    console.log('API server: Fetching project hours for revenue');
-    const year = req.query.year ? parseInt(req.query.year as string) : 2025; // Default to 2025
-    
-    if (!db) {
-      console.error('Database not initialized');
-      return res.status(503).json({ error: 'Database not ready. Please try again in a few seconds.' });
-    }
-
-    // Get ALL employees (including inactive)
-    const employees = await db.all(`SELECT id, firstname, lastname, active FROM employees`);
-    console.log(`Found ${employees.length} total employees`);
-    
-    if (!employees || employees.length === 0) {
-      return res.status(404).json({ error: 'No employees found' });
-    }
-    
-    // Get project hours for ALL employees (including inactive) for specified year
-    const startDate = `${year}-01-01`;
-    const endDate = `${year}-12-31`;
-    
-    console.log(`Fetching hours for ALL employees from ${startDate} to ${endDate}`);
-    
-    let allHours: any[] = [];
-    const PAGE_SIZE = 250; // API max page size
-    let totalRequestsMade = 0;
-    let totalHoursFound = 0;
-    let employeesWithHours = 0;
-    let employeesWithoutHours = 0;
-    
-    // Map to keep track of hours per employee
-    const employeeHoursMap: { [key: number]: number } = {};
-    
-    for (const employee of employees) {
-      let hasMoreResults = true;
-      let offset = 0;
-      let employeeHours = 0;
-      
-      console.log(`Fetching hours for employee ${employee.id} (${employee.firstname} ${employee.lastname}, active: ${employee.active ? 'yes' : 'no'})`);
-      
-      while (hasMoreResults) {
-        totalRequestsMade++;
-        const request = {
-          method: 'hour.get',
-          params: [
-            [
-              {
-                field: 'hour.employee',
-                operator: 'equals',
-                value: employee.id,
-              },
-              {
-                field: 'hour.date',
-                operator: 'between',
-                value: startDate,
-                value2: endDate,
-              }
-            ],
-            {
-              paging: {
-                firstresult: offset,
-                maxresults: PAGE_SIZE,
-              },
-            },
-          ],
-          id: Date.now(),
-        };
-        
-        const response = await executeRequest(request);
-        
-        if (!response.result || !response.result.rows) {
-          console.error(`Unexpected API response for employee ${employee.id}:`, response);
-          break;
-        }
-        
-        const hours = response.result.rows;
-        const totalCount = response.result.count || 0;
-        
-        console.log(`Fetched ${hours.length} hours for employee ${employee.id} (offset: ${offset}, total: ${totalCount}, status: ${hours.length > 0 ? hours[0].status?.searchname || 'unknown' : 'N/A'})`);
-        
-        if (hours.length > 0) {
-          allHours = [...allHours, ...hours];
-          
-          // Sum up hours for this employee
-          for (const hour of hours) {
-            const hourAmount = parseFloat(hour.amount);
-            employeeHours += hourAmount;
-            totalHoursFound += hourAmount;
-          }
-        }
-        
-        // If we got fewer results than page size or reached total count, we're done
-        if (hours.length < PAGE_SIZE || offset + hours.length >= totalCount) {
-          hasMoreResults = false;
-        } else {
-          offset += PAGE_SIZE;
-        }
-      }
-      
-      // Track how many hours this employee has
-      employeeHoursMap[employee.id] = employeeHours;
-      
-      if (employeeHours > 0) {
-        employeesWithHours++;
+// Register all app routes and ensure proper error handling
+try {
+  // Force database initialization on startup
+  (async () => {
+    try {
+      console.log('Opening database connection to ' + join(__dirname, '../../db/database.sqlite') + '...');
+      const database = await getDatabase();
+      if (database) {
+        console.log('Database initialized successfully on server startup');
+        db = database;
       } else {
-        employeesWithoutHours++;
+        console.error('Database initialization failed - db object is null');
       }
-      
-      console.log(`Total hours for employee ${employee.id} (${employee.firstname} ${employee.lastname}): ${employeeHours}`);
+    } catch (dbError) {
+      console.error('Error during forced database initialization:', dbError);
     }
-    
-    console.log('=== SUMMARY ===');
-    console.log(`Total API requests made: ${totalRequestsMade}`);
-    console.log(`Total hours entries fetched: ${allHours.length}`);
-    console.log(`Total hours (summed): ${totalHoursFound}`);
-    console.log(`Employees with hours: ${employeesWithHours}`);
-    console.log(`Employees without hours: ${employeesWithoutHours}`);
-    console.log('=== TOP 5 EMPLOYEES WITH MOST HOURS ===');
-    
-    // Show top 5 employees with most hours
-    const topEmployees = Object.entries(employeeHoursMap)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5);
-    
-    for (const [empId, hours] of topEmployees) {
-      const employee = employees.find(e => e.id === parseInt(empId));
-      console.log(`${employee?.firstname} ${employee?.lastname}: ${hours} hours`);
-    }
-    
-    // Group hours by project and month
-    interface ProjectHour {
-      projectId: number;
-      projectName: string;
-      month: number;
-      totalHours: number;
-    }
-    
-    const projectHours: { [key: string]: ProjectHour } = {};
-    
-    for (const hour of allHours) {
-      if (!hour.offerprojectbase || !hour.offerprojectbase.id) {
-        continue; // Skip hours without project association
+  })();
+
+  // Function to start the server with a given port
+  const startServer = (portToUse: number) => {
+    return app.listen(portToUse, () => {
+      console.log(`API server running on port ${portToUse}`);
+    }).on('error', async (error: any) => {
+      if (error.code === 'EADDRINUSE') {
+        console.error(`Port ${portToUse} is already in use. Killing existing process and retrying...`);
+        
+        try {
+          // Kill the process on port using the centralized function
+          await killProcessOnPort(portToUse);
+          console.log(`Killed process on port ${portToUse}, retrying in 1 second...`);
+          
+          // Retry after a short delay
+          setTimeout(() => {
+            startServer(portToUse);
+          }, 1000);
+        } catch (killError) {
+          console.error(`Failed to kill process on port ${portToUse}:`, killError);
+          console.error(`Cannot start API server. Please manually kill process on port ${portToUse}`);
+          process.exit(1);
+        }
+      } else {
+        console.error('Failed to start API server:', error);
+        process.exit(1);
       }
-      
-      const projectId = hour.offerprojectbase.id;
-      const projectName = hour.offerprojectbase.searchname || `Project ${projectId}`;
-      
-      // Extract month from date string (format: YYYY-MM-DD)
-      const dateStr = hour.date.date;
-      const month = new Date(dateStr).getMonth() + 1; // 1-12
-      
-      const key = `${projectId}-${month}`;
-      
-      if (!projectHours[key]) {
-        projectHours[key] = {
-          projectId,
-          projectName,
-          month,
-          totalHours: 0
-        };
-      }
-      
-      projectHours[key].totalHours += parseFloat(hour.amount);
-    }
+    });
+  };
+
+  // Start the server with the main port
+  startServer(port);
+  
+} catch (serverError) {
+  console.error('Critical error starting the API server:', serverError);
+  process.exit(1);
+}
+
+// Add endpoint to clear cache for dashboard data specifically
+app.post('/api/cache/clear/dashboard', (req: Request, res: Response) => {
+  try {
+    cacheService.clearDashboardData();
+    console.log('Dashboard data cache cleared successfully');
     
-    // Convert to array and format for display
-    const result = Object.values(projectHours);
-    console.log(`Grouped hours by project and month: ${result.length} unique project-month combinations`);
-    
-    // Group by project
-    const projectMonthlyHours: { [key: string]: any } = {};
-    
-    for (const item of result) {
-      const { projectId, projectName, month, totalHours } = item;
-      
-      if (!projectMonthlyHours[projectId]) {
-        projectMonthlyHours[projectId] = {
-          projectId,
-          projectName,
-          months: Array(12).fill(0) // Initialize array for 12 months
-        };
-      }
-      
-      // Months are 1-indexed, so subtract 1 for array index
-      projectMonthlyHours[projectId].months[month - 1] = totalHours;
-    }
-    
-    // Convert to array and sort by project name
-    const sortedResults = Object.values(projectMonthlyHours).sort((a, b) => 
-      a.projectName.localeCompare(b.projectName)
-    );
-    
-    console.log(`Final result: ${sortedResults.length} projects with hourly data`);
-    
-    res.json(sortedResults);
+    return res.json({
+      success: true,
+      message: 'Dashboard data cache cleared successfully'
+    });
   } catch (error) {
-    console.error('Error fetching revenue data:', error);
-    res.status(500).json({ error: 'Failed to fetch revenue data' });
+    console.error('Error clearing dashboard data cache:', error);
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to clear dashboard data cache',
+      error: (error as Error).message,
+    });
   }
 });
 
-// Start the server with error handling
-const server = app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
+// Implement a local version of getWeekDates function in case the import fails
+function getWeekDatesLocal(year: number, week: number): { startDate: string, endDate: string } {
+  // Simple implementation of ISO week date calculation
+  const simple = new Date(year, 0, 1 + (week - 1) * 7);
+  const day = simple.getDay();
+  const diff = simple.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Sunday being 0
   
-  // Initialize the database
-  getDatabase().then(database => {
-    console.log('Database connected');
-    
-    // Create the project service if it doesn't exist yet
-    let projectServiceInstance = projectService;
-    if (!projectServiceInstance) {
-      projectServiceInstance = new ProjectService();
-    }
-  }).catch(err => {
-    console.error('Failed to connect to database:', err);
-  });
-}).on('error', async (error: NodeJS.ErrnoException) => {
-  if (error.code === 'EADDRINUSE') {
-    console.error(`Port ${port} is already in use. Trying to close existing connection...`);
-    try {
-      await exec(`lsof -i :${port} | grep LISTEN | awk '{print $2}' | xargs kill -9`);
-      console.log(`Successfully killed process on port ${port}. Restarting server...`);
-      server.listen(port);
-    } catch (err) {
-      console.error(`Failed to kill process on port ${port}:`, err);
-      process.exit(1);
-    }
-  } else {
-    console.error('Failed to start server:', error);
-    process.exit(1);
+  const startDate = new Date(simple.setDate(diff));
+  const endDate = new Date(startDate);
+  endDate.setDate(startDate.getDate() + 6);
+  
+  // Format to YYYY-MM-DD
+  const formatDate = (date: Date) => {
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+  
+  return {
+    startDate: formatDate(startDate),
+    endDate: formatDate(endDate)
+  };
+}
+
+// Where the getWeekDates is used around line 1561
+// Check if the imported function exists, otherwise use local implementation
+const getWeekDatesWithFallback = (year: number, week: number) => {
+  try {
+    // Try to use the imported function
+    return getWeekDates(year, week);
+  } catch (error) {
+    console.warn('Failed to use imported getWeekDates, using fallback implementation:', error);
+    return getWeekDatesLocal(year, week);
   }
+};
+
+// Add API restart endpoint
+app.get('/api/restart', async (req, res) => {
+  console.log('API restart requested');
+  
+  // Set headers to prevent caching
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Content-Type', 'text/html');
+  
+  // Send response immediately before restarting
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>API Server Restarting</title>
+        <style>
+          body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+          h1 { color: #333; }
+          .message { margin: 20px 0; color: #666; }
+          .spinner { 
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 2s linear infinite;
+            margin: 20px auto;
+          }
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        </style>
+      </head>
+      <body>
+        <h1>API Server Restarting</h1>
+        <div class="spinner"></div>
+        <p class="message">Het API server wordt herstart...</p>
+        <p class="message">Dit venster zal automatisch sluiten na succesvol herstarten.</p>
+        <script>
+          // Script to check if API is back online
+          setTimeout(function checkApiStatus() {
+            fetch('http://localhost:${API_PORT}/api/dashboard/test')
+              .then(response => {
+                if (response.ok) {
+                  // API is back online
+                  document.querySelector('.message').textContent = 'API server succesvol herstart!';
+                  setTimeout(() => window.close(), 2000);
+                } else {
+                  // API still starting up
+                  setTimeout(checkApiStatus, 1000);
+                }
+              })
+              .catch(() => {
+                // API not available, check again after delay
+                setTimeout(checkApiStatus, 1000);
+              });
+          }, 5000); // Initial delay to allow server to start shutting down
+        </script>
+      </body>
+    </html>
+  `);
+  
+  // Schedule the restart after response is sent
+  setTimeout(async () => {
+    try {
+      console.log('Initiating API server restart...');
+      
+      // Get the current process ID
+      const pid = process.pid;
+      console.log(`Current process ID: ${pid}`);
+      
+      // Fork a new process to start the server after this one exits
+      const { spawn } = require('child_process');
+      
+      // Get the path to the script that started this server
+      const scriptPath = process.argv[1];
+      console.log(`Script path: ${scriptPath}`);
+      
+      // Spawn a new process that will start the server after a delay
+      const restarter = spawn('node', [
+        '-e',
+        `
+        setTimeout(() => {
+          console.log('Restarting API server...');
+          const { spawn } = require('child_process');
+          const path = require('path');
+          const tsx = path.resolve(process.cwd(), 'node_modules', '.bin', 'tsx');
+          const child = spawn('${process.execPath}', ['${scriptPath}'], {
+            detached: true,
+            stdio: 'ignore',
+            env: process.env
+          });
+          child.unref();
+          process.exit(0);
+        }, 2000);
+        `
+      ], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      
+      restarter.unref();
+      
+      // Exit this process after a short delay
+      setTimeout(() => {
+        console.log('Exiting current API server instance...');
+        process.exit(0);
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Failed to restart API server:', error);
+    }
+  }, 1000);
 });

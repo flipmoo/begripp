@@ -5,7 +5,7 @@ import {
   PopoverContent, 
   PopoverTrigger 
 } from '@/components/ui/popover';
-import { CacheStatus } from '@/components/CacheStatus';
+import CacheStatus from '@/components/CacheStatus';
 import { DesktopIcon } from '@radix-ui/react-icons';
 import { Badge } from '@/components/ui/badge';
 import { isDataCached } from '@/services/employee.service';

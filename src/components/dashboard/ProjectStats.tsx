@@ -25,6 +25,32 @@ const ProjectStats: React.FC<ProjectStatsProps> = ({ projects, employees = [] })
     }
   };
 
+  // Check if a project has "Vaste prijs" tag
+  const hasFixedPriceTag = (project: GrippProject) => {
+    if (!project.tags) return false;
+    
+    // Als tags een string is (JSON formaat), probeer te parsen
+    if (typeof project.tags === 'string') {
+      try {
+        const parsedTags = JSON.parse(project.tags);
+        return parsedTags.some((tag: { searchname?: string; name?: string }) => 
+          (tag.searchname === "Vaste prijs") || (tag.name === "Vaste prijs")
+        );
+      } catch (error) {
+        console.error('Error parsing tags JSON:', error);
+        return false;
+      }
+    } 
+    // Als tags een array is, gebruik direct
+    else if (Array.isArray(project.tags)) {
+      return project.tags.some(tag => {
+        if (typeof tag === 'string') return tag === "Vaste prijs";
+        return (tag.searchname === "Vaste prijs") || (tag.name === "Vaste prijs");
+      });
+    }
+    return false;
+  };
+
   // Filter for active projects
   const activeProjects = projects.filter(project => !project.archived);
   
@@ -34,7 +60,7 @@ const ProjectStats: React.FC<ProjectStatsProps> = ({ projects, employees = [] })
       ...project,
       progress: calculateProjectProgress(project)
     }))
-    .filter(project => project.progress > 100)
+    .filter(project => project.progress > 100 && hasFixedPriceTag(project))
     .length;
   
   // Count projects over deadline
@@ -65,7 +91,7 @@ const ProjectStats: React.FC<ProjectStatsProps> = ({ projects, employees = [] })
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Projecten Over Budget</CardTitle>
+          <CardTitle className="text-sm font-medium">Vaste prijs projecten overbudget</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold text-red-500">{projectsOverBudget}</div>

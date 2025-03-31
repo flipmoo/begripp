@@ -1,6 +1,6 @@
 import { format } from 'date-fns';
 
-// Use the same API base URL as in employee.service.ts
+// Update API base URL to use port 3002
 const API_BASE = 'http://localhost:3002/api';
 
 export interface Absence {

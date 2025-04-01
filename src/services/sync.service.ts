@@ -316,6 +316,25 @@ export async function syncAbsenceRequests(startDate: string, endDate: string) {
         await db.run('BEGIN TRANSACTION');
         transaction = true;
         
+        // Instead of deleting, store current status values to preserve them
+        const currentStatusValues = await db.all(`
+            SELECT id, status_id, status_name
+            FROM absence_request_lines
+            WHERE date BETWEEN ? AND ?
+            AND status_id = 2 
+        `, [startDate, endDate]);
+        
+        console.log(`Preserving status for ${currentStatusValues.length} approved absence lines`);
+        
+        // Create a map of line ID to status for faster lookup
+        const statusMap = new Map();
+        currentStatusValues.forEach(line => {
+            statusMap.set(line.id, {
+                status_id: line.status_id,
+                status_name: line.status_name
+            });
+        });
+        
         // Clear existing absence records for the date range
         await db.run(
             `DELETE FROM absence_request_lines 
@@ -330,6 +349,7 @@ export async function syncAbsenceRequests(startDate: string, endDate: string) {
         
         let insertedRequests = 0;
         let insertedLines = 0;
+        let preservedStatusCount = 0;
         
         // Process each absence request
         for (const absenceRequest of absenceData) {
@@ -426,55 +446,51 @@ export async function syncAbsenceRequests(startDate: string, endDate: string) {
                         
                         const startingTime = line.startingtime?.date || null;
                         
-                        // Check if the absence request line already exists
-                        const existingLine = await db.get('SELECT id FROM absence_request_lines WHERE id = ?', [line.id]);
+                        // Check if we have preserved status values for this line
+                        const preservedStatus = statusMap.get(line.id);
                         
-                        if (existingLine) {
-                            // Update the existing line
-                            await db.run(
-                                `UPDATE absence_request_lines 
-                                SET absencerequest_id = ?, date = ?, amount = ?, description = ?, startingtime = ?, 
-                                    status_id = ?, status_name = ?, updatedon = ?, searchname = ?, extendedproperties = ? 
-                                WHERE id = ?`,
-                                [
-                                    requestId,
-                                    absenceDate,
-                                    line.amount,
-                                    line.description || '',
-                                    startingTime,
-                                    line.absencerequeststatus?.id || 1,
-                                    line.absencerequeststatus?.searchname || 'ONBEKEND',
-                                    line.updatedon?.date || null,
-                                    line.searchname || 'NOT SET',
-                                    line.extendedproperties || null,
-                                    line.id
-                                ]
-                            );
-                        } else {
-                            // Insert the absence request line
-                            await db.run(
-                                `INSERT INTO absence_request_lines 
-                                (id, absencerequest_id, date, amount, description, startingtime, 
-                                 status_id, status_name, createdon, updatedon, searchname, extendedproperties) 
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                                [
-                                    line.id,
-                                    requestId,
-                                    absenceDate,
-                                    line.amount,
-                                    line.description || '',
-                                    startingTime,
-                                    line.absencerequeststatus?.id || 1,
-                                    line.absencerequeststatus?.searchname || 'ONBEKEND',
-                                    line.createdon?.date || new Date().toISOString(),
-                                    line.updatedon?.date || null,
-                                    line.searchname || 'NOT SET',
-                                    line.extendedproperties || null
-                                ]
-                            );
-                            
-                            insertedLines++;
+                        // Use either preserved status or the status from the API
+                        let statusId = line.absencerequeststatus?.id || 1;
+                        let statusName = line.absencerequeststatus?.searchname || 'ONBEKEND';
+                        
+                        // If we have a preserved status and it's approved (status_id=2), use it
+                        if (preservedStatus) {
+                            statusId = preservedStatus.status_id;
+                            statusName = preservedStatus.status_name;
+                            preservedStatusCount++;
                         }
+                        
+                        // If the status in Gripp is approved, use it directly
+                        if (line.absencerequeststatus?.id === 2 || 
+                            line.absencerequeststatus?.searchname === 'GOEDGEKEURD' ||
+                            line.absencerequeststatus?.searchname === 'Approved') {
+                            statusId = 2;
+                            statusName = 'GOEDGEKEURD';
+                        }
+                        
+                        // Insert the absence request line
+                        await db.run(
+                            `INSERT INTO absence_request_lines 
+                            (id, absencerequest_id, date, amount, description, startingtime, 
+                             status_id, status_name, createdon, updatedon, searchname, extendedproperties) 
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            [
+                                line.id,
+                                requestId,
+                                absenceDate,
+                                line.amount,
+                                line.description || '',
+                                startingTime,
+                                statusId,
+                                statusName,
+                                line.createdon?.date || new Date().toISOString(),
+                                line.updatedon?.date || null,
+                                line.searchname || 'NOT SET',
+                                line.extendedproperties || null
+                            ]
+                        );
+                        
+                        insertedLines++;
                     } catch (error) {
                         console.error(`Error processing absence request line: ${error}`);
                     }
@@ -485,6 +501,7 @@ export async function syncAbsenceRequests(startDate: string, endDate: string) {
         }
         
         console.log(`Inserted ${insertedRequests} absence requests and ${insertedLines} absence lines into database`);
+        console.log(`Preserved status for ${preservedStatusCount} absence lines`);
         
         // Commit transaction
         await db.run('COMMIT');

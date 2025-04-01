@@ -554,7 +554,7 @@ app.get('/api/employees', async (req: Request, res: Response) => {
         expected_hours: expectedHours,
         leave_hours: leaveHours,
         written_hours: writtenHours,
-        actual_hours: writtenHours,
+        actual_hours: writtenHours + leaveHours,
         active: employee.active,
         absences: employeeAbsences,
         absenceDebug: absenceDebugInfo[employee.id]
@@ -1822,8 +1822,10 @@ app.get('/api/employee-stats', async (req: Request, res: Response) => {
         expected_hours: expectedHours,
         leave_hours: leaveHours,
         written_hours: writtenHours,
-        actual_hours: writtenHours,
-        active: employee.active
+        actual_hours: writtenHours + leaveHours,
+        active: employee.active,
+        absences: employeeAbsences,
+        absenceDebug: absenceDebugInfo[employee.id]
       };
     });
     
@@ -2044,8 +2046,8 @@ app.get('/api/employee-month-stats', async (req: Request, res: Response) => {
       // Get written hours for this employee
       const writtenHours = writtenHoursByEmployee[employee.id] || 0;
       
-      // Calculate actual hours (written hours - leave hours)
-      const actualHours = Math.max(0, writtenHours - leaveHours);
+      // Calculate actual hours (written hours + leave hours)
+      const actualHours = writtenHours + leaveHours;
       
       // Return employee with all calculated metrics
       return {

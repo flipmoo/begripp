@@ -316,15 +316,14 @@ export async function syncAbsenceRequests(startDate: string, endDate: string) {
         await db.run('BEGIN TRANSACTION');
         transaction = true;
         
-        // Instead of deleting, store current status values to preserve them
+        // Bewaar alle huidige status waarden, niet alleen de goedgekeurde
         const currentStatusValues = await db.all(`
             SELECT id, status_id, status_name
             FROM absence_request_lines
             WHERE date BETWEEN ? AND ?
-            AND status_id = 2 
         `, [startDate, endDate]);
         
-        console.log(`Preserving status for ${currentStatusValues.length} approved absence lines`);
+        console.log(`Preserving status for ${currentStatusValues.length} absence lines`);
         
         // Create a map of line ID to status for faster lookup
         const statusMap = new Map();
@@ -453,14 +452,14 @@ export async function syncAbsenceRequests(startDate: string, endDate: string) {
                         let statusId = line.absencerequeststatus?.id || 1;
                         let statusName = line.absencerequeststatus?.searchname || 'ONBEKEND';
                         
-                        // If we have a preserved status and it's approved (status_id=2), use it
+                        // Als we een bewaarde status hebben, gebruik deze
                         if (preservedStatus) {
                             statusId = preservedStatus.status_id;
                             statusName = preservedStatus.status_name;
                             preservedStatusCount++;
                         }
                         
-                        // If the status in Gripp is approved, use it directly
+                        // Als de status in Gripp goedgekeurd is, gebruik deze direct
                         if (line.absencerequeststatus?.id === 2 || 
                             line.absencerequeststatus?.searchname === 'GOEDGEKEURD' ||
                             line.absencerequeststatus?.searchname === 'Approved') {

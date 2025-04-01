@@ -93,6 +93,19 @@ export async function syncEmployees() {
         // Begin transaction
         await db.run('BEGIN TRANSACTION');
         
+        // Query and store existing function titles before clearing employees
+        const existingFunctions = await db.all(`
+            SELECT id, function FROM employees WHERE function IS NOT NULL AND function != ''
+        `);
+        
+        console.log(`Preserving function titles for ${existingFunctions.length} employees`);
+        
+        // Create a map for faster lookup
+        const functionMap = new Map();
+        existingFunctions.forEach(emp => {
+            functionMap.set(emp.id, emp.function);
+        });
+        
         // Clear existing employees
         await db.run('DELETE FROM employees');
         
@@ -127,6 +140,10 @@ export async function syncEmployees() {
             
             // Insert employees from this page
             for (const employee of employees) {
+                // Check if we have a preserved function title
+                const preservedFunction = functionMap.get(employee.id);
+                const functionTitle = preservedFunction || employee.function?.searchname || '';
+                
                 await db.run(
                     `INSERT INTO employees (
                         id, firstname, lastname, email, active, 
@@ -138,7 +155,7 @@ export async function syncEmployees() {
                         employee.lastname || '',
                         employee.email || '',
                         employee.active ? 1 : 0,
-                        employee.function?.searchname || '',
+                        functionTitle,
                         employee.department?.id || null,
                         employee.department?.searchname || ''
                     ]
@@ -666,6 +683,18 @@ export async function syncAllData(startDate: string, endDate: string) {
         } catch (error) {
             console.error('Error syncing hours:', error);
             // If hours sync fails, we still want to return success if employees and contracts were synced
+        }
+        
+        // Update function titles from Gripp API
+        console.log('Updating function titles...');
+        try {
+            // Make an API request to update function titles
+            const axios = await import('axios');
+            await axios.default.post('http://localhost:3002/api/update-function-titles');
+            console.log('Function titles updated successfully');
+        } catch (error) {
+            console.error('Error updating function titles:', error);
+            // Continue even if function title update fails
         }
         
         console.log(`Data sync completed for period ${startDate} to ${endDate}`);

@@ -1041,6 +1041,105 @@ app.get('/api/invoices/overdue', async (req: Request, res: Response) => {
   }
 });
 
+// Endpoint to update function titles from Gripp API
+app.post('/api/update-function-titles', async (req: Request, res: Response) => {
+  try {
+    if (!db) {
+      console.error('Database not initialized');
+      return res.status(503).json({ error: 'Database not ready. Please try again in a few seconds.' });
+    }
+
+    console.log('Fetching employees from Gripp API to update function titles');
+    
+    const request: GrippRequest = {
+      method: 'employee.get',
+      params: [
+        [], // No filters, get all employees
+        {
+          paging: {
+            firstresult: 0,
+            maxresults: 250
+          }
+        }
+      ],
+      id: Date.now()
+    };
+
+    const response = await executeRequest<any>(request);
+    
+    if (!response?.result?.rows || response.result.rows.length === 0) {
+      return res.status(404).json({ error: 'No employees found in Gripp API' });
+    }
+    
+    console.log(`Received ${response.result.rows.length} employees from Gripp API`);
+    
+    // Check if a transaction is already active
+    let transactionActive = false;
+    try {
+      // Check if a transaction is already active by trying to start one and catching the error
+      await db.run('BEGIN IMMEDIATE TRANSACTION');
+      transactionActive = true;
+      console.log('Successfully started a new transaction');
+    } catch (transactionError) {
+      // If this fails, a transaction is already active
+      console.log('Transaction already active, continuing with existing transaction');
+    }
+    
+    // Log the first employee to see the structure
+    console.log('Sample employee data:', JSON.stringify(response.result.rows[0], null, 2));
+    
+    let updatedCount = 0;
+    
+    // Only commit/rollback if we started the transaction
+    try {
+      for (const employee of response.result.rows) {
+        // Check if the employee has a function
+        if (employee.function) {
+          // Update the function title in the database
+          await db.run(
+            `UPDATE employees SET function = ? WHERE id = ?`,
+            [typeof employee.function === 'string' ? employee.function : employee.function.searchname || '', employee.id]
+          );
+          updatedCount++;
+        }
+      }
+      
+      // Only commit if we started the transaction
+      if (transactionActive) {
+        console.log('Committing transaction for function title updates');
+        await db.run('COMMIT');
+      }
+      
+      console.log(`Updated function titles for ${updatedCount} employees`);
+      
+      return res.json({ 
+        success: true, 
+        message: `Updated function titles for ${updatedCount} employees` 
+      });
+    } catch (processError) {
+      // Only rollback if we started the transaction
+      if (transactionActive) {
+        console.error('Error processing function titles, rolling back transaction:', processError);
+        try {
+          await db.run('ROLLBACK');
+        } catch (rollbackError) {
+          console.error('Error during rollback:', rollbackError);
+        }
+      }
+      
+      throw processError; // Re-throw to be caught by outer catch
+    }
+  } catch (error) {
+    console.error('Error updating function titles:', error);
+    
+    return res.status(500).json({ 
+      error: 'Failed to update function titles', 
+      message: error instanceof Error ? error.message : String(error),
+      details: error
+    });
+  }
+});
+
 // Register all app routes and ensure proper error handling
 try {
   // Force database initialization on startup

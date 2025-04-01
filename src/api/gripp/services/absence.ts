@@ -1,4 +1,4 @@
-import { GrippClient, grippClient } from '../client';
+import { GrippClient, grippClient, executeRequest } from '../client';
 
 // Helper function to log to both console and file
 function log(message: string) {
@@ -129,6 +129,75 @@ export class AbsenceService {
     
     console.log(`Total absence lines found: ${allAbsenceLines.length}`);
     return { result: { rows: allAbsenceLines } };
+  }
+
+  async getAbsencesByPeriod(startDate: string, endDate: string, offset = 0, limit = 250) {
+    const request = {
+      method: 'absencerequest.get',
+      params: [
+        [
+          {
+            field: 'absencerequest.startdate',
+            operator: 'greaterthanequals',
+            value: startDate
+          },
+          {
+            field: 'absencerequest.enddate',
+            operator: 'lessthanequals',
+            value: endDate
+          }
+        ],
+        {
+          paging: {
+            firstresult: offset,
+            maxresults: limit
+          }
+        }
+      ],
+      id: Date.now()
+    };
+    
+    console.log(`Fetching absence requests from ${startDate} to ${endDate} (offset: ${offset}, limit: ${limit})`);
+    const response = await executeRequest(request);
+    
+    if (!response?.result?.rows) {
+      console.log('No absence requests found or error in response');
+      return [];
+    }
+    
+    console.log(`Fetched ${response.result.rows.length} absence requests`);
+    return response.result.rows;
+  }
+  
+  async getAllAbsencesByPeriod(startDate: string, endDate: string) {
+    let allAbsences = [];
+    let offset = 0;
+    const limit = 250;
+    let hasMoreResults = true;
+    
+    console.log(`Fetching all absences for period ${startDate} to ${endDate}`);
+    
+    while (hasMoreResults) {
+      const absences = await this.getAbsencesByPeriod(startDate, endDate, offset, limit);
+      
+      if (!absences || absences.length === 0) {
+        console.log('No more absences found or end of results reached');
+        hasMoreResults = false;
+        break;
+      }
+      
+      console.log(`Retrieved batch of ${absences.length} absences (offset: ${offset})`);
+      allAbsences = [...allAbsences, ...absences];
+      
+      if (absences.length < limit) {
+        hasMoreResults = false;
+      } else {
+        offset += limit;
+      }
+    }
+    
+    console.log(`Total absences fetched: ${allAbsences.length}`);
+    return allAbsences;
   }
 }
 

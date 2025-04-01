@@ -309,106 +309,83 @@ export async function syncContracts() {
 export async function syncAbsenceRequests(startDate: string, endDate: string) {
     const db = await getDatabase();
     let transaction = false;
-    
     try {
-        // Get all employees first
-        const employees = await db.all('SELECT id, firstname, lastname FROM employees WHERE active = 1');
-        const employeeIds = employees.map(emp => emp.id);
-        // Create a searchname by combining firstname and lastname
-        const employeeMap = new Map(employees.map(emp => [`${emp.firstname} ${emp.lastname}`, emp.id]));
-        
-        console.log(`Fetching absence requests for ${employeeIds.length} employees from ${startDate} to ${endDate}`);
-        
-        // Use the absenceService to get all absence requests for these employees
-        const absenceResponse = await absenceService.getByEmployeeIdsAndPeriod(employeeIds, startDate, endDate);
-        const absenceLines = absenceResponse.result.rows;
-        
-        console.log(`Received ${absenceLines.length} absence lines from Gripp API`);
+        console.log(`Fetching absences from ${startDate} to ${endDate}`);
         
         // Begin transaction
         await db.run('BEGIN TRANSACTION');
         transaction = true;
         
-        // Clear existing absence data for the period
-        await db.run('DELETE FROM absence_request_lines WHERE date >= ? AND date <= ?', [startDate, endDate]);
+        // Clear existing absence records for the date range
+        await db.run(
+            `DELETE FROM absence_request_lines 
+             WHERE date BETWEEN ? AND ?`,
+            [startDate, endDate]
+        );
         
-        // Get unique absence request IDs
-        const absenceRequestIds = [...new Set(absenceLines.map((line: any) => line.absencerequest?.id).filter(Boolean))];
+        // Get the absence requests using the new method for efficient fetching
+        const absenceData = await absenceService.getAllAbsencesByPeriod(startDate, endDate);
         
-        // Delete absence requests that have all their lines in the period
-        for (const requestId of absenceRequestIds) {
-            const linesOutsidePeriod = await db.get(
-                'SELECT COUNT(*) as count FROM absence_request_lines WHERE absencerequest_id = ? AND (date < ? OR date > ?)',
-                [requestId, startDate, endDate]
-            );
-            
-            if (linesOutsidePeriod.count === 0) {
-                await db.run('DELETE FROM absence_requests WHERE id = ?', [requestId]);
-            }
-        }
+        console.log(`Found ${absenceData.length} absence records for the period`);
         
         let insertedRequests = 0;
         let insertedLines = 0;
         
-        // Group absence lines by request ID
-        const absenceRequestMap = new Map();
-        
-        for (const line of absenceLines) {
-            const requestId = line.absencerequest?.id;
-            
-            if (!requestId) {
-                console.warn(`Skipping absence line without valid request ID: ${JSON.stringify(line)}`);
-                continue;
-            }
-            
-            if (!absenceRequestMap.has(requestId)) {
-                absenceRequestMap.set(requestId, {
-                    id: requestId,
-                    lines: []
-                });
-            }
-            
-            absenceRequestMap.get(requestId).lines.push(line);
-        }
-        
         // Process each absence request
-        for (const [requestId, absenceRequest] of absenceRequestMap.entries()) {
+        for (const absenceRequest of absenceData) {
             try {
-                // Check if the absence request already exists
+                // Skip absence requests without lines
+                if (!absenceRequest.lines || absenceRequest.lines.length === 0) {
+                    console.warn(`Skipping absence request ${absenceRequest.id} with no lines`);
+                    continue;
+                }
+                
+                const requestId = absenceRequest.id;
+                const firstLine = absenceRequest.lines[0]; // Get the first line for request details
+                
+                // Extract employee info
+                let employeeId = absenceRequest.employee?.id;
+                const employeeSearchname = absenceRequest.employee?.searchname || firstLine.employee?.searchname;
+                
+                // If no employee ID directly available, try to find it
+                if (!employeeId && employeeSearchname) {
+                    // Query database for employee ID based on employee name
+                    const employee = await db.get(
+                        'SELECT id FROM employees WHERE firstname || " " || lastname = ?',
+                        [employeeSearchname]
+                    );
+                    
+                    if (employee) {
+                        employeeId = employee.id;
+                        console.log(`Found employee ID ${employeeId} for searchname ${employeeSearchname}`);
+                    }
+                }
+                
+                // If still no employee ID, log an error and skip this request
+                if (!employeeId) {
+                    console.error(`Cannot find employee for absence request ${requestId} with searchname ${employeeSearchname}`);
+                    continue;
+                }
+                
+                // Check if this request already exists
                 const existingRequest = await db.get('SELECT id FROM absence_requests WHERE id = ?', [requestId]);
                 
-                if (!existingRequest) {
-                    // Get the first line to extract employee info
-                    const firstLine = absenceRequest.lines[0];
-                    
-                    if (!firstLine) {
-                        console.error(`No lines found for absence request ${requestId}`);
-                        continue;
-                    }
-                    
-                    // Get employee ID from the database if available
-                    let employeeId = firstLine.employee?.id;
-                    const employeeFirstname = firstLine.employee?.firstname;
-                    const employeeLastname = firstLine.employee?.lastname;
-                    const employeeSearchname = employeeFirstname && employeeLastname ? 
-                        `${employeeFirstname} ${employeeLastname}` : null;
-                    
-                    // If employee ID is not available in the line, try to find it in the database
-                    if (!employeeId && employeeSearchname) {
-                        // Try to find the employee by searchname if available
-                        employeeId = employeeMap.get(employeeSearchname);
-                        
-                        if (employeeId) {
-                            console.log(`Found employee ID ${employeeId} for searchname ${employeeSearchname}`);
-                        }
-                    }
-                    
-                    // If still no employee ID, log an error and skip this request
-                    if (!employeeId) {
-                        console.error(`Cannot find employee for absence request ${requestId} with searchname ${employeeSearchname}`);
-                        continue;
-                    }
-                    
+                if (existingRequest) {
+                    // Update the existing request
+                    await db.run(
+                        `UPDATE absence_requests 
+                        SET description = ?, employee_id = ?, 
+                            absencetype_id = ?, absencetype_searchname = ? 
+                        WHERE id = ?`,
+                        [
+                            firstLine.description || '',
+                            employeeId,
+                            absenceRequest.absencetype?.id || firstLine.absencerequest?.absencetype?.id || 1,
+                            absenceRequest.absencetype?.searchname || firstLine.absencerequest?.absencetype?.searchname || 'Absence',
+                            requestId
+                        ]
+                    );
+                } else {
                     // Insert the absence request
                     await db.run(
                         `INSERT INTO absence_requests 
@@ -428,13 +405,12 @@ export async function syncAbsenceRequests(startDate: string, endDate: string) {
                             employeeSearchname || 'Unknown',
                             firstLine.employee?.discr || 'medewerker',
                             // Default values for absence type
-                            firstLine.absencerequest?.absencetype?.id || 1,
-                            firstLine.absencerequest?.absencetype?.searchname || 'Absence'
+                            absenceRequest.absencetype?.id || firstLine.absencerequest?.absencetype?.id || 1,
+                            absenceRequest.absencetype?.searchname || firstLine.absencerequest?.absencetype?.searchname || 'Absence'
                         ]
                     );
                     
                     insertedRequests++;
-                    console.log(`Inserted absence request ${requestId} for employee ${employeeId} (${employeeSearchname})`);
                 }
                 
                 // Insert each absence request line
@@ -474,8 +450,6 @@ export async function syncAbsenceRequests(startDate: string, endDate: string) {
                                     line.id
                                 ]
                             );
-                            
-                            console.log(`Updated absence line for request ${requestId} on ${absenceDate}`);
                         } else {
                             // Insert the absence request line
                             await db.run(
@@ -500,7 +474,6 @@ export async function syncAbsenceRequests(startDate: string, endDate: string) {
                             );
                             
                             insertedLines++;
-                            console.log(`Inserted absence line for request ${requestId} on ${absenceDate}`);
                         }
                     } catch (error) {
                         console.error(`Error processing absence request line: ${error}`);

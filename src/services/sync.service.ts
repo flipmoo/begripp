@@ -93,21 +93,33 @@ export async function syncEmployees() {
         // Begin transaction
         await db.run('BEGIN TRANSACTION');
         
+        // Debug: Query all existing employees to see functions before
+        const beforeEmployees = await db.all('SELECT id, function FROM employees');
+        console.log('DEBUG - Before sync: Number of employees with function:', 
+            beforeEmployees.filter(e => e.function && e.function !== '').length);
+        console.log('DEBUG - Example employees before sync:', 
+            beforeEmployees.filter(e => e.function && e.function !== '').slice(0, 5));
+        
         // Query and store existing function titles before clearing employees
         const existingFunctions = await db.all(`
             SELECT id, function FROM employees WHERE function IS NOT NULL AND function != ''
         `);
         
-        console.log(`Preserving function titles for ${existingFunctions.length} employees`);
+        console.log(`DEBUG - Preserving function titles for ${existingFunctions.length} employees`);
+        console.log('DEBUG - First 5 function titles to preserve:', existingFunctions.slice(0, 5));
         
         // Create a map for faster lookup
         const functionMap = new Map();
         existingFunctions.forEach(emp => {
             functionMap.set(emp.id, emp.function);
         });
+        console.log('DEBUG - Function map size:', functionMap.size);
         
         // Clear existing employees
         await db.run('DELETE FROM employees');
+        
+        // Verify map after delete
+        console.log('DEBUG - Function map size after employees delete:', functionMap.size);
         
         while (hasMoreResults) {
             const firstResult = currentPage * pageSize;
@@ -137,12 +149,29 @@ export async function syncEmployees() {
             
             const employees = response.result.rows;
             console.log(`Received ${employees.length} employees for page ${currentPage + 1}`);
+            console.log('DEBUG - First 5 employees from API:', employees.slice(0, 5).map(e => ({
+                id: e.id,
+                function: e.function?.searchname || 'no function'
+            })));
+            
+            // Count how many employees have a function in the API response
+            const employeesWithFunctionFromAPI = employees.filter(e => e.function && e.function.searchname);
+            console.log(`DEBUG - Employees with function from API: ${employeesWithFunctionFromAPI.length}`);
+            
+            let preservedFunctionCount = 0;
+            let apiSourcedFunctionCount = 0;
             
             // Insert employees from this page
             for (const employee of employees) {
                 // Check if we have a preserved function title
                 const preservedFunction = functionMap.get(employee.id);
                 const functionTitle = preservedFunction || employee.function?.searchname || '';
+                
+                if (preservedFunction) {
+                    preservedFunctionCount++;
+                } else if (employee.function?.searchname) {
+                    apiSourcedFunctionCount++;
+                }
                 
                 await db.run(
                     `INSERT INTO employees (
@@ -162,6 +191,7 @@ export async function syncEmployees() {
                 );
             }
             
+            console.log(`DEBUG - Used preserved functions: ${preservedFunctionCount}, Used API functions: ${apiSourcedFunctionCount}`);
             allEmployees = [...allEmployees, ...employees];
             
             // If we received fewer results than the page size, we've reached the end
@@ -176,6 +206,13 @@ export async function syncEmployees() {
         
         // Commit transaction
         await db.run('COMMIT');
+        
+        // Check function titles after sync
+        const afterEmployees = await db.all('SELECT id, function FROM employees');
+        console.log('DEBUG - After sync: Number of employees with function:', 
+            afterEmployees.filter(e => e.function && e.function !== '').length);
+        console.log('DEBUG - Example employees after sync:', 
+            afterEmployees.filter(e => e.function && e.function !== '').slice(0, 5));
         
         // Update sync status
         await updateSyncStatus('employee.get', 'success');
@@ -193,6 +230,11 @@ export async function syncEmployees() {
             if (response.ok) {
                 const result = await response.json();
                 console.log(`Function titles updated successfully: ${result.message}`);
+                
+                // Check function titles after update
+                const finalEmployees = await db.all('SELECT id, function FROM employees');
+                console.log('DEBUG - After function update: Number of employees with function:', 
+                    finalEmployees.filter(e => e.function && e.function !== '').length);
             } else {
                 console.error(`Failed to update function titles: ${response.statusText}`);
             }

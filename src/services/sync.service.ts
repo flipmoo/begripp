@@ -180,6 +180,27 @@ export async function syncEmployees() {
         // Update sync status
         await updateSyncStatus('employee.get', 'success');
         
+        // Call the API to update function titles directly
+        try {
+            console.log('Updating function titles via API...');
+            const response = await fetch('http://localhost:3002/api/update-function-titles', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                console.log(`Function titles updated successfully: ${result.message}`);
+            } else {
+                console.error(`Failed to update function titles: ${response.statusText}`);
+            }
+        } catch (titleError) {
+            console.error('Error calling function title update API:', titleError);
+            // Continue even if this fails
+        }
+        
         return true;
     } catch (error) {
         // Rollback on error

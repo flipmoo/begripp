@@ -2154,19 +2154,9 @@ function calculateLeaveHours(absences: AbsenceData[]): number {
     return 0;
   }
   
-  // Sum up hours from all leave-type absences
+  // Sum up hours from all leave-type absences, ongeacht status
   return absences.reduce((total, absence) => {
-    // Check for approved absences using either status_id or status_name
-    const isApproved = 
-      absence.status_id === 2 || 
-      absence.status_name === 'GOEDGEKEURD' || 
-      absence.status_name === 'Approved' ||
-      absence.status_name?.toUpperCase() === 'GOEDGEKEURD';
-    
-    if (isApproved) {
-      return total + (absence.hours_per_day || 0);
-    }
-    return total;
+    return total + (absence.hours_per_day || 0);
   }, 0);
 }
 

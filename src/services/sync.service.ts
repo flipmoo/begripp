@@ -748,15 +748,68 @@ export async function syncAllData(startDate: string, endDate: string) {
             // If hours sync fails, we still want to return success if employees and contracts were synced
         }
         
-        // Update function titles from Gripp API
-        console.log('Updating function titles...');
+        // Update function titles directly in the database
+        console.log('Updating function titles directly in database...');
         try {
-            // Make an API request to update function titles
-            const axios = await import('axios');
-            await axios.default.post('http://localhost:3002/api/update-function-titles');
-            console.log('Function titles updated successfully');
+            // Get database connection
+            const db = await getDatabase();
+            
+            // Fetch employees from Gripp API with their function titles
+            const request: GrippRequest = {
+                method: 'employee.get',
+                params: [
+                    [], // No filters, get all employees
+                    {
+                        paging: {
+                            firstresult: 0,
+                            maxresults: 250
+                        }
+                    }
+                ],
+                id: Date.now()
+            };
+            
+            const response = await executeRequest<Employee>(request);
+            if (!response?.result?.rows || response.result.rows.length === 0) {
+                console.error('No employees found in Gripp API for function title update');
+            } else {
+                console.log(`Received ${response.result.rows.length} employees from Gripp API for function title update`);
+                
+                // Start transaction for function title updates
+                await db.run('BEGIN TRANSACTION');
+                
+                let updatedCount = 0;
+                
+                // Update function titles in the database
+                for (const employee of response.result.rows) {
+                    if (employee.function) {
+                        const functionTitle = typeof employee.function === 'string' 
+                            ? employee.function 
+                            : employee.function.searchname || '';
+                        
+                        if (functionTitle) {
+                            await db.run(
+                                `UPDATE employees SET function = ? WHERE id = ?`,
+                                [functionTitle, employee.id]
+                            );
+                            updatedCount++;
+                        }
+                    }
+                }
+                
+                // Commit transaction
+                await db.run('COMMIT');
+                
+                console.log(`Updated ${updatedCount} employee function titles directly in database`);
+                
+                // Verify function titles were updated
+                const employeesWithFunctions = await db.get(
+                    'SELECT COUNT(*) as count FROM employees WHERE function IS NOT NULL AND function != ""'
+                );
+                console.log(`After direct update: ${employeesWithFunctions.count} employees have function titles`);
+            }
         } catch (error) {
-            console.error('Error updating function titles:', error);
+            console.error('Error updating function titles directly:', error);
             // Continue even if function title update fails
         }
         

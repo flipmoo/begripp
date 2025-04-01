@@ -648,6 +648,14 @@ app.get('/api/employees/month', async (req: Request, res: Response) => {
     }
 
     console.log(`Found ${employees.length} employees in database`);
+    console.log(`Employees with function titles: ${employees.filter(e => e.function && e.function !== '').length}`);
+    console.log(`First 5 employees with function titles:`, 
+      employees.filter(e => e.function && e.function !== '').slice(0, 5).map(e => ({
+        id: e.id,
+        name: e.name,
+        function: e.function
+      }))
+    );
     
     // Get absence data for the period
     const absenceData = await db.all<AbsenceData[]>(`

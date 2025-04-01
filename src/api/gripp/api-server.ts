@@ -305,7 +305,37 @@ interface Holiday {
   name: string;
 }
 
-// Get employees endpoint
+// Add helper functions at the top of the file
+
+/**
+ * Get the ISO week number for a given date
+ * @param date Date to get week number for
+ * @returns Week number (1-53)
+ */
+function getWeekNumber(date: Date): number {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 4 - (d.getDay() || 7)); // Set to nearest Thursday
+  const yearStart = new Date(d.getFullYear(), 0, 1);
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+/**
+ * Get the date of the first day (Monday) of a specific week in a year
+ * @param year Year
+ * @param week Week number (1-53)
+ * @returns Date object for the Monday of that week
+ */
+function getDateOfWeek(year: number, week: number): Date {
+  const firstDayOfYear = new Date(year, 0, 1);
+  const dayOffset = 1 - (firstDayOfYear.getDay() || 7); // Adjust for the first Thursday
+  firstDayOfYear.setDate(firstDayOfYear.getDate() + dayOffset);
+  const daysToAdd = (week - 1) * 7;
+  firstDayOfYear.setDate(firstDayOfYear.getDate() + daysToAdd);
+  return firstDayOfYear;
+}
+
+// Add an endpoint to get employee data for the current week
 app.get('/api/employees', async (req: Request, res: Response) => {
   try {
     if (!db) {
@@ -313,34 +343,38 @@ app.get('/api/employees', async (req: Request, res: Response) => {
       return res.status(503).json({ error: 'Database not ready. Please try again in a few seconds.' });
     }
 
-    const { year, week } = req.query;
+    // Parse the request parameters
+    const year = parseInt(req.query.year as string) || new Date().getFullYear();
+    const week = parseInt(req.query.week as string) || getWeekNumber(new Date());
+    const isDashboard = req.query.dashboard === 'true';
     
-    if (!year || !week) {
-      return res.status(400).json({ error: 'Year and week are required as query parameters' });
-    }
-
-    const yearNum = Number(year);
-    const weekNum = Number(week);
-    const cacheKey = CACHE_KEYS.EMPLOYEES_WEEK(yearNum, weekNum);
+    // Generate cache key based on parameters
+    const cacheKey = CACHE_KEYS.EMPLOYEES_WEEK(year, week);
     
-    // Check if data is in cache
+    // Check if the data is already in cache
     const cachedData = cacheService.get(cacheKey);
     if (cachedData) {
-      console.log(`Using cached data for year=${year}, week=${week}`);
+      console.log(`Using cached data for year=${year}, week=${week} from /api/employees endpoint`);
       
       // Set cache control headers
       res.header('X-Cache', 'HIT');
+      // Set cache-control to allow caching for 24 hours
+      res.header('Cache-Control', 'max-age=86400, public');
       
       return res.json(cachedData);
     }
-
-    console.log(`Fetching employees for year=${year}, week=${week}`);
     
-    // Calculate start and end dates for the week
-    const startDate = startOfWeek(setWeek(new Date(yearNum, 0, 1), weekNum), { weekStartsOn: 1 });
-    const endDate = addDays(startDate, 6);
+    console.log(`Cache MISS for key: ${cacheKey}`);
+    console.log(`Fetching employee data for year=${year}, week=${week} from /api/employees endpoint`);
     
-    // Get employees from database with their most recent contract
+    // Calculate the start and end dates for the specified week
+    const startDate = getDateOfWeek(year, week);
+    const endDate = new Date(startDate);
+    endDate.setDate(startDate.getDate() + 6);
+    
+    console.log(`Week date range: ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
+    
+    // Get employees from database with their contracts
     const employees = await db.all<Employee[]>(`
       SELECT 
         e.id, 
@@ -380,7 +414,7 @@ app.get('/api/employees', async (req: Request, res: Response) => {
 
     console.log(`Found ${employees.length} employees in database`);
     
-    // Get absence data for the period
+    // Get absence data for the week
     const absenceData = await db.all<AbsenceData[]>(`
       SELECT 
         ar.id,
@@ -401,15 +435,14 @@ app.get('/api/employees', async (req: Request, res: Response) => {
         employees e ON ar.employee_id = e.id
       WHERE 
         e.active = true AND
-        arl.date BETWEEN ? AND ? AND
-        arl.status_id = 2 -- Status ID 2 = GOEDGEKEURD (Approved)
+        arl.date BETWEEN ? AND ?
       ORDER BY
         arl.date ASC
     `, [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]);
     
     console.log('Found absence data:', absenceData.length, 'records');
     
-    // Get written hours for the period
+    // Get written hours for the week
     const writtenHoursData = await db.all(`
       SELECT 
         employee_id,
@@ -424,7 +457,7 @@ app.get('/api/employees', async (req: Request, res: Response) => {
 
     console.log('Found written hours data:', writtenHoursData.length, 'records');
     
-    // Get holidays for the period
+    // Get holidays for the week
     const holidays = await db.all<Holiday[]>(`
       SELECT date, name FROM holidays 
       WHERE date >= ? AND date <= ?
@@ -434,96 +467,117 @@ app.get('/api/employees', async (req: Request, res: Response) => {
     ]);
 
     console.log('Found holidays:', holidays);
-
-    // Process employees with their absence data
-    const enrichedEmployees = employees.map((employee) => {
-      const isEvenWeek = Number(week) % 2 === 0;
+    
+    // Create a map of employee absences
+    const absencesByEmployee: { [key: number]: AbsenceData[] } = {};
+    absenceData.forEach(absence => {
+      const employeeId = absence.employee_id;
+      if (!absencesByEmployee[employeeId]) {
+        absencesByEmployee[employeeId] = [];
+      }
+      absencesByEmployee[employeeId].push(absence);
+    });
+    
+    // Create a map of written hours
+    const writtenHoursByEmployee: { [key: number]: number } = {};
+    writtenHoursData.forEach(item => {
+      writtenHoursByEmployee[item.employee_id] = item.total_hours;
+    });
+    
+    // Create a list for detailed absence debugging
+    const absenceDebugInfo: { [key: number]: any } = {};
+    
+    // Process employees
+    const processedEmployees = employees.map(employee => {
+      // Check if the current week is odd or even
+      const currentDate = new Date();
+      const weekNumber = getWeekNumber(currentDate);
+      const isEven = weekNumber % 2 === 0;
       
-      // Calculate contract hours for the week
-      const contractHours = calculateWeeklyContractHours(
-        employee,
-        isEvenWeek
-      );
+      // Get weekly contract hours based on even/odd week
+      const weeklyHours = calculateWeeklyContractHours(employee, isEven);
+      
+      // Get absences for this employee
+      const employeeAbsences = absencesByEmployee[employee.id] || [];
+      
+      // Update debugging info
+      absenceDebugInfo[employee.id] = {
+        totalAbsences: employeeAbsences.length,
+        absenceDetails: employeeAbsences.map(a => ({
+          id: a.id,
+          date: a.startdate,
+          hours: a.hours_per_day,
+          status_id: a.status_id,
+          status_name: a.status_name,
+          isApproved: a.status_id === 2 || 
+                     a.status_name === 'GOEDGEKEURD' || 
+                     a.status_name === 'Approved' ||
+                     (a.status_name?.toUpperCase() === 'GOEDGEKEURD'),
+          description: a.description
+        }))
+      };
+      
+      // Calculate leave hours for approved absences
+      const leaveHours = employeeAbsences.reduce((total, absence) => {
+        const isApproved = 
+          absence.status_id === 2 || 
+          absence.status_name === 'GOEDGEKEURD' || 
+          absence.status_name === 'Approved' ||
+          absence.status_name?.toUpperCase() === 'GOEDGEKEURD';
+        
+        if (isApproved) {
+          return total + (absence.hours_per_day || 0);
+        }
+        return total;
+      }, 0);
+      
+      // Get written hours
+      const writtenHours = writtenHoursByEmployee[employee.id] || 0;
       
       // Format contract period
-      const contractPeriod = employee.contract_startdate 
-        ? `${employee.contract_startdate} - ${employee.contract_enddate || 'heden'}`
-        : undefined;
-      
-      // Calculate expected hours (contract hours minus holidays)
-      let expectedHours = contractHours;
-      
-      // Subtract hours for holidays
-      for (const holiday of holidays) {
-        const holidayDate = new Date(holiday.date);
-        const dayOfWeek = holidayDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
-        
-        // Skip weekends
-        if (dayOfWeek === 0 || dayOfWeek === 6) continue;
-        
-        // Get hours for this day of the week
-        let dayHours = 0;
-        if (isEvenWeek) {
-          if (dayOfWeek === 1) dayHours = employee.hours_monday_even || 0;
-          else if (dayOfWeek === 2) dayHours = employee.hours_tuesday_even || 0;
-          else if (dayOfWeek === 3) dayHours = employee.hours_wednesday_even || 0;
-          else if (dayOfWeek === 4) dayHours = employee.hours_thursday_even || 0;
-          else if (dayOfWeek === 5) dayHours = employee.hours_friday_even || 0;
-        } else {
-          if (dayOfWeek === 1) dayHours = employee.hours_monday_odd || 0;
-          else if (dayOfWeek === 2) dayHours = employee.hours_tuesday_odd || 0;
-          else if (dayOfWeek === 3) dayHours = employee.hours_wednesday_odd || 0;
-          else if (dayOfWeek === 4) dayHours = employee.hours_thursday_odd || 0;
-          else if (dayOfWeek === 5) dayHours = employee.hours_friday_odd || 0;
-        }
-        
-        expectedHours -= dayHours;
+      let contractPeriod = '';
+      if (employee.contract_startdate) {
+        contractPeriod = employee.contract_enddate 
+          ? `${employee.contract_startdate} - ${employee.contract_enddate}`
+          : `${employee.contract_startdate} - present`;
       }
       
-      // Calculate leave hours from absences
-      const employeeAbsences = absenceData.filter(a => a.employee_id === employee.id);
-      let leaveHours = 0;
-      
-      for (const absence of employeeAbsences) {
-        leaveHours += absence.hours_per_day;
-      }
-      
-      console.log(`Employee ${employee.id} has ${employeeAbsences.length} absences for the period ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
-      
-      // Get written hours for this employee
-      const employeeWrittenHours = writtenHoursData.find(h => h.employee_id === employee.id);
-      const writtenHours = employeeWrittenHours ? employeeWrittenHours.total_hours : 0;
-      const actualHours = writtenHours + leaveHours;
+      // Calculate expected hours for the week (accounting for holidays)
+      const expectedHours = weeklyHours - (holidays.length * 8); // Subtract 8 hours for each holiday
       
       return {
         id: employee.id,
         name: employee.name,
-        function: employee.function || "",
+        function: employee.function || '',
         contract_period: contractPeriod,
-        contract_hours: contractHours,
-        holiday_hours: contractHours - expectedHours,
+        contract_hours: weeklyHours,
         expected_hours: expectedHours,
         leave_hours: leaveHours,
         written_hours: writtenHours,
-        actual_hours: actualHours,
+        actual_hours: writtenHours,
+        active: employee.active,
         absences: employeeAbsences,
-        active: employee.active === true || employee.active === 1
+        absenceDebug: absenceDebugInfo[employee.id]
       };
     });
-
-    // After processing the data, store it in cache
-    cacheService.set(cacheKey, enrichedEmployees);
     
-    // Set cache control headers
+    // Filter for dashboard if requested
+    const finalEmployees = isDashboard
+      ? processedEmployees.filter(e => e.contract_hours > 0) // Only show employees with contract hours for dashboard
+      : processedEmployees;
+    
+    // Cache the results
+    cacheService.set(cacheKey, finalEmployees, 86400); // Cache for 24 hours
+    console.log(`Cache SET for key: ${cacheKey} with TTL: 86400s`);
+    
+    // Send response with cache headers
     res.header('X-Cache', 'MISS');
-
-    res.json(enrichedEmployees);
+    res.header('Cache-Control', 'max-age=86400, public');
+    return res.json(finalEmployees);
+    
   } catch (error) {
-    console.error('Error in /api/employees:', error);
-    res.status(500).json({ 
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
+    console.error('Error fetching employee data:', error);
+    res.status(500).json({ error: 'Failed to fetch employee data for the week' });
   }
 });
 
@@ -2100,8 +2154,14 @@ function calculateLeaveHours(absences: AbsenceData[]): number {
   
   // Sum up hours from all leave-type absences
   return absences.reduce((total, absence) => {
-    // Only count absences with status "Approved" (status_id usually 2 or similar)
-    if (absence.status_id === 2 || absence.status_name === 'Approved') {
+    // Check for approved absences using either status_id or status_name
+    const isApproved = 
+      absence.status_id === 2 || 
+      absence.status_name === 'GOEDGEKEURD' || 
+      absence.status_name === 'Approved' ||
+      absence.status_name?.toUpperCase() === 'GOEDGEKEURD';
+    
+    if (isApproved) {
       return total + (absence.hours_per_day || 0);
     }
     return total;

@@ -677,8 +677,7 @@ app.get('/api/employees/month', async (req: Request, res: Response) => {
         employees e ON ar.employee_id = e.id
       WHERE 
         e.active = true AND
-        arl.date BETWEEN ? AND ? AND
-        arl.status_id = 2 -- Status ID 2 = GOEDGEKEURD (Approved)
+        arl.date BETWEEN ? AND ?
       ORDER BY
         arl.date ASC
     `, [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]);
@@ -1757,7 +1756,10 @@ app.get('/api/employee-stats', async (req: Request, res: Response) => {
     const holidays = await db.all<Holiday[]>(`
       SELECT date, name FROM holidays 
       WHERE date >= ? AND date <= ?
-    `, [startDate, endDate]);
+    `, [
+      startDate.toISOString().split('T')[0],
+      endDate.toISOString().split('T')[0]
+    ]);
 
     console.log('Found holidays:', holidays);
     
@@ -1954,8 +1956,7 @@ app.get('/api/employee-month-stats', async (req: Request, res: Response) => {
         employees e ON ar.employee_id = e.id
       WHERE 
         e.active = true AND
-        arl.date BETWEEN ? AND ? AND
-        arl.status_id = 2 -- Status ID 2 = GOEDGEKEURD (Approved)
+        arl.date BETWEEN ? AND ?
       ORDER BY
         arl.date ASC
     `, [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]);

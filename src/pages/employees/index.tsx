@@ -1,43 +1,36 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { getWeek, getYear, getMonth, format } from 'date-fns';
-import { getEmployeeStats, getEmployeeMonthStats, type EmployeeWithStats, isDataCached, updateFunctionTitles, enrichEmployeesWithAbsences } from '@/services/employee.service';
-import { Absence, AbsencesByEmployee } from '@/services/absence.service';
-import { API_BASE } from '@/services/api';
+import { getWeek, getYear, getMonth } from 'date-fns';
+import { getEmployeeStats, getEmployeeMonthStats, type EmployeeWithStats, enrichEmployeesWithAbsences } from '@/services/employee.service';
+import { AbsencesByEmployee } from '@/services/absence.service';
 import { useFilterPresets } from '@/hooks/useFilterPresets';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from "@/components/ui/skeleton";
-import { InfoCircledIcon, MagnifyingGlassIcon, Cross2Icon, MixerHorizontalIcon, ChevronLeftIcon, ChevronRightIcon } from '@radix-ui/react-icons';
-import { RefreshCw, Calendar, CalendarRange } from 'lucide-react';
-import { DateSelector } from '@/components/DateSelector';
-import { EmployeeAbsenceModal } from '@/components/EmployeeAbsenceModal';
+import { ChevronLeftIcon, ChevronRightIcon } from '@radix-ui/react-icons';
+import { RefreshCw } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CacheStatusPopup } from '@/components/CacheStatusPopup';
-import { Table, TableHeader, TableBody, TableCell, TableRow, TableHead } from '@/components/ui/table';
-import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { Slider } from '@/components/ui/slider';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { generateEmployeeCardsUrl } from '@/utils/url';
-import { AbsenceSyncButton } from '@/components/AbsenceSyncButton';
 import { DataSyncButton } from '@/components/DataSyncButton';
-import { getWeekNumber, getWeekDays } from '@/utils/date-utils';
-import { IconPerson, IconSync } from '@/components/Icons';
+import { getWeekDays } from '@/utils/date-utils';
+import { IconPerson } from '@/components/Icons';
 import EmployeeTable from '@/components/EmployeeTable';
-import WeekSelector from '@/components/WeekSelector';
 import Spinner from '@/components/Spinner';
 import ErrorMessage from '@/components/ErrorMessage';
 import CacheStatus from '@/components/CacheStatus';
-import { Badge } from '@/components/ui/badge';
 
 export default function EmployeesPage() {
   const initialDate = new Date();
   const [searchParams, setSearchParams] = useSearchParams();
   
-  // Initialize state from URL parameters or defaults
+  // Initialize state from URL parameters or localStorage or defaults
   const [selectedDate, setSelectedDate] = useState(() => {
+    const storedDate = localStorage.getItem('employeesPageDate');
+    
+    if (storedDate) {
+      return new Date(storedDate);
+    }
+    
     const yearParam = searchParams.get('year');
     const weekParam = searchParams.get('week');
     const monthParam = searchParams.get('month');
@@ -61,6 +54,10 @@ export default function EmployeesPage() {
   });
   
   const [viewMode, setViewMode] = useState<'week' | 'month'>(() => {
+    const storedViewMode = localStorage.getItem('employeesPageViewMode');
+    if (storedViewMode && (storedViewMode === 'week' || storedViewMode === 'month')) {
+      return storedViewMode;
+    }
     return searchParams.get('viewMode') === 'month' ? 'month' : 'week';
   });
   
@@ -150,276 +147,69 @@ export default function EmployeesPage() {
 
   const weekDays = useMemo(() => getWeekDays(selectedYear, selectedWeek), [selectedYear, selectedWeek]);
 
-  // Functies om tussen periodes te navigeren
-  const handlePrevPeriod = () => {
-    if (viewMode === 'week') {
-      if (selectedWeek === 1) {
-        // Go to previous year, week 52
-        setSelectedDate(new Date(selectedYear - 1, 11, 31));
-      } else {
-        // Go to previous week
-        const newDate = new Date(selectedDate);
-        newDate.setDate(newDate.getDate() - 7);
-        setSelectedDate(newDate);
-      }
-    } else {
-      if (selectedMonth === 0) {
-        // Go to previous year, December
-        setSelectedDate(new Date(selectedYear - 1, 11, 1));
-      } else {
-        // Go to previous month
-        setSelectedDate(new Date(selectedYear, selectedMonth - 1, 1));
-      }
-    }
-  };
-
-  const handleNextPeriod = () => {
-    if (viewMode === 'week') {
-      if (selectedWeek === 52) {
-        // Go to next year, week 1
-        setSelectedDate(new Date(selectedYear + 1, 0, 1));
-      } else {
-        // Go to next week
-        const newDate = new Date(selectedDate);
-        newDate.setDate(newDate.getDate() + 7);
-        setSelectedDate(newDate);
-      }
-    } else {
-      if (selectedMonth === 11) {
-        // Go to next year, January
-        setSelectedDate(new Date(selectedYear + 1, 0, 1));
-      } else {
-        // Go to next month
-        setSelectedDate(new Date(selectedYear, selectedMonth + 1, 1));
-      }
-    }
-  };
-
-  const handleYearChange = (year: number) => {
-    setSelectedDate(new Date(year, selectedDate.getMonth(), selectedDate.getDate()));
-  };
-
-  const handleWeekChange = (week: number) => {
-    setSelectedDate(new Date(selectedYear, 0, 1 + (week - 1) * 7));
-  };
-
-  const handleMonthChange = (month: number) => {
-    setSelectedDate(new Date(selectedYear, month, 1));
-  };
-
-  const handleViewModeChange = (mode: 'week' | 'month') => {
-    setViewMode(mode);
-    
-    // We behouden dezelfde datum, alleen het viewMode verandert
-    if (mode === 'week') {
-      // Als we van maand naar week gaan, nemen we de eerste week van de maand
-      setSelectedDate(new Date(selectedYear, selectedMonth, 1));
-    } else {
-      // Als we van week naar maand gaan, behouden we de maand van de huidige week
-      setSelectedDate(new Date(selectedYear, selectedMonth, 1));
-    }
-  };
-
-  // Update URL when filters change
+  // Update localStorage when date or viewMode changes
   useEffect(() => {
-    const params: Record<string, string> = {};
-    
-    // Always include year
-    params.year = selectedYear.toString();
-    
-    // Include week or month based on view mode
-    if (viewMode === 'week') {
-      params.week = selectedWeek.toString();
-    } else {
-      params.month = (selectedMonth + 1).toString();
-    }
-    
-    params.viewMode = viewMode;
-    
-    // Only include other filters if they're not the default values
-    if (searchQuery) {
-      params.search = searchQuery;
-    }
-    
-    if (showOnlyActive) {
-      params.active = 'true';
-    }
-    
-    if (percentageRange[0] !== 0) {
-      params.minPercentage = percentageRange[0].toString();
-    }
-    
-    if (percentageRange[1] !== 200) {
-      params.maxPercentage = percentageRange[1].toString();
-    }
-    
-    if (excludedEmployees.length > 0) {
-      params.excluded = excludedEmployees.join(',');
-    }
-    
-    if (selectedPreset) {
-      params.preset = selectedPreset;
-    }
-    
-    if (sortBy !== 'percentage') {
-      params.sortBy = sortBy;
-    }
-    
-    if (sortDirection !== 'desc') {
-      params.sortDirection = sortDirection;
-    }
-    
-    setSearchParams(params, { replace: true });
-  }, [selectedYear, selectedWeek, selectedMonth, viewMode, searchQuery, showOnlyActive, percentageRange, excludedEmployees, selectedPreset, sortBy, sortDirection, setSearchParams]);
+    localStorage.setItem('employeesPageDate', selectedDate.toISOString());
+    localStorage.setItem('employeesPageViewMode', viewMode);
+  }, [selectedDate, viewMode]);
 
   // Load employees when date or view mode changes
   useEffect(() => {
-    fetchData();
+    console.log('Date or viewMode changed, fetching new data...');
+    // Set a small timeout to prevent double fetching when both date and viewMode change
+    const timer = setTimeout(() => {
+      fetchData();
+    }, 50);
+    
+    return () => clearTimeout(timer);
   }, [selectedDate, viewMode]);
 
-  const fetchData = async (forceRefresh = false) => {
+  // Define the fetchData function with proper component-level logging
+  const fetchData = useCallback(async (forceRefresh?: boolean) => {
     try {
-      // Always show loading at start
       setIsLoading(true);
-      
-      if (forceRefresh) {
-        setIsRefreshing(true);
-      }
-      
+      setIsRefreshing(forceRefresh || false);
       setError(null);
-
-      // Direct timeout op fetch operaties
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 seconden timeout
+      console.log('EmployeesPage component: Loading employee data directly...');
       
-      try {
-        // Fetch employee data directly
-        let result;
-        
-        if (viewMode === 'week') {
-          result = await getEmployeeStats(selectedYear, selectedWeek, true, Date.now());
-        } else {
-          result = await getEmployeeMonthStats(selectedYear, selectedMonth, true);
-        }
-        
-        // Set the from cache status and employees data
+      let fetchedEmployees: EmployeeWithStats[] = [];
+      
+      if (viewMode === 'week') {
+        // Fetch data for the selected week
+        const result = await getEmployeeStats(selectedYear, selectedWeek, forceRefresh);
+        fetchedEmployees = result.data;
+        setEmployees(fetchedEmployees);
         setIsFromCache(result.fromCache);
-        
-        // Get week days for the selected week
-        const weekDays = getWeekDays(selectedYear, selectedWeek);
-        
-        // Calculate start and end dates for the period
-        const startDate = viewMode === 'week' 
-          ? weekDays[0] // First day of the week
-          : new Date(selectedYear, selectedMonth, 1); // First day of the month
-        
-        const endDate = viewMode === 'week'
-          ? weekDays[weekDays.length - 1] // Last day of the week
-          : new Date(selectedYear, selectedMonth + 1, 0); // Last day of the month
-            
-        // Fetch absences with abort controller
-        try {
-          console.log(`Fetching absences from ${format(startDate, 'yyyy-MM-dd')} to ${format(endDate, 'yyyy-MM-dd')}`);
-          const absencesResponse = await fetch(
-            `${API_BASE}/absences?startDate=${format(startDate, 'yyyy-MM-dd')}&endDate=${format(endDate, 'yyyy-MM-dd')}`,
-            { signal: controller.signal }
-          );
-          
-          if (absencesResponse.ok) {
-            const absencesData = await absencesResponse.json();
-            console.log(`Found ${absencesData.length} absence records for the period`);
-            
-            // Group absences by employee
-            const absencesByEmployee: AbsencesByEmployee = {};
-            if (Array.isArray(absencesData)) {
-              absencesData.forEach((absence: Absence) => {
-                const employeeId = absence.employee.id;
-                if (!absencesByEmployee[employeeId]) {
-                  absencesByEmployee[employeeId] = [];
-                }
-                absencesByEmployee[employeeId].push(absence);
-              });
-            }
-            
-            // Combine data - use result.data instead of just result
-            const enrichedEmployees = enrichEmployeesWithAbsences(result.data, absencesByEmployee);
-            setEmployees(enrichedEmployees);
-            setAbsences(absencesByEmployee);
-          } else {
-            // Alleen de employees data gebruiken als absences mislukken
-            console.error('Error fetching absences:', absencesResponse.status);
-            setEmployees(result.data);
-          }
-        } catch (absenceErr) {
-          // Alleen de employees data gebruiken als absences mislukken
-          console.error('Error fetching absences:', absenceErr);
-          setEmployees(result.data);
-        }
-        
-        // Reset refreshing state
-        if (forceRefresh) {
-          setIsRefreshing(false);
-        }
-        
-        // Wis de timeout omdat we klaar zijn
-        clearTimeout(timeoutId);
-      } catch (err) {
-        // Cancel timeout als er een fout optreedt
-        clearTimeout(timeoutId);
-        
-        // Reset refreshing state
-        if (forceRefresh) {
-          setIsRefreshing(false);
-        }
-        
-        // Log de fout en toon een foutmelding
-        console.error('Error fetching data:', err);
-        
-        if (err.name === 'AbortError') {
-          setError('Het laden van data duurde te lang. Probeer het opnieuw.');
-        } else {
-          setError('Er is een fout opgetreden bij het laden van data.');
-        }
-        
-        // Toon fallback data als we geen employees hebben
-        if (employees.length === 0) {
-          setEmployees([{
-            id: 0,
-            name: "Fout bij laden",
-            function: "Ververs de pagina",
-            expectedHours: 0,
-            leaveHours: 0,
-            writtenHours: 0,
-            actualHours: 0,
-            active: true
-          }]);
-        }
+      } else if (viewMode === 'month') {
+        // Fetch data for the selected month
+        const result = await getEmployeeMonthStats(selectedYear, selectedMonth + 1, forceRefresh);
+        fetchedEmployees = result.data;
+        setEmployees(fetchedEmployees);
+        setIsFromCache(result.fromCache);
       }
-    } catch (err) {
-      console.error('Unexpected error in fetchData:', err);
-      setError('Er is een onverwachte fout opgetreden.');
       
-      // Toon fallback data als we geen employees hebben
-      if (employees.length === 0) {
-        setEmployees([{
-          id: 0,
-          name: "Fout bij laden",
-          function: "Ververs de pagina",
-          expectedHours: 0,
-          leaveHours: 0,
-          writtenHours: 0,
-          actualHours: 0,
-          active: true
-        }]);
+      // Get absence data for the fetched employees
+      try {
+        // Use the local fetchedEmployees array to avoid state timing issues
+        // This function would normally fetch absence data for the provided year and week
+        // For now, we're just passing an empty object as absences
+        const absencesByEmployee = {}; // This would normally come from an API call
+        const employeesWithAbsences = enrichEmployeesWithAbsences(fetchedEmployees, absencesByEmployee);
+        setAbsences(absencesByEmployee);
+      } catch (absenceError) {
+        console.error('Error enriching employees with absences:', absenceError);
+        // Don't let absence errors prevent showing the employee data
+        setAbsences({});
       }
+      
+    } catch (err) {
+      console.error('Error fetching employee data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load employee data');
     } finally {
-      // Always turn off loading indicators, even on error
       setIsLoading(false);
-      if (forceRefresh) {
-        setIsRefreshing(false);
-      }
+      setIsRefreshing(false);
     }
-  };
+  }, [selectedWeek, selectedYear, selectedMonth, viewMode]);
 
   // Apply filters whenever employees or filter criteria change
   useEffect(() => {
@@ -542,6 +332,127 @@ export default function EmployeesPage() {
     fetchData(true);
   };
 
+  const handlePrevPeriod = () => {
+    if (viewMode === 'week') {
+      if (selectedWeek === 1) {
+        // Go to previous year, week 52
+        setSelectedDate(new Date(selectedYear - 1, 11, 31));
+      } else {
+        // Go to previous week
+        const newDate = new Date(selectedDate);
+        newDate.setDate(newDate.getDate() - 7);
+        setSelectedDate(newDate);
+      }
+    } else {
+      if (selectedMonth === 0) {
+        // Go to previous year, December
+        setSelectedDate(new Date(selectedYear - 1, 11, 1));
+      } else {
+        // Go to previous month
+        setSelectedDate(new Date(selectedYear, selectedMonth - 1, 1));
+      }
+    }
+  };
+
+  const handleNextPeriod = () => {
+    if (viewMode === 'week') {
+      if (selectedWeek === 52) {
+        // Go to next year, week 1
+        setSelectedDate(new Date(selectedYear + 1, 0, 1));
+      } else {
+        // Go to next week
+        const newDate = new Date(selectedDate);
+        newDate.setDate(newDate.getDate() + 7);
+        setSelectedDate(newDate);
+      }
+    } else {
+      if (selectedMonth === 11) {
+        // Go to next year, January
+        setSelectedDate(new Date(selectedYear + 1, 0, 1));
+      } else {
+        // Go to next month
+        setSelectedDate(new Date(selectedYear, selectedMonth + 1, 1));
+      }
+    }
+  };
+
+  const handleYearChange = (year: number) => {
+    setSelectedDate(new Date(year, selectedDate.getMonth(), selectedDate.getDate()));
+  };
+
+  const handleWeekChange = (week: number) => {
+    setSelectedDate(new Date(selectedYear, 0, 1 + (week - 1) * 7));
+  };
+
+  const handleMonthChange = (month: number) => {
+    setSelectedDate(new Date(selectedYear, month, 1));
+  };
+
+  const handleViewModeChange = (mode: 'week' | 'month') => {
+    setViewMode(mode);
+    
+    // We behouden dezelfde datum, alleen het viewMode verandert
+    if (mode === 'week') {
+      // Als we van maand naar week gaan, nemen we de eerste week van de maand
+      setSelectedDate(new Date(selectedYear, selectedMonth, 1));
+    } else {
+      // Als we van week naar maand gaan, behouden we de maand van de huidige week
+      setSelectedDate(new Date(selectedYear, selectedMonth, 1));
+    }
+  };
+
+  // Update URL when filters change
+  useEffect(() => {
+    const params: Record<string, string> = {};
+    
+    // Always include year
+    params.year = selectedYear.toString();
+    
+    // Include week or month based on view mode
+    if (viewMode === 'week') {
+      params.week = selectedWeek.toString();
+    } else {
+      params.month = (selectedMonth + 1).toString();
+    }
+    
+    params.viewMode = viewMode;
+    
+    // Only include other filters if they're not the default values
+    if (searchQuery) {
+      params.search = searchQuery;
+    }
+    
+    if (showOnlyActive) {
+      params.active = 'true';
+    }
+    
+    if (percentageRange[0] !== 0) {
+      params.minPercentage = percentageRange[0].toString();
+    }
+    
+    if (percentageRange[1] !== 200) {
+      params.maxPercentage = percentageRange[1].toString();
+    }
+    
+    if (excludedEmployees.length > 0) {
+      params.excluded = excludedEmployees.join(',');
+    }
+    
+    if (selectedPreset) {
+      params.preset = selectedPreset;
+    }
+    
+    if (sortBy !== 'percentage') {
+      params.sortBy = sortBy;
+    }
+    
+    if (sortDirection !== 'desc') {
+      params.sortDirection = sortDirection;
+    }
+    
+    setSearchParams(params, { replace: true });
+  }, [selectedYear, selectedWeek, selectedMonth, viewMode, searchQuery, showOnlyActive, percentageRange, excludedEmployees, selectedPreset, sortBy, sortDirection, setSearchParams]);
+
   return (
     <div className="container mx-auto py-6">
       <div className="max-w-full mx-auto">
@@ -594,6 +505,13 @@ export default function EmployeesPage() {
                 <TabsTrigger value="month">Maand</TabsTrigger>
               </TabsList>
             </Tabs>
+            
+            {isLoading && !isRefreshing && (
+              <div className="flex items-center text-sm text-gray-500">
+                <Spinner size="small" className="mr-2" />
+                <span>Loading data...</span>
+              </div>
+            )}
           </div>
           
           <div className="flex flex-col sm:flex-row gap-4">

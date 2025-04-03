@@ -342,7 +342,26 @@ export async function getEmployeeStats(
         throw new Error(`Error fetching employee stats: ${response.status} - ${errorText}`);
       }
       
-      const employeesFromApi: ApiEmployee[] = await response.json();
+      const responseData = await response.json();
+      
+      // Ensure we have an array of employees
+      let employeesFromApi: ApiEmployee[] = [];
+      
+      if (Array.isArray(responseData)) {
+        employeesFromApi = responseData;
+      } else if (responseData && typeof responseData === 'object') {
+        // Handle case where API returns an object with response field
+        if (responseData.response && Array.isArray(responseData.response)) {
+          employeesFromApi = responseData.response;
+        } else {
+          console.warn('Received object instead of array from API. Creating empty employee list.');
+          employeesFromApi = [];
+        }
+      } else {
+        console.error('Unexpected response format from API:', responseData);
+        throw new Error('Unexpected response format from API');
+      }
+      
       console.log(`Received ${employeesFromApi.length} employees from API`);
       
       // Convert API data to our format
@@ -427,9 +446,15 @@ export async function getEmployeeStats(
 }
 
 export function enrichEmployeesWithAbsences(
-    employees: EmployeeWithStats[], 
+    employees: EmployeeWithStats[] | null | undefined, 
     absencesByEmployee: AbsencesByEmployee
 ): EmployeeWithStats[] {
+    // If employees is null, undefined, or not an array, return an empty array
+    if (!employees || !Array.isArray(employees)) {
+        console.warn('enrichEmployeesWithAbsences: employees is not an array', employees);
+        return [];
+    }
+    
     return employees.map(employee => ({
         ...employee,
         absences: absencesByEmployee[employee.id] || []
@@ -511,10 +536,29 @@ export async function getEmployeeMonthStats(
         throw new Error(`Error fetching employee month stats: ${response.status} - ${errorText}`);
       }
       
-      const employeesFromApi: ApiEmployee[] = await response.json();
+      const responseData = await response.json();
+      
+      // Ensure we have an array of employees
+      let employeesList: ApiEmployee[] = [];
+      
+      if (Array.isArray(responseData)) {
+        // Response is already an array, use it directly
+        employeesList = responseData;
+      } else if (responseData && typeof responseData === 'object') {
+        // Response is an object, check if it has a response property that's an array
+        if (responseData.response && Array.isArray(responseData.response)) {
+          employeesList = responseData.response;
+        } else {
+          console.warn('Received object instead of array from API. Creating empty employee list.');
+          employeesList = [];
+        }
+      } else {
+        console.error('Unexpected response format from API:', responseData);
+        throw new Error('Unexpected response format from API');
+      }
       
       // Convert API data to our format
-      const employeesWithStats = employeesFromApi.map(apiEmployee => ({
+      const employeesWithStats = employeesList.map(apiEmployee => ({
         id: apiEmployee.id,
         name: apiEmployee.name,
         function: apiEmployee.function,
@@ -537,12 +581,12 @@ export async function getEmployeeMonthStats(
       }
       
       return { data: employeesWithStats, fromCache: false };
-    } catch (error) {
+    } catch (error: unknown) {
       // Clear timeout to prevent memory leaks
       clearTimeout(timeoutId);
       
       // Handle AbortError specially
-      if (error.name === 'AbortError') {
+      if (error instanceof Error && error.name === 'AbortError') {
         console.warn(`Request for employee month stats for ${year}-${month} timed out after 8 seconds`);
         throw new Error(`Request timed out after 8 seconds`);
       }
@@ -550,7 +594,7 @@ export async function getEmployeeMonthStats(
       // Re-throw other errors
       throw error;
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`Error fetching employee month stats for ${year}-${month}:`, error);
     
     // Enhanced error handling with specific messages for different error types

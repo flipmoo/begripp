@@ -16,13 +16,20 @@ import { EmployeeCard } from '@/components/EmployeeCard';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CacheStatusPopup } from '@/components/CacheStatusPopup';
 import { generateEmployeesUrl } from '@/utils/url';
+import Spinner from '@/components/Spinner';
 
 export default function EmployeeCardsPage() {
   const initialDate = new Date();
   const [searchParams, setSearchParams] = useSearchParams();
   
-  // Initialize state from URL parameters or defaults
+  // Initialize state from localStorage or URL parameters or defaults
   const [selectedDate, setSelectedDate] = useState(() => {
+    const storedDate = localStorage.getItem('employeesPageDate');
+    
+    if (storedDate) {
+      return new Date(storedDate);
+    }
+    
     const yearParam = searchParams.get('year');
     const weekParam = searchParams.get('week');
     const monthParam = searchParams.get('month');
@@ -51,8 +58,18 @@ export default function EmployeeCardsPage() {
   const [isFromCache, setIsFromCache] = useState<boolean>(false);
   
   const [viewMode, setViewMode] = useState<'week' | 'month'>(() => {
+    const storedViewMode = localStorage.getItem('employeesPageViewMode');
+    if (storedViewMode && (storedViewMode === 'week' || storedViewMode === 'month')) {
+      return storedViewMode;
+    }
     return searchParams.get('viewMode') === 'month' ? 'month' : 'week';
   });
+  
+  // Update localStorage when date or viewMode changes
+  useEffect(() => {
+    localStorage.setItem('employeesPageDate', selectedDate.toISOString());
+    localStorage.setItem('employeesPageViewMode', viewMode);
+  }, [selectedDate, viewMode]);
   
   // Filter states
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
@@ -143,7 +160,13 @@ export default function EmployeeCardsPage() {
 
   // Load employees when date or view mode changes
   useEffect(() => {
-    loadEmployees();
+    console.log('Date or viewMode changed in cards view, fetching new data...');
+    // Set a small timeout to prevent double fetching when both date and viewMode change
+    const timer = setTimeout(() => {
+      loadEmployees();
+    }, 50);
+    
+    return () => clearTimeout(timer);
   }, [selectedDate, viewMode]);
 
   const loadEmployees = async () => {
@@ -161,19 +184,19 @@ export default function EmployeeCardsPage() {
       
       if (viewMode === 'week') {
         console.log(`Loading employees for year=${selectedYear}, week=${selectedWeek}`);
-        const data = await getEmployeeStats(selectedYear, selectedWeek);
-        console.log('Employee data loaded:', data);
+        const result = await getEmployeeStats(selectedYear, selectedWeek);
+        console.log('Employee data loaded:', result);
         
         // Merge employee data to handle multiple contracts
-        const mergedData = mergeEmployeeData(data);
+        const mergedData = mergeEmployeeData(result.data);
         setEmployees(mergedData);
       } else {
         console.log(`Loading employees for year=${selectedYear}, month=${selectedMonth}`);
-        const data = await getEmployeeMonthStats(selectedYear, selectedMonth);
-        console.log('Monthly employee data loaded:', data);
+        const result = await getEmployeeMonthStats(selectedYear, selectedMonth);
+        console.log('Monthly employee data loaded:', result);
         
         // Merge employee data to handle multiple contracts
-        const mergedData = mergeEmployeeData(data);
+        const mergedData = mergeEmployeeData(result.data);
         setEmployees(mergedData);
       }
     } catch (error) {
@@ -322,8 +345,29 @@ export default function EmployeeCardsPage() {
 
   return (
     <div className="container mx-auto py-6 space-y-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center">
+          <h1 className="text-3xl font-bold">Employee Cards</h1>
+          {isLoading && (
+            <div className="flex items-center ml-4 text-sm text-gray-500">
+              <Spinner size="small" className="mr-2" />
+              <span>Loading...</span>
+            </div>
+          )}
+        </div>
+        <Button variant="outline" size="sm" asChild>
+          <Link to={generateEmployeesUrl({
+            year: selectedYear, 
+            month: selectedMonth + 1,
+            week: selectedWeek,
+            viewMode
+          })}>
+            Back to Table View
+          </Link>
+        </Button>
+      </div>
+      
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h1 className="text-3xl font-bold">Employee Cards</h1>
         <div className="flex flex-wrap items-center gap-2">
           <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as 'week' | 'month')}>
             <TabsList>

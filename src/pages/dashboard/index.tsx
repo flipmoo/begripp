@@ -18,7 +18,6 @@ import { useProjectsStore } from '../../stores/projects';
 import { formatDate } from '../../utils/date';
 import { Skeleton } from '../../components/ui/skeleton';
 import EmployeeAvailability from '../../components/dashboard/EmployeeAvailability';
-import RevenueChart from '../../components/dashboard/RevenueChart';
 import ProjectDeadlines from '../../components/dashboard/ProjectDeadlines';
 
 const TeamDashboardPage: React.FC = () => {

@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { TooltipProvider } from './components/ui/tooltip';
 import EmployeesPage from './pages/employees';
 import EmployeeCardsPage from './pages/employees/cards';
@@ -8,7 +8,6 @@ import TeamDashboardPage from './pages/dashboard';
 import PMDashboardPage from './pages/pm-dash';
 import ProjectsPage from './pages/projects';
 import InvoicesPage from './pages/invoices';
-import RevenuePage from './pages/revenue';
 import { Layout } from './components/common/Layout';
 import { Toaster } from './components/ui/toaster';
 import { getEmployeeStats } from './services/employee.service';
@@ -51,21 +50,19 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <Router>
+        <BrowserRouter>
           <Layout>
             <Routes>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="/dashboard" element={<TeamDashboardPage />} />
+              <Route path="/" element={<TeamDashboardPage />} />
               <Route path="/pm-dash" element={<PMDashboardPage />} />
               <Route path="/projects" element={<ProjectsPage />} />
               <Route path="/employees" element={<EmployeesPage />} />
               <Route path="/employees/cards" element={<EmployeeCardsPage />} />
               <Route path="/invoices" element={<InvoicesPage />} />
-              <Route path="/revenue" element={<RevenuePage />} />
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Layout>
-        </Router>
+        </BrowserRouter>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>

@@ -16,7 +16,6 @@ export function Layout({ children }: LayoutProps) {
     { name: 'Projects', href: '/projects' },
     { name: 'Employees', href: '/employees' },
     { name: 'Facturen', href: '/invoices' },
-    { name: 'Omzet', href: '/revenue' },
   ];
 
   return (

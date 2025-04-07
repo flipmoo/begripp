@@ -11,7 +11,6 @@ const cache = new NodeCache({ stdTTL: DEFAULT_TTL, checkperiod: 120 });
 export const CACHE_KEYS = {
   EMPLOYEES_WEEK: (year: number, week: number) => `employees_week_${year}_${week}`,
   EMPLOYEES_MONTH: (year: number, month: number) => `employees_month_${year}_${month}`,
-  REVENUE_HOURS: (year: number) => `revenue_hours_${year}`,
   INVOICES: (filter?: string) => `invoices_${filter || 'all'}`,
   DASHBOARD_STATS: 'dashboard_stats',
   DASHBOARD_PROJECTS: 'dashboard_projects',
@@ -91,21 +90,6 @@ export const cacheService = {
     if (employeeKeys.length > 0) {
       cache.del(employeeKeys);
       console.log(`Cleared ${employeeKeys.length} employee cache entries`);
-    }
-  },
-
-  /**
-   * Clear all revenue data from cache
-   */
-  clearRevenueData: (): void => {
-    const keys = cache.keys();
-    const revenueKeys = keys.filter(key => 
-      key.startsWith('revenue_hours_')
-    );
-    
-    if (revenueKeys.length > 0) {
-      cache.del(revenueKeys);
-      console.log(`Cleared ${revenueKeys.length} revenue cache entries`);
     }
   },
 

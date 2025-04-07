@@ -1,7 +1,5 @@
 import { format } from 'date-fns';
-
-// Update API base URL to use port 3002
-const API_BASE = 'http://localhost:3002/api';
+import { API_BASE } from './api';
 
 export interface Absence {
   id: number;

@@ -1,7 +1,5 @@
 import { format } from 'date-fns';
-
-// Update API base URL to use port 3002
-const API_BASE = 'http://localhost:3002/api';
+import { API_BASE, fetchWithRetry } from './api';
 
 // Define interfaces
 export interface DepartmentDeclarability {
@@ -17,44 +15,6 @@ export interface DeclarabilityPeriod {
   startDate: string;
   endDate: string;
   departments: DepartmentDeclarability[];
-}
-
-// Helper function for API requests with retry logic
-async function fetchWithRetry(url: string, options: RequestInit = {}, retryCount = 0): Promise<Response> {
-  const MAX_RETRIES = 3;
-  const RETRY_DELAY = 1000;
-
-  try {
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        ...options.headers,
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-      }
-    });
-    
-    if (response.status === 503 && retryCount < MAX_RETRIES) {
-      console.log(`Received 503 from API, retrying in ${RETRY_DELAY/1000}s (attempt ${retryCount + 1}/${MAX_RETRIES})...`);
-      return new Promise(resolve => {
-        setTimeout(() => {
-          resolve(fetchWithRetry(url, options, retryCount + 1));
-        }, RETRY_DELAY);
-      });
-    }
-    
-    return response;
-  } catch (error) {
-    if (retryCount < MAX_RETRIES) {
-      console.log(`Network error, retrying in ${RETRY_DELAY/1000}s (attempt ${retryCount + 1}/${MAX_RETRIES})...`);
-      return new Promise(resolve => {
-        setTimeout(() => {
-          resolve(fetchWithRetry(url, options, retryCount + 1));
-        }, RETRY_DELAY);
-      });
-    }
-    throw error;
-  }
 }
 
 /**

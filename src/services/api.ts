@@ -1,7 +1,7 @@
 // API configuratie en utilities
 
-// API basis URL - aangepast voor een andere poort omdat poort 3002 problemen heeft
-export const API_BASE = 'http://localhost:3002/api';
+// API basis URL - gebruik een relatief pad voor netwerkcompatibiliteit
+export const API_BASE = '/api';
 // export const API_BASE = 'https://mocki.io/v1/1b7a9b7f-9b5a-4e1c-9b5a-4e1c9b5a4e1c'; // Temporary mock API
 
 // Maximum aantal pogingen voor API-verzoeken (voor 503 fouten)

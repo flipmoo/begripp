@@ -1,8 +1,6 @@
 import { create } from 'zustand';
+import { API_BASE } from '../services/api';
 import { clearEmployeeCache } from '../services/employee.service';
-
-// Update API base URL to use port 3002
-const API_BASE = 'http://localhost:3002/api';
 
 interface AbsenceSyncState {
     isSyncing: boolean;

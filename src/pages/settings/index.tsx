@@ -5,9 +5,7 @@ import { Button } from '../../components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/tabs';
 import { AbsenceSyncButton } from '../../components/AbsenceSyncButton';
 import type { Holiday } from '../../data/holidays';
-
-// Use the same API base URL as in employee.service.ts
-const API_BASE = 'http://localhost:3002/api';
+import { API_BASE } from '../../services/api';
 
 export function SettingsPage() {
   const [holidays, setHolidays] = useState<Holiday[]>([]);

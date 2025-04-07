@@ -9,8 +9,8 @@ exports.calculateDeclarabilityByDepartment = calculateDeclarabilityByDepartment;
 exports.clearDeclarabilityCache = clearDeclarabilityCache;
 const axios_1 = __importDefault(require("axios"));
 const hour_1 = require("../api/gripp/services/hour");
-// URL for API requests
-const API_BASE = 'http://localhost:3002/api';
+// API basis URL - gebruik een relatief pad voor netwerkcompatibiliteit
+const API_BASE = '/api';
 // Cache expiration time in milliseconds (30 minutes)
 const CACHE_EXPIRATION = 30 * 60 * 1000;
 // Initialize client-side cache

@@ -27,7 +27,7 @@ const ApiStatusButton: React.FC = () => {
     const startTime = Date.now();
     try {
       // Try to hit the health endpoint to verify the server is running
-      await axios.get(`http://localhost:${API_PORT}/api/health`, { timeout: 3000 });
+      await axios.get(`/api/health`, { timeout: 3000 });
       setApiStatus({
         online: true,
         port: API_PORT,
@@ -63,7 +63,8 @@ const ApiStatusButton: React.FC = () => {
   const handleRestartApi = () => {
     // This button will open a confirmation dialog and then allow the user to restart the API
     if (window.confirm('Wil je de API server herstarten? Dit kan even duren.')) {
-      window.open(`http://localhost:${API_PORT}/api/restart`, '_blank');
+      // Gebruik relatief pad in plaats van absolute URL met localhost
+      window.open(`/api/restart`, '_blank');
     }
   };
 

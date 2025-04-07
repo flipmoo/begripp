@@ -1,4 +1,5 @@
 import { execSync, spawn } from 'child_process';
+import { API_PORT } from '../config/ports';
 
 console.log('API Server Restart Script');
 console.log('========================');
@@ -36,7 +37,7 @@ try {
       console.log('Verifying API server is running...');
       setTimeout(() => {
         try {
-          const healthCheck = execSync('curl -s "http://localhost:3002/api/health"', {
+          const healthCheck = execSync(`curl -s "http://localhost:${API_PORT}/api/health"`, {
             encoding: 'utf-8'
           });
           

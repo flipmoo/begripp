@@ -1513,7 +1513,8 @@ app.get('/api/restart', (req, res) => {
         <script>
           // Script to check if API is back online
           setTimeout(function checkApiStatus() {
-            fetch('http://localhost:${API_PORT}/api/health')
+            // Gebruik window.location.origin om compatibiliteit met externe toegang te waarborgen
+            fetch(window.location.origin + '/api/health')
               .then(response => {
                 if (response.ok) {
                   // API is back online

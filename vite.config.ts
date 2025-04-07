@@ -12,6 +12,7 @@ export default defineConfig({
     },
   },
   server: {
+    host: '0.0.0.0', // Beschikbaar maken op alle netwerkinterfaces
     port: FRONTEND_PORT,
     strictPort: true, // Don't try alternative ports
     onServerStart: async (server) => {

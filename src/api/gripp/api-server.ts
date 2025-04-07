@@ -1296,8 +1296,8 @@ try {
 
   // Function to start the server with a given port
   const startServer = (portToUse: number) => {
-    return app.listen(portToUse, () => {
-      console.log(`API server running on port ${portToUse}`);
+    return app.listen(portToUse, '0.0.0.0', () => {
+      console.log(`API server running on port ${portToUse} and accessible over the network`);
     }).on('error', async (error: any) => {
       if (error.code === 'EADDRINUSE') {
         console.error(`Port ${portToUse} is already in use. Killing existing process and retrying...`);

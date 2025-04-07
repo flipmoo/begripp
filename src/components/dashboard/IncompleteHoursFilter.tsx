@@ -8,7 +8,7 @@ import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { getEmployeeStats, getEmployeeMonthStats, EmployeeWithStats, clearEmployeeCache } from '../../services/employee.service';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, UserX, Save } from 'lucide-react';
+import { RefreshCw, UserX, Save, AlertCircle, CheckCircle, ListFilter } from 'lucide-react';
 import { useToast } from '../ui/use-toast';
 
 // Definieer de structuur van de opgeslagen filters
@@ -126,7 +126,7 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
     (periodType === 'week' ? Math.floor(new Date().getDate() / 7) + 1 : new Date().getMonth())
   );
   const [percentageRange, setPercentageRange] = useState<[number, number]>(
-    savedFilters?.percentageRange || [0, 100]
+    savedFilters?.percentageRange || [0, 200]
   );
   const [showExcluded, setShowExcluded] = useState<boolean>(
     savedFilters?.showExcluded || false
@@ -341,13 +341,27 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
         // die kunnen leiden tot onnodige rerenders
         const employeeData = result.data || [];
         
-        // Transform to EmployeeWithPercentage and mark excluded employees
-        const transformedEmployees = employeeData
+        // Map om dubbele medewerkers te verwijderen, houdt alleen de meest recente
+        const uniqueEmployees = new Map();
+        employeeData
           .filter(employee => employee.active !== false) // Only active employees
+          .forEach(employee => {
+            // Als deze medewerker nog niet in de map staat, of als deze nieuwer is
+            // (hogere verwachte uren), vervang de bestaande
+            const currentEmployee = uniqueEmployees.get(employee.id);
+            if (!currentEmployee || 
+                (currentEmployee.expectedHours < employee.expectedHours)) {
+              uniqueEmployees.set(employee.id, employee);
+            }
+          });
+
+        // Transform unique employees to EmployeeWithPercentage
+        const transformedEmployees = Array.from(uniqueEmployees.values())
           .map(employee => {
             // Calculate percentage of written hours vs expected hours
+            // Inclusief verlofuren in de berekening van het percentage
             const percentage = employee.expectedHours > 0 ? 
-              (employee.writtenHours / employee.expectedHours) * 100 : 100;
+              ((employee.writtenHours + employee.leaveHours) / employee.expectedHours) * 100 : 100;
             
             return {
               ...employee,
@@ -563,7 +577,7 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
             <Slider
               value={percentageRange}
               min={0}
-              max={100}
+              max={200}
               step={5}
               onValueChange={(value) => setPercentageRange(value as [number, number])}
               onValueCommit={(value) => {
@@ -575,6 +589,57 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
               }}
               className="py-4"
             />
+            {/* Quick filter buttons */}
+            <div className="flex gap-2 mt-2">
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => {
+                  setPercentageRange([0, 99]);
+                  setRetryCount(prev => prev + 1);
+                  autoSaveFilters({ percentageRange: [0, 99] });
+                }}
+              >
+                <AlertCircle className="h-4 w-4 mr-1 text-red-500" />
+                &lt; 100%
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => {
+                  setPercentageRange([100, 100]);
+                  setRetryCount(prev => prev + 1);
+                  autoSaveFilters({ percentageRange: [100, 100] });
+                }}
+              >
+                <CheckCircle className="h-4 w-4 mr-1 text-green-500" />
+                Precies 100%
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => {
+                  setPercentageRange([101, 200]);
+                  setRetryCount(prev => prev + 1);
+                  autoSaveFilters({ percentageRange: [101, 200] });
+                }}
+              >
+                <AlertCircle className="h-4 w-4 mr-1 text-yellow-500" />
+                &gt; 100%
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => {
+                  setPercentageRange([0, 200]);
+                  setRetryCount(prev => prev + 1);
+                  autoSaveFilters({ percentageRange: [0, 200] });
+                }}
+              >
+                <ListFilter className="h-4 w-4 mr-1" />
+                Alles
+              </Button>
+            </div>
           </div>
           
           {/* Show excluded employees checkbox */}
@@ -620,8 +685,16 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
           <div className="space-y-4">
             {filteredEmployees.map(employee => (
               <div 
-                key={employee.id} 
-                className={`space-y-1 p-2 rounded-md border ${employee.excluded ? 'border-red-100 bg-red-50' : 'border-gray-100'}`}
+                key={`${employee.id}_${employee.contractPeriod || ''}`} 
+                className={`space-y-1 p-2 rounded-md border ${
+                  employee.excluded 
+                    ? 'border-red-100 bg-red-50' 
+                    : employee.percentage === 100 
+                      ? 'border-green-100 bg-green-50' 
+                      : employee.percentage > 100 
+                        ? 'border-yellow-100 bg-yellow-50' 
+                        : 'border-red-100 bg-red-50'
+                }`}
               >
                 <div className="flex justify-between items-center">
                   <div 
@@ -631,7 +704,13 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
                     {employee.name}
                   </div>
                   <div className="flex items-center space-x-2">
-                    <span className={employee.percentage < 75 ? "text-red-500 font-medium" : "text-yellow-500 font-medium"}>
+                    <span className={
+                      employee.percentage === 100 
+                        ? "text-green-500 font-medium" 
+                        : employee.percentage > 100 
+                          ? "text-yellow-500 font-medium" 
+                          : "text-red-500 font-medium"
+                    }>
                       {Math.round(employee.percentage)}%
                     </span>
                     <Button
@@ -646,12 +725,36 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
                   </div>
                 </div>
                 <Progress 
-                  value={employee.percentage} 
-                  className={`h-2 ${employee.percentage < 75 ? "bg-red-100" : "bg-yellow-100"}`}
+                  value={employee.percentage > 200 ? 200 : employee.percentage} 
+                  className={`h-2 ${
+                    employee.percentage === 100 
+                      ? "bg-green-100" 
+                      : employee.percentage > 100 
+                        ? "bg-yellow-100" 
+                        : "bg-red-100"
+                  }`}
                 />
-                <div className="flex justify-between text-sm text-gray-500">
-                  <span>Geschreven: {employee.writtenHours.toFixed(1)} uur</span>
-                  <span>Verwacht: {employee.expectedHours.toFixed(1)} uur</span>
+                <div className="flex flex-col space-y-1">
+                  <div className="flex justify-between text-sm text-gray-500">
+                    <span>Geschreven: {employee.writtenHours.toFixed(1)} uur</span>
+                    <span>Verwacht: {employee.expectedHours.toFixed(1)} uur</span>
+                  </div>
+                  <div className="flex justify-between text-sm text-gray-500">
+                    <span>Verlof: {employee.leaveHours.toFixed(1)} uur</span>
+                    <span>Feestdagen: {employee.holidayHours?.toFixed(1) || '0.0'} uur</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-medium">
+                    <span>Totaal: {(employee.writtenHours + employee.leaveHours).toFixed(1)} uur</span>
+                    <span className={
+                      employee.percentage === 100 
+                        ? "text-green-500" 
+                        : employee.percentage > 100 
+                          ? "text-yellow-500" 
+                          : "text-red-500"
+                    }>
+                      Verschil: {((employee.writtenHours + employee.leaveHours) - employee.expectedHours).toFixed(1)} uur
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}

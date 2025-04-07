@@ -26,15 +26,16 @@ const ApiStatusButton: React.FC = () => {
     setIsChecking(true);
     const startTime = Date.now();
     try {
-      // Try to hit a simple API endpoint to verify the server is running
-      await axios.get(`http://localhost:${API_PORT}/api/dashboard/test`, { timeout: 3000 });
+      // Try to hit the health endpoint to verify the server is running
+      await axios.get(`http://localhost:${API_PORT}/api/health`, { timeout: 3000 });
       setApiStatus({
         online: true,
         port: API_PORT,
         responseTime: Date.now() - startTime,
         lastChecked: new Date()
       });
-    } catch (_err) {
+    } catch {
+      // API server is not responding
       setApiStatus({
         online: false,
         port: API_PORT,

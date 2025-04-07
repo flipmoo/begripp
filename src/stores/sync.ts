@@ -33,17 +33,27 @@ export const useSyncStore = create<SyncState>((set) => ({
                 body: JSON.stringify({ startDate, endDate }),
             });
 
-            const data = await response.json();
-            
             if (!response.ok) {
-                const errorMessage = data.error || data.details || 'Failed to sync';
+                const errorText = await response.text();
+                console.error('Sync error response:', errorText);
+                
+                let errorData;
+                try {
+                    errorData = JSON.parse(errorText);
+                } catch (e) {
+                    console.error('Failed to parse error response as JSON:', e);
+                    throw new Error(`Sync failed with status ${response.status}: ${errorText.substring(0, 100)}`);
+                }
+                
+                const errorMessage = errorData.error || errorData.details || `Failed to sync with status ${response.status}`;
                 console.error('Sync error:', errorMessage);
                 throw new Error(errorMessage);
             }
-
+            
+            const data = await response.json();
             console.log('Sync successful:', data);
             
-            // Clear employee cache on server after successful sync
+            // Clear employee cache after successful sync
             await clearEmployeeCache();
             
             set({ lastSync: new Date(), syncError: null });

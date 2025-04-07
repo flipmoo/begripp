@@ -1,18 +1,17 @@
 import React from 'react';
 import { Table, TableHeader, TableBody, TableCell, TableRow, TableHead } from '@/components/ui/table';
 import { EmployeeWithStats } from '@/services/employee.service';
-import { format } from 'date-fns';
 import { AbsencesByEmployee } from '@/services/absence.service';
 import { IconInfo } from './Icons';
 import { Button } from './ui/button';
 
 interface EmployeeTableProps {
   employees: EmployeeWithStats[];
-  weekDays: Date[];
-  absences: AbsencesByEmployee;
+  weekDays?: Date[];
+  absences?: AbsencesByEmployee;
 }
 
-export default function EmployeeTable({ employees, weekDays, absences }: EmployeeTableProps) {
+export default function EmployeeTable({ employees }: EmployeeTableProps) {
   const getPercentageColor = (percentage: number) => {
     if (percentage < 80) return 'text-red-600';
     if (percentage < 90) return 'text-amber-500';
@@ -28,6 +27,19 @@ export default function EmployeeTable({ employees, weekDays, absences }: Employe
   const formatHours = (hours: number) => {
     return `${hours.toFixed(1)}`;
   };
+
+  // Create a map to deduplicate employees
+  const uniqueEmployees = employees.reduce((acc, employee) => {
+    // Use a composite key of ID and name to ensure uniqueness
+    const key = `${employee.id}-${employee.name}`;
+    if (!acc.has(key)) {
+      acc.set(key, { ...employee, uniqueKey: key });
+    }
+    return acc;
+  }, new Map());
+
+  // Convert map back to array
+  const deduplicatedEmployees = Array.from(uniqueEmployees.values());
 
   return (
     <div className="rounded-md border">
@@ -48,9 +60,9 @@ export default function EmployeeTable({ employees, weekDays, absences }: Employe
           </TableRow>
         </TableHeader>
         <TableBody>
-          {employees.length > 0 ? (
-            employees.map((employee) => (
-              <TableRow key={employee.id}>
+          {deduplicatedEmployees.length > 0 ? (
+            deduplicatedEmployees.map((employee) => (
+              <TableRow key={employee.uniqueKey}>
                 <TableCell className="font-medium">{employee.name}</TableCell>
                 <TableCell>{employee.function || '-'}</TableCell>
                 <TableCell>{employee.contractPeriod || '-'}</TableCell>

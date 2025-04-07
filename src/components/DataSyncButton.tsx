@@ -81,10 +81,15 @@ export function DataSyncButton({
         });
         
         if (!clearCacheResponse.ok) {
-          console.error('Failed to clear cache after sync');
+          const errorData = await clearCacheResponse.text();
+          console.error('Failed to clear cache after sync:', errorData);
+          throw new Error(`Cache clearing failed: ${errorData}`);
+        } else {
+          console.log('Cache cleared successfully');
         }
       } catch (cacheError) {
         console.error('Error clearing cache:', cacheError);
+        throw cacheError;
       }
       
       // Final step: Trigger callback

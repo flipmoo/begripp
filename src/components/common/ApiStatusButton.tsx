@@ -5,12 +5,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Badge } from '../ui/badge';
 import { FRONTEND_PORT, API_PORT } from '../../config/ports';
 import axios from 'axios';
+import { toast } from '../ui/use-toast';
+import { MdRefresh } from 'react-icons/md';
 
 interface ServerStatus {
   online: boolean;
   port: number;
   responseTime?: number;
   lastChecked: Date;
+  checking: boolean;
 }
 
 const ApiStatusButton: React.FC = () => {
@@ -18,28 +21,53 @@ const ApiStatusButton: React.FC = () => {
   const [apiStatus, setApiStatus] = useState<ServerStatus>({
     online: false,
     port: API_PORT,
-    lastChecked: new Date()
+    lastChecked: new Date(),
+    checking: false
   });
   const [isChecking, setIsChecking] = useState(false);
+  const [restartingApi, setRestartingApi] = useState(false);
 
   const checkApiStatus = async () => {
-    setIsChecking(true);
-    const startTime = Date.now();
     try {
-      // Try to hit the health endpoint to verify the server is running
-      await axios.get(`/api/health`, { timeout: 3000 });
-      setApiStatus({
-        online: true,
-        port: API_PORT,
-        responseTime: Date.now() - startTime,
-        lastChecked: new Date()
+      setIsChecking(true);
+      setApiStatus(prev => ({ ...prev, checking: true }));
+      
+      const start = Date.now();
+      
+      // Gebruik relatieve URL in plaats van hardcoded localhost
+      const response = await fetch('/api/health', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
       });
-    } catch {
-      // API server is not responding
+      
+      const end = Date.now();
+      const responseTime = end - start;
+      
+      if (response.ok) {
+        const data = await response.json();
+        setApiStatus({
+          online: true,
+          port: API_PORT,
+          responseTime,
+          lastChecked: new Date(),
+          checking: false
+        });
+      } else {
+        setApiStatus({
+          online: false,
+          port: API_PORT,
+          responseTime,
+          lastChecked: new Date(),
+          checking: false
+        });
+      }
+    } catch (error) {
+      console.error('Error checking API status:', error);
       setApiStatus({
         online: false,
         port: API_PORT,
-        lastChecked: new Date()
+        lastChecked: new Date(),
+        checking: false
       });
     } finally {
       setIsChecking(false);
@@ -61,11 +89,42 @@ const ApiStatusButton: React.FC = () => {
   };
 
   const handleRestartApi = () => {
-    // This button will open a confirmation dialog and then allow the user to restart the API
-    if (window.confirm('Wil je de API server herstarten? Dit kan even duren.')) {
-      // Gebruik relatief pad in plaats van absolute URL met localhost
-      window.open(`/api/restart`, '_blank');
-    }
+    setRestartingApi(true);
+    
+    // Gebruik relatieve URL in plaats van hardcoded localhost
+    fetch('/api/restart', {
+      method: 'GET',
+    })
+      .then(response => {
+        if (response.ok) {
+          toast({
+            title: 'API Server wordt herstart',
+            description: 'Dit kan enkele momenten duren...',
+          });
+          
+          // Wacht even en check dan opnieuw de status
+          setTimeout(() => {
+            checkApiStatus();
+            setRestartingApi(false);
+          }, 10000);
+        } else {
+          toast({
+            variant: 'destructive',
+            title: 'Fout bij herstarten',
+            description: 'De API server kon niet worden herstart.',
+          });
+          setRestartingApi(false);
+        }
+      })
+      .catch(error => {
+        console.error('Error restarting API:', error);
+        toast({
+          variant: 'destructive',
+          title: 'Fout bij herstarten',
+          description: 'De API server kon niet worden herstart.',
+        });
+        setRestartingApi(false);
+      });
   };
 
   return (

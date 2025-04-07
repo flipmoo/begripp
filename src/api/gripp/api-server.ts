@@ -1476,91 +1476,123 @@ function getWeekNumber(date: Date): number {
   return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
 }
 
-// API server restart endpoint
+// Add the API restart endpoint
 app.get('/api/restart', (req, res) => {
-  console.log('API restart requested');
-  
-  // Send a response immediately with auto-close script
+  // Genereer eenvoudige HTML-pagina met auto-refresh
   res.send(`
     <!DOCTYPE html>
     <html>
       <head>
         <title>API Server Restarting</title>
+        <meta http-equiv="refresh" content="5;url=/api/health">
         <style>
-          body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-          h1 { color: #333; }
-          .message { margin: 20px 0; color: #666; }
-          .spinner { 
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #3498db;
+          body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+          }
+          .container {
+            text-align: center;
+            padding: 2rem;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            max-width: 500px;
+          }
+          .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
             border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            animation: spin 2s linear infinite;
+            border-left-color: #09f;
+            animation: spin 1s linear infinite;
             margin: 20px auto;
           }
           @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
           }
+          .btn {
+            background-color: #0099ff;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 20px;
+            text-decoration: none;
+            display: inline-block;
+          }
+          .btn:hover {
+            background-color: #007acc;
+          }
         </style>
       </head>
       <body>
-        <h1>API Server Restarting</h1>
-        <div class="spinner"></div>
-        <p class="message">Het API server wordt herstart...</p>
-        <p class="message">Dit venster zal automatisch sluiten na succesvol herstarten.</p>
-        <script>
-          // Script to check if API is back online
-          setTimeout(function checkApiStatus() {
-            // Gebruik window.location.origin om compatibiliteit met externe toegang te waarborgen
-            fetch(window.location.origin + '/api/health')
-              .then(response => {
-                if (response.ok) {
-                  // API is back online
-                  document.querySelector('.message').textContent = 'API server succesvol herstart!';
-                  setTimeout(() => window.close(), 2000);
-                } else {
-                  // API still starting up
-                  setTimeout(checkApiStatus, 1000);
+        <div class="container">
+          <h1>API Server aan het herstarten</h1>
+          <p>Even geduld, de server wordt opnieuw opgestart...</p>
+          <div class="spinner"></div>
+          <p>Deze pagina vernieuwt automatisch. Als dat niet gebeurt, klik op de knop hieronder.</p>
+          <a href="/api/health" class="btn">Check API Status</a>
+          
+          <script>
+            // Start een timer om periodiek te controleren of de API weer beschikbaar is
+            let attempts = 0;
+            const maxAttempts = 30;
+            const interval = setInterval(async () => {
+              attempts++;
+              try {
+                const response = await fetch('/api/health');
+                const data = await response.json();
+                if (data.status === 'ok') {
+                  clearInterval(interval);
+                  document.querySelector('.container').innerHTML = 
+                    '<h1>API Server Herstart Voltooid</h1>' +
+                    '<p>De API server is succesvol herstart.</p>' +
+                    '<a href="/" class="btn">Terug naar de applicatie</a>';
                 }
-              })
-              .catch(() => {
-                // API not available, check again after delay
-                setTimeout(checkApiStatus, 1000);
-              });
-          }, 5000); // Initial delay to allow server to start shutting down
-        </script>
+              } catch (error) {
+                console.log('API nog niet beschikbaar, wachten...');
+              }
+              
+              // Stop na maximaal aantal pogingen
+              if (attempts >= maxAttempts) {
+                clearInterval(interval);
+                document.querySelector('.container').innerHTML = 
+                  '<h1>Herstart timeout</h1>' +
+                  '<p>De API server lijkt niet te reageren na meerdere pogingen.</p>' +
+                  '<a href="/" class="btn">Terug naar de applicatie</a>';
+              }
+            }, 2000);
+          </script>
+        </div>
       </body>
     </html>
   `);
+
+  // Initiate the restart process
+  console.log('API restart requested');
+  console.log('Initiating API server restart...');
   
-  // Schedule the restart after response is sent
-  setTimeout(async () => {
-    try {
-      console.log('Initiating API server restart...');
-      console.log('Current process ID:', process.pid);
-      console.log('Script path:', import.meta.url);
-      
-      // Use spawn to run our restart script
-      const { spawn } = await import('child_process');
-      const restartProcess = spawn('npx', ['tsx', 'src/scripts/restart-api.ts'], {
-        detached: true,
-        stdio: 'ignore'
-      });
-      
-      // Unref to allow this process to exit independently
-      restartProcess.unref();
-      
-      // Exit this process after a short delay
-      setTimeout(() => {
-        console.log('Exiting current API server instance...');
-        process.exit(0);
-      }, 1000);
-      
-    } catch (error) {
-      console.error('Failed to restart API server:', error);
-    }
+  // Log the current process ID
+  const pid = process.pid;
+  console.log(`Current process ID: ${pid}`);
+  
+  // Find the full path to the script
+  const scriptPath = fileURLToPath(import.meta.url);
+  console.log(`Script path: ${scriptPath}`);
+  
+  // Schedule the restart by exiting this process
+  console.log('Exiting current API server instance...');
+  
+  // Exit after a short delay to allow the response to be sent
+  setTimeout(() => {
+    process.exit(0);
   }, 1000);
 });
 

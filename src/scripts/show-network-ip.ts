@@ -1,5 +1,7 @@
 import os from 'os';
 import { FRONTEND_PORT, API_PORT } from '../config/ports';
+import fs from 'fs';
+import path from 'path';
 
 // Functie om alle netwerkinterfaces te tonen
 function showNetworkInterfaces() {
@@ -31,8 +33,29 @@ function showNetworkInterfaces() {
   if (externalIPs.length > 0) {
     console.log('\nDe applicatie is toegankelijk op:');
     externalIPs.forEach(ip => {
-      console.log(`Frontend: http://${ip}:${FRONTEND_PORT}`);
-      console.log(`API: http://${ip}:${API_PORT}`);
+      const frontendUrl = `http://${ip}:${FRONTEND_PORT}`;
+      const apiUrl = `http://${ip}:${API_PORT}`;
+      
+      console.log(`Frontend: ${frontendUrl}`);
+      console.log(`API: ${apiUrl}`);
+      
+      // Schrijf URL naar een bestand zodat het later gemakkelijk kan worden gedeeld
+      try {
+        const networkInfoDir = path.join(process.cwd(), 'network-info');
+        if (!fs.existsSync(networkInfoDir)) {
+          fs.mkdirSync(networkInfoDir, { recursive: true });
+        }
+        
+        const networkInfoFile = path.join(networkInfoDir, 'urls.txt');
+        fs.appendFileSync(
+          networkInfoFile, 
+          `${new Date().toISOString()}\nFrontend: ${frontendUrl}\nAPI: ${apiUrl}\n\n`
+        );
+        
+        console.log(`\nURLs zijn opgeslagen in ${networkInfoFile}`);
+      } catch (error: unknown) {
+        console.log('URLs opslaan mislukt:', error instanceof Error ? error.message : 'Onbekende fout');
+      }
     });
     console.log('\nDeel deze adressen met je collega\'s om toegang te krijgen tot de applicatie.');
   } else {

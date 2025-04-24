@@ -1,5 +1,5 @@
 import React from 'react';
-import { ProjectsProvider } from '../../contexts/ProjectsContext';
+import { ProjectsProvider, useProjects } from '../../contexts/ProjectsContext';
 import ProjectFilters from '../../components/projects/ProjectFilters';
 import ProjectList from '../../components/projects/ProjectList';
 import ProjectSync from '../../components/projects/ProjectSync';
@@ -17,7 +17,7 @@ const ProjectsPage: React.FC = () => {
 };
 
 const ProjectsPageContent: React.FC = () => {
-  const { loadingState, loadingMessage, error, filteredProjects } = require('../../contexts/ProjectsContext').useProjects();
+  const { loadingState, loadingMessage, error, filteredProjects } = useProjects();
 
   return (
     <div className="container mx-auto py-6 space-y-6">

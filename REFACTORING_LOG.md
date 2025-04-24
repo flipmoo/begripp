@@ -46,3 +46,15 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Vite proxy configuratie aangepast om localhost te gebruiken
 - **Getest**: Ja, applicatie start zonder errors en API communicatie werkt correct
 - **Status**: ✅ Succesvol (bevestigd door gebruiker)
+
+### Wijziging #5 - Verbeteren van dashboard pagina (Datum: 22-04-2025)
+- **Bestanden**: src/pages/dashboard/index.tsx
+- **Doel**: Verbeteren van code organisatie en documentatie van de dashboard pagina
+- **Wijzigingen**:
+  - Imports geherstructureerd en gegroepeerd op type
+  - Uitgebreide JSDoc commentaar toegevoegd aan alle functies
+  - State variabelen gegroepeerd op functionaliteit
+  - Verbeterde error handling en fallback mechanismen
+  - Betere commentaar toegevoegd aan de JSX structuur
+- **Getest**: Ja, dashboard pagina werkt correct en toont alle data zoals verwacht
+- **Status**: ✅ Succesvol (bevestigd door gebruiker)

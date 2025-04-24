@@ -6,7 +6,7 @@ Dit document beschrijft het plan voor het opschonen en optimaliseren van de code
 
 ### 1.1 Opschonen van imports en exports
 - [x] src/App.tsx
-- [ ] src/main.tsx
+- [x] src/main.tsx
 - [ ] src/api/gripp/api-server.ts
 - [ ] src/api/gripp/simple-api-server.ts
 - [ ] src/services/api.ts

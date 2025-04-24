@@ -25,3 +25,14 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - JSX structuur verbeterd met duidelijke commentaar
 - **Getest**: Ja, applicatie start zonder errors en alle routes werken
 - **Status**: ✅ Succesvol
+
+### Wijziging #3 - Opschonen van main.tsx (Datum: 22-04-2025)
+- **Bestanden**: src/main.tsx
+- **Doel**: Verbeteren van code organisatie en documentatie
+- **Wijzigingen**:
+  - Imports geherstructureerd en gegroepeerd op type
+  - Bestandsheader met beschrijving toegevoegd
+  - Expliciete rootElement variabele toegevoegd met error handling
+  - Commentaar toegevoegd voor betere leesbaarheid
+- **Getest**: Ja, applicatie start zonder errors en werkt correct
+- **Status**: ✅ Succesvol (bevestigd door gebruiker)

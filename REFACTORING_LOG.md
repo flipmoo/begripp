@@ -273,3 +273,20 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Gedocumenteerd lessen geleerd van eerdere optimalisatiepogingen
 - **Getest**: Ja, alle functionaliteit werkt nog steeds correct
 - **Status**: ✅ Succesvol
+
+### Wijziging #23 - Frontend performance optimalisatie (Datum: 22-04-2025)
+- **Bestanden**:
+  - src/utils/performance-utils.ts (nieuw)
+  - src/components/examples/PerformanceExample.tsx (nieuw)
+  - src/components/common/OptimizedImage.tsx (nieuw)
+  - src/components/examples/ImageOptimizationExample.tsx (nieuw)
+  - docs/PERFORMANCE_OPTIMIZATION.md (nieuw)
+- **Doel**: Verbeteren van frontend performance met veilige optimalisaties
+- **Wijzigingen**:
+  - Gemaakt performance utilities voor memoization en rendering optimalisatie
+  - Gemaakt voorbeeld component dat performance optimalisaties demonstreert
+  - Gemaakt OptimizedImage component voor afbeelding optimalisatie
+  - Gemaakt voorbeeld component dat afbeelding optimalisatie demonstreert
+  - Gemaakt documentatie met richtlijnen voor performance optimalisatie
+- **Getest**: Ja, alle functionaliteit werkt nog steeds correct
+- **Status**: ✅ Succesvol

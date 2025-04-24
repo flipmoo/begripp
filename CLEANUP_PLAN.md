@@ -62,9 +62,9 @@ Voor elke wijziging volgen we deze stappen:
 ## Fase 4: Performance optimalisatie
 
 ### 4.1 Frontend performance verbeteren (aangepaste aanpak)
-- [ ] Veilige optimalisaties implementeren (memoization, rendering optimalisatie)
-- [ ] Afbeeldingen en assets optimaliseren
-- [ ] Voorzichtige bundle optimalisatie zonder code splitting
+- [x] Veilige optimalisaties implementeren (memoization, rendering optimalisatie)
+- [x] Afbeeldingen en assets optimaliseren
+- [x] Voorzichtige bundle optimalisatie zonder code splitting
 
 ### 4.2 Backend performance verbeteren
 - [ ] API response tijden optimaliseren

@@ -67,6 +67,6 @@ Voor elke wijziging volgen we deze stappen:
 - [x] Voorzichtige bundle optimalisatie zonder code splitting
 
 ### 4.2 Backend performance verbeteren
-- [ ] API response tijden optimaliseren
-- [ ] Database queries optimaliseren
-- [ ] Caching verbeteren
+- [x] API response tijden optimaliseren
+- [x] Database queries optimaliseren
+- [x] Caching verbeteren

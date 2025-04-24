@@ -159,3 +159,11 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Toegevoegd `exactOptionalPropertyTypes: true` voor strengere controle van optionele properties
 - **Getest**: Ja, applicatie start zonder TypeScript errors en alle functionaliteit werkt correct
 - **Status**: ✅ Succesvol
+
+### Wijziging #14 - Verwijderen van ongebruikte componenten (Datum: 22-04-2025)
+- **Bestanden**: src/components/ui/command.tsx
+- **Doel**: Verwijderen van ongebruikte code om de codebase schoner te maken
+- **Wijzigingen**:
+  - Verwijderd de ongebruikte Command component die nergens in de codebase wordt geïmporteerd of gebruikt
+- **Getest**: Ja, applicatie start zonder errors en alle functionaliteit werkt correct
+- **Status**: ✅ Succesvol

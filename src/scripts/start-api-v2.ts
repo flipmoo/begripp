@@ -1,6 +1,6 @@
 /**
  * Start API Server v2
- * 
+ *
  * Dit script start de nieuwe API server met consistente API structuur.
  */
 import { spawn } from 'child_process';
@@ -17,9 +17,14 @@ const apiServerPath = join(__dirname, '../api/gripp/api-server-v2.ts');
 console.log(`Starting API server v2 from ${apiServerPath}...`);
 
 // Start the API server
-const apiServer = spawn('tsx', [apiServerPath], {
+// Gebruik process.execPath om het huidige Node.js executable pad te krijgen
+// en spawn het script direct met Node.js om problemen met paden met spaties te voorkomen
+const apiServer = spawn(process.execPath, [
+  require.resolve('tsx/dist/cli.mjs'), // Pad naar tsx CLI
+  apiServerPath
+], {
   stdio: 'inherit',
-  shell: true
+  shell: false // Gebruik geen shell om problemen met paden met spaties te voorkomen
 });
 
 // Handle process events

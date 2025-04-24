@@ -243,3 +243,14 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Toegevoegd formatteerfuncties in utils/formatters.ts
 - **Getest**: Ja, alle functionaliteit werkt nog steeds correct
 - **Status**: ✅ Succesvol
+
+### Wijziging #21 - Terugdraaien van complexe wijzigingen voor stabiliteit (Datum: 22-04-2025)
+- **Bestanden**:
+  - Meerdere bestanden
+- **Doel**: Herstellen van stabiliteit na problemen met witte schermen
+- **Wijzigingen**:
+  - Teruggedraaid naar een stabiele versie van de codebase
+  - Uitgesteld complexe optimalisaties die stabiliteit in gevaar brachten
+- **Reden**: Verschillende pogingen tot optimalisatie leidden tot witte schermen en instabiliteit
+- **Getest**: Ja, applicatie werkt weer stabiel
+- **Status**: ✅ Succesvol

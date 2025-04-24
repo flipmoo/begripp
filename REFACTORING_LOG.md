@@ -71,3 +71,16 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Verbeterde documentatie voor filter en sorteer functies
 - **Getest**: Ja, employees pagina werkt correct en toont alle data zoals verwacht
 - **Status**: ✅ Succesvol (bevestigd door gebruiker)
+
+### Wijziging #7 - Verbeteren van projects pagina (Datum: 22-04-2025)
+- **Bestanden**: src/pages/projects/index.tsx
+- **Doel**: Verbeteren van code organisatie en documentatie van de projects pagina
+- **Wijzigingen**:
+  - Imports geherstructureerd en gegroepeerd op type
+  - Uitgebreide JSDoc commentaar toegevoegd aan alle functies
+  - State variabelen gegroepeerd op functionaliteit
+  - Verbeterde error handling en logging
+  - Betere commentaar toegevoegd aan de JSX structuur
+  - Verbeterde documentatie voor filter, sorteer en synchronisatie functies
+- **Getest**: Ja, projects pagina werkt correct en toont alle data zoals verwacht
+- **Status**: ✅ Succesvol (bevestigd door gebruiker)

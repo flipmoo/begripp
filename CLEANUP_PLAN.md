@@ -22,7 +22,7 @@ Voor elke wijziging volgen we deze stappen:
 - [x] src/pages/dashboard/index.tsx
 - [ ] src/pages/pm-dash/index.tsx
 - [x] src/pages/employees/index.tsx
-- [ ] src/pages/projects/index.tsx
+- [x] src/pages/projects/index.tsx
 - [ ] src/pages/invoices/index.tsx
 
 ### 1.2 Verbeteren van code formatting en linting

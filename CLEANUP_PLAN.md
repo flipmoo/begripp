@@ -17,7 +17,7 @@ Voor elke wijziging volgen we deze stappen:
 - [x] src/App.tsx
 - [x] src/main.tsx
 - [x] src/api/gripp/api-server.ts
-- [ ] src/api/gripp/simple-api-server.ts
+- [x] src/api/gripp/simple-api-server.ts
 - [x] src/services/api.ts
 - [x] src/pages/dashboard/index.tsx
 - [x] src/pages/pm-dash/index.tsx

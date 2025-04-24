@@ -36,3 +36,13 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Commentaar toegevoegd voor betere leesbaarheid
 - **Getest**: Ja, applicatie start zonder errors en werkt correct
 - **Status**: ✅ Succesvol (bevestigd door gebruiker)
+
+### Wijziging #4 - Verbeteren van API service documentatie (Datum: 22-04-2025)
+- **Bestanden**: src/services/api.ts, vite.config.ts
+- **Doel**: Verbeteren van API service documentatie en proxy configuratie
+- **Wijzigingen**:
+  - Uitgebreide JSDoc commentaar toegevoegd aan API functies
+  - Betere beschrijvingen toegevoegd voor configuratie variabelen
+  - Vite proxy configuratie aangepast om localhost te gebruiken
+- **Getest**: Ja, applicatie start zonder errors en API communicatie werkt correct
+- **Status**: ✅ Succesvol (bevestigd door gebruiker)

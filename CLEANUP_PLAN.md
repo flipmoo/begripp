@@ -9,7 +9,7 @@ Dit document beschrijft het plan voor het opschonen en optimaliseren van de code
 - [x] src/main.tsx
 - [ ] src/api/gripp/api-server.ts
 - [ ] src/api/gripp/simple-api-server.ts
-- [ ] src/services/api.ts
+- [x] src/services/api.ts
 - [ ] src/pages/dashboard/index.tsx
 - [ ] src/pages/pm-dash/index.tsx
 - [ ] src/pages/employees/index.tsx

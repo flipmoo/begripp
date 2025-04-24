@@ -177,3 +177,14 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - src/api/gripp/utils/leave-utils.ts: Verwijderd debug console.log statements en verbeterde documentatie
 - **Getest**: Ja, applicatie start zonder errors en alle functionaliteit werkt correct
 - **Status**: ✅ Succesvol
+
+### Wijziging #16 - Consolideren van gedupliceerde code (Datum: 22-04-2025)
+- **Bestanden**: src/utils/date-utils.ts, src/api/gripp/utils/date-utils.ts, src/utils/date.ts, utils.ts
+- **Doel**: Consolideren van gedupliceerde code om de codebase schoner en onderhoudbaarder te maken
+- **Wijzigingen**:
+  - Geconsolideerd alle date-utils functies in één bestand (src/utils/date-utils.ts)
+  - Verwijderd gedupliceerde bestanden (src/api/gripp/utils/date-utils.ts, src/utils/date.ts)
+  - Bijgewerkt imports in alle bestanden die de geconsolideerde functies gebruiken
+  - Verbeterd documentatie van de geconsolideerde functies
+- **Getest**: Ja, applicatie start zonder errors en alle functionaliteit werkt correct
+- **Status**: ✅ Succesvol

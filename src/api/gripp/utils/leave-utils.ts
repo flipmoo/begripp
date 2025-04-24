@@ -1,4 +1,4 @@
-import { normalizeDate } from './date-utils';
+import { normalizeDate } from '../../../utils/date-utils';
 
 /**
  * Calculates leave hours for an employee for a specific week

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { getDateRangeForView } from '../utils/date';
+import { getDateRangeForView } from '../utils/date-utils';
 import { API_BASE } from '../services/api';
 
 type AbsenceHours = {
@@ -69,11 +69,11 @@ export const useAbsenceStore = create<AbsenceState>((set, get) => ({
       // Fetch absence data directly from the API
       console.log(`Fetching absences for week ${week} of ${year} (${startDate} to ${endDate})`);
       const response = await fetch(`${API_BASE}/absences?startDate=${startDate}&endDate=${endDate}`);
-      
+
       if (!response.ok) {
         throw new Error('Failed to fetch absence data');
       }
-      
+
       const absences = await response.json();
 
       // Process responses into AbsenceHours structure
@@ -87,7 +87,7 @@ export const useAbsenceStore = create<AbsenceState>((set, get) => ({
 
         // Get the date from the absence
         const dateStr = absence.startdate.split('T')[0];
-        
+
         // If there's already an absence for this day, only override if the current one has more hours
         const existingAbsence = absenceHours[employeeId][dateStr];
         if (!existingAbsence || existingAbsence.hours < absence.hours_per_day) {
@@ -117,4 +117,4 @@ export const useAbsenceStore = create<AbsenceState>((set, get) => ({
       });
     }
   },
-})); 
+}));

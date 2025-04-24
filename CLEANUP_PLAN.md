@@ -20,7 +20,7 @@ Voor elke wijziging volgen we deze stappen:
 - [ ] src/api/gripp/simple-api-server.ts
 - [x] src/services/api.ts
 - [x] src/pages/dashboard/index.tsx
-- [ ] src/pages/pm-dash/index.tsx
+- [x] src/pages/pm-dash/index.tsx
 - [x] src/pages/employees/index.tsx
 - [x] src/pages/projects/index.tsx
 - [ ] src/pages/invoices/index.tsx

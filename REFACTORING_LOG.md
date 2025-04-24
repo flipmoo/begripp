@@ -84,3 +84,16 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Verbeterde documentatie voor filter, sorteer en synchronisatie functies
 - **Getest**: Ja, projects pagina werkt correct en toont alle data zoals verwacht
 - **Status**: ✅ Succesvol (bevestigd door gebruiker)
+
+### Wijziging #8 - Verbeteren van PM dashboard pagina (Datum: 22-04-2025)
+- **Bestanden**: src/pages/pm-dash/index.tsx
+- **Doel**: Verbeteren van code organisatie en documentatie van de PM dashboard pagina
+- **Wijzigingen**:
+  - Imports geherstructureerd en gegroepeerd op type
+  - Uitgebreide JSDoc commentaar toegevoegd aan alle functies
+  - State variabelen gegroepeerd op functionaliteit
+  - Verbeterde error handling en logging
+  - Betere commentaar toegevoegd aan de JSX structuur
+  - Verbeterde documentatie voor statistiek berekeningen en synchronisatie functies
+- **Getest**: Ja, PM dashboard pagina werkt correct en toont alle data zoals verwacht
+- **Status**: ✅ Succesvol (bevestigd door gebruiker)

@@ -846,6 +846,30 @@ app.get('/api/invoices/overdue', async (req, res) => {
   }
 });
 
+// Clear cache endpoint
+app.post('/api/clear-cache', (req, res) => {
+  try {
+    console.log('Legacy route: Clearing cache');
+
+    // Clear the cache
+    cacheService.clearAll();
+
+    res.json({
+      success: true,
+      message: 'Cache cleared successfully'
+    });
+  } catch (error) {
+    console.error('Error clearing cache:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: `Error clearing cache: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        code: 'INTERNAL_SERVER_ERROR'
+      }
+    });
+  }
+});
+
 /**
  * Add database middleware to all API routes
  */

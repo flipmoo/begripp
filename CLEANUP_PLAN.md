@@ -32,7 +32,7 @@ Voor elke wijziging volgen we deze stappen:
 
 ### 1.3 Verwijderen van ongebruikte code
 - [x] Ongebruikte componenten identificeren en verwijderen
-- [ ] Dode code verwijderen
+- [x] Dode code verwijderen
 - [ ] Gedupliceerde code consolideren
 
 ## Fase 2: Backend optimalisatie

@@ -167,3 +167,13 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Verwijderd de ongebruikte Command component die nergens in de codebase wordt geïmporteerd of gebruikt
 - **Getest**: Ja, applicatie start zonder errors en alle functionaliteit werkt correct
 - **Status**: ✅ Succesvol
+
+### Wijziging #15 - Verwijderen van dode code (Datum: 22-04-2025)
+- **Bestanden**: src/lib/retry.ts, src/utils/url.ts, src/api/gripp/utils/leave-utils.ts
+- **Doel**: Verwijderen van ongebruikte code en opschonen van debug logging
+- **Wijzigingen**:
+  - src/lib/retry.ts: Verwijderd ongebruikte retry functies en vereenvoudigd tot één retry functie
+  - src/utils/url.ts: Verwijderd ongebruikte URL generatie functies (generateCurrentWeekUrl, generateCurrentMonthUrl)
+  - src/api/gripp/utils/leave-utils.ts: Verwijderd debug console.log statements en verbeterde documentatie
+- **Getest**: Ja, applicatie start zonder errors en alle functionaliteit werkt correct
+- **Status**: ✅ Succesvol

@@ -58,3 +58,16 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Betere commentaar toegevoegd aan de JSX structuur
 - **Getest**: Ja, dashboard pagina werkt correct en toont alle data zoals verwacht
 - **Status**: ✅ Succesvol (bevestigd door gebruiker)
+
+### Wijziging #6 - Verbeteren van employees pagina (Datum: 22-04-2025)
+- **Bestanden**: src/pages/employees/index.tsx
+- **Doel**: Verbeteren van code organisatie en documentatie van de employees pagina
+- **Wijzigingen**:
+  - Imports geherstructureerd en gegroepeerd op type
+  - Uitgebreide JSDoc commentaar toegevoegd aan alle functies
+  - State variabelen gegroepeerd op functionaliteit
+  - Verbeterde logging voor betere debugging
+  - Betere commentaar toegevoegd aan de JSX structuur
+  - Verbeterde documentatie voor filter en sorteer functies
+- **Getest**: Ja, employees pagina werkt correct en toont alle data zoals verwacht
+- **Status**: ✅ Succesvol (bevestigd door gebruiker)

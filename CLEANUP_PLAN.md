@@ -12,7 +12,7 @@ Dit document beschrijft het plan voor het opschonen en optimaliseren van de code
 - [x] src/services/api.ts
 - [x] src/pages/dashboard/index.tsx
 - [ ] src/pages/pm-dash/index.tsx
-- [ ] src/pages/employees/index.tsx
+- [x] src/pages/employees/index.tsx
 - [ ] src/pages/projects/index.tsx
 - [ ] src/pages/invoices/index.tsx
 

@@ -33,6 +33,11 @@ import { requireDatabase } from '../middleware/database';
 // Configuration
 import { API_PORT, killProcessOnPort } from '../../config/ports';
 
+// Services
+import { projectService } from './services/project';
+import { optimizedProjectService } from './services/optimized-project';
+import { cacheService } from './cache-service';
+
 // Define __dirname equivalent for ESM
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -236,6 +241,92 @@ app.use('/api/sync', (req, res) => {
   res.redirect(307, '/api/v1/sync');
 });
 
+// Dashboard API compatibility routes
+app.use('/api/dashboard/projects/active', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ error: 'Database not connected' });
+    }
+
+    console.log('Legacy route: Fetching active projects for dashboard');
+
+    // Optioneel forceren van refresh door query parameter
+    const forceRefresh = req.query.refresh === 'true';
+
+    // Clear de project cache als nodig
+    if (forceRefresh) {
+      console.log('Force refresh requested, clearing project cache');
+      cacheService.clearProjectData();
+    }
+
+    // Zet cache-control headers om browser caching te voorkomen
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    const projects = await projectService.getActiveProjects(db);
+    console.log(`Returning ${projects.length} active projects via legacy route`);
+    res.json({ response: projects });
+  } catch (error) {
+    console.error('Error fetching active projects:', error);
+    res.status(500).json({ error: 'Failed to fetch active projects' });
+  }
+});
+
+app.use('/api/dashboard/projects/:id', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ error: 'Database not connected' });
+    }
+
+    const projectId = parseInt(req.params.id);
+    if (isNaN(projectId)) {
+      return res.status(400).json({ error: 'Invalid project ID' });
+    }
+
+    console.log(`Legacy route: Fetching project ${projectId}`);
+    const project = await projectService.getProjectById(db, projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    res.json({ response: project });
+  } catch (error) {
+    console.error(`Error fetching project ${req.params.id}:`, error);
+    res.status(500).json({ error: 'Failed to fetch project details' });
+  }
+});
+
+// Legacy route for syncing projects
+app.post('/api/sync/projects', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ error: 'Database not connected' });
+    }
+
+    console.log('Legacy route: Syncing projects with Gripp');
+
+    // Clear project cache before syncing
+    cacheService.clearProjectData();
+
+    // Sync projects
+    await optimizedProjectService.syncProjects(db);
+
+    // Return success response
+    res.json({
+      success: true,
+      message: 'Projects synced successfully'
+    });
+  } catch (error) {
+    console.error('Error syncing projects:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to sync projects',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 /**
  * Add error handling middleware
  */
@@ -251,12 +342,12 @@ const startServer = () => {
   }).on('error', async (error: any) => {
     if (error.code === 'EADDRINUSE') {
       console.error(`Port ${port} is already in use`);
-      
+
       try {
         // Attempt to kill the process using the port
         await killProcessOnPort(port);
         console.log(`Killed process on port ${port}, retrying in 1 second...`);
-        
+
         // Retry server startup after a short delay
         setTimeout(() => {
           startServer();

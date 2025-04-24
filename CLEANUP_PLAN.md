@@ -70,3 +70,15 @@ Voor elke wijziging volgen we deze stappen:
 - [x] API response tijden optimaliseren
 - [x] Database queries optimaliseren
 - [x] Caching verbeteren
+
+## Fase 5: Documentatie verbeteren
+
+### 5.1 Technische documentatie
+- [x] API documentatie maken
+- [x] Architectuur documentatie maken
+- [x] Setup en installatie instructies verbeteren
+
+### 5.2 Gebruikersdocumentatie
+- [x] Gebruikershandleiding maken
+- [x] Feature documentatie maken
+- [x] FAQ toevoegen

@@ -308,3 +308,20 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Gemaakt documentatie met richtlijnen voor backend performance optimalisatie
 - **Getest**: Ja, alle functionaliteit werkt nog steeds correct
 - **Status**: ✅ Succesvol
+
+### Wijziging #25 - Documentatie verbeteren (Datum: 22-04-2025)
+- **Bestanden**:
+  - docs/API_DOCUMENTATION.md (nieuw)
+  - docs/ARCHITECTURE.md (nieuw)
+  - docs/SETUP.md (nieuw)
+  - docs/USER_GUIDE.md (nieuw)
+  - docs/FAQ.md (nieuw)
+- **Doel**: Verbeteren van de documentatie voor ontwikkelaars en gebruikers
+- **Wijzigingen**:
+  - Gemaakt API documentatie met beschrijving van alle endpoints
+  - Gemaakt architectuur documentatie met beschrijving van de applicatie structuur
+  - Gemaakt setup en installatie instructies
+  - Gemaakt gebruikershandleiding
+  - Gemaakt FAQ met veelgestelde vragen
+- **Getest**: N/A
+- **Status**: ✅ Succesvol

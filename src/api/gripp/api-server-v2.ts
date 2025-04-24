@@ -347,8 +347,10 @@ app.get('/api/employee-stats', async (req, res) => {
           AND (arl.status_id = 2 OR arl.status_id = 1)
       `, [formattedStartDate, formattedEndDate]);
 
-      // Verwerk de data
-      const employeeData = employees.map(employee => {
+      // Verzamel de data per medewerker (om duplicaten te voorkomen)
+      const employeeMap = new Map();
+
+      employees.forEach(employee => {
         // Bereken contract uren
         const evenWeekHours = (
           (employee.hours_monday_even || 0) +
@@ -386,7 +388,7 @@ app.get('/api/employee-stats', async (req, res) => {
         // Bereken vakantie-uren (jaarlijks)
         const holidayHours = weeklyContractHours * 5; // Ongeveer 5 weken vakantie per jaar
 
-        return {
+        const employeeData = {
           id: employee.id,
           name: employee.name,
           function: employee.function,
@@ -399,7 +401,15 @@ app.get('/api/employee-stats', async (req, res) => {
           actual_hours: totalActualHours,
           active: employee.active === 1
         };
+
+        // Als de medewerker al bestaat, gebruik dan de meest recente data
+        if (!employeeMap.has(employee.id)) {
+          employeeMap.set(employee.id, employeeData);
+        }
       });
+
+      // Converteer de map naar een array
+      const employeeData = Array.from(employeeMap.values());
 
       // Sla de data op in de cache
       const responseData = { response: employeeData };
@@ -511,8 +521,10 @@ app.get('/api/employee-month-stats', async (req, res) => {
       // Bereken het aantal werkdagen in de maand
       const workingDaysInMonth = getWorkingDaysInMonth(year, month);
 
-      // Verwerk de data
-      const employeeStats = employees.map(emp => {
+      // Verzamel de data per medewerker (om duplicaten te voorkomen)
+      const employeeMap = new Map();
+
+      employees.forEach(emp => {
         // Bereken contract uren
         const evenWeekHours = (
           (emp.hours_monday_even || 0) +
@@ -549,7 +561,7 @@ app.get('/api/employee-month-stats', async (req, res) => {
         // Bereken vakantie-uren (jaarlijks)
         const holidayHours = contractHours * 5; // Ongeveer 5 weken vakantie per jaar
 
-        return {
+        const employeeData = {
           id: emp.id,
           name: emp.name,
           function: emp.function,
@@ -562,7 +574,15 @@ app.get('/api/employee-month-stats', async (req, res) => {
           actual_hours: totalActualHours,
           active: emp.active === 1
         };
+
+        // Als de medewerker al bestaat, gebruik dan de meest recente data
+        if (!employeeMap.has(emp.id)) {
+          employeeMap.set(emp.id, employeeData);
+        }
       });
+
+      // Converteer de map naar een array
+      const employeeStats = Array.from(employeeMap.values());
 
       // Sla de data op in de cache
       const responseData = { response: employeeStats };

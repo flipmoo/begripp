@@ -1,86 +1,213 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Button } from '../../components/ui/button';
-import { Input } from '../../components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { RefreshCw, Search, Loader2, AlertCircle, CheckCircle, Save, RotateCcw, X } from 'lucide-react';
-import { useToast } from '../../components/ui/use-toast';
-import ProjectCard from '../../components/dashboard/ProjectCard';
-import ProjectDetails from '../../components/dashboard/ProjectDetails';
-import { GrippProject } from '../../types/gripp';
-import { fetchActiveProjects, fetchProjectDetails, syncProjects, syncProjectById } from '../../api/dashboard/grippApi';
-import { dbService } from '../../api/dashboard/dbService';
-import { Checkbox } from '../../components/ui/checkbox';
-import { Badge } from '../../components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../components/ui/dialog';
+/**
+ * Projects Page
+ *
+ * This page displays project data with filtering, sorting, and detailed views.
+ * It supports synchronization with the Gripp API and local caching.
+ */
 
+// React and hooks
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+
+// UI Components
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { useToast } from '@/components/ui/use-toast';
+
+// Icons
+import {
+  RefreshCw,
+  Search,
+  Loader2,
+  AlertCircle,
+  CheckCircle,
+  Save,
+  RotateCcw,
+  X,
+  AlertTriangle
+} from 'lucide-react';
+
+// Custom components
+import ProjectCard from '@/components/dashboard/ProjectCard';
+import ProjectDetails from '@/components/dashboard/ProjectDetails';
+
+// Types
+import { GrippProject } from '@/types/gripp';
+
+// Services and APIs
+import {
+  fetchActiveProjects,
+  fetchProjectDetails,
+  syncProjects,
+  syncProjectById
+} from '@/api/dashboard/grippApi';
+import { dbService } from '@/api/dashboard/dbService';
+
+/**
+ * Key used for storing filter settings in localStorage
+ */
 const FILTER_STORAGE_KEY = 'projectFilterSettings';
 
+/**
+ * ProjectsPage Component
+ *
+ * Main page for displaying and managing project data with various filtering,
+ * sorting, and synchronization options.
+ *
+ * Features:
+ * - Project listing with filtering and sorting
+ * - Project details view
+ * - Synchronization with Gripp API
+ * - Local caching with IndexedDB
+ * - Filter persistence with localStorage
+ */
 const ProjectsPage: React.FC = () => {
   const { toast } = useToast();
-  const [loading, setLoading] = useState(true);
+
+  // ===== Data State =====
+
+  /**
+   * Main project data
+   */
   const [projects, setProjects] = useState<GrippProject[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
+
+  /**
+   * Currently selected project for detailed view
+   */
   const [selectedProject, setSelectedProject] = useState<GrippProject | null>(null);
+
+  // ===== UI State =====
+
+  /**
+   * General loading state (legacy)
+   */
+  const [loading, setLoading] = useState(true);
+
+  /**
+   * Error message to display
+   */
+  const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Whether a sync operation is in progress
+   */
+  const [syncing, setSyncing] = useState(false);
+
+  /**
+   * Whether project details are being loaded
+   */
   const [loadingDetails, setLoadingDetails] = useState(false);
-  
-  // Loading state tracking
+
+  /**
+   * Detailed loading state for UI feedback
+   */
   const [loadingState, setLoadingState] = useState<'idle' | 'loading' | 'syncing' | 'complete' | 'error'>('idle');
+
+  /**
+   * Message to display during loading operations
+   */
   const [loadingMessage, setLoadingMessage] = useState<string>('');
-  
-  // Filters
+
+  // ===== Filter State =====
+
+  /**
+   * Text search query
+   */
   const [searchQuery, setSearchQuery] = useState('');
+
+  /**
+   * Selected client filter
+   */
   const [selectedClient, setSelectedClient] = useState('all');
+
+  /**
+   * Selected project phase filter
+   */
   const [selectedPhase, setSelectedPhase] = useState('all');
+
+  /**
+   * Selected status filter (based on progress)
+   */
   const [selectedStatus, setSelectedStatus] = useState('all');
+
+  /**
+   * Selected tag filter
+   */
   const [selectedTag, setSelectedTag] = useState('all');
+
+  /**
+   * Sort order for projects list
+   */
   const [sortOrder, setSortOrder] = useState('deadline-asc');
-  
-  // Functie om filters te laden uit localStorage - meer robust gemaakt
+
+  /**
+   * Load filter settings from localStorage
+   *
+   * Attempts to load previously saved filter settings from localStorage
+   * and apply them to the current state.
+   *
+   * @returns boolean - Whether filters were successfully loaded
+   */
   const loadFiltersFromStorage = useCallback(() => {
     try {
-      console.log('Poging om filters te laden uit localStorage...');
+      console.log('Loading filters from localStorage...');
       const savedSettings = localStorage.getItem(FILTER_STORAGE_KEY);
-      
+
       if (savedSettings) {
+        // Parse the saved settings
         const settings = JSON.parse(savedSettings);
-        console.log('Gevonden filter instellingen:', settings);
-        
+        console.log('Found filter settings:', settings);
+
+        // Apply each filter setting with fallbacks
         setSearchQuery(settings.searchQuery || '');
         setSelectedClient(settings.selectedClient || 'all');
         setSelectedPhase(settings.selectedPhase || 'all');
         setSelectedStatus(settings.selectedStatus || 'all');
         setSelectedTag(settings.selectedTag || 'all');
         setSortOrder(settings.sortOrder || 'deadline-asc');
-        
-        console.log('Filters succesvol geladen uit localStorage');
+
+        console.log('Filters successfully loaded from localStorage');
         return true;
       } else {
-        console.log('Geen opgeslagen filters gevonden in localStorage');
+        console.log('No saved filters found in localStorage');
         return false;
       }
     } catch (error) {
-      console.error('Fout bij laden van filters:', error);
+      console.error('Error loading filters:', error);
       return false;
     }
   }, []);
 
-  // Functie om filters op te slaan in localStorage - meer robust gemaakt
+  /**
+   * Save filter settings to localStorage
+   *
+   * @param filterData - Object containing filter settings to save
+   * @returns boolean - Whether filters were successfully saved
+   */
   const saveFiltersToStorage = useCallback((filterData: Record<string, any>) => {
     try {
-      console.log('Opslaan van filters in localStorage:', filterData);
+      console.log('Saving filters to localStorage:', filterData);
       localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filterData));
-      console.log('Filters succesvol opgeslagen in localStorage');
+      console.log('Filters successfully saved to localStorage');
       return true;
     } catch (error) {
-      console.error('Fout bij opslaan van filters:', error);
+      console.error('Error saving filters:', error);
       return false;
     }
   }, []);
-  
-  // Filter opslaan/laden functionaliteit voor UI knoppen
+
+  /**
+   * Save current filter settings and show confirmation toast
+   *
+   * Collects all current filter settings and saves them to localStorage
+   */
   const saveFilters = useCallback(() => {
+    // Collect all current filter settings
     const filterSettings = {
       searchQuery,
       selectedClient,
@@ -89,7 +216,8 @@ const ProjectsPage: React.FC = () => {
       selectedTag,
       sortOrder
     };
-    
+
+    // Save to localStorage and show appropriate toast
     if (saveFiltersToStorage(filterSettings)) {
       toast({
         title: "Filters opgeslagen",
@@ -103,7 +231,12 @@ const ProjectsPage: React.FC = () => {
       });
     }
   }, [searchQuery, selectedClient, selectedPhase, selectedStatus, selectedTag, sortOrder, toast, saveFiltersToStorage]);
-  
+
+  /**
+   * Load saved filter settings and show confirmation toast
+   *
+   * Attempts to load filters from localStorage and shows appropriate feedback
+   */
   const loadSavedFilters = useCallback(() => {
     if (loadFiltersFromStorage()) {
       toast({
@@ -118,75 +251,99 @@ const ProjectsPage: React.FC = () => {
       });
     }
   }, [toast, loadFiltersFromStorage]);
-  
+
+  /**
+   * Reset all filters to default values
+   *
+   * Clears all filter settings and shows confirmation toast
+   */
   const clearFilters = useCallback(() => {
+    // Reset all filters to defaults
     setSearchQuery('');
     setSelectedClient('all');
     setSelectedPhase('all');
     setSelectedStatus('all');
     setSelectedTag('all');
     setSortOrder('deadline-asc');
-    
+
+    // Show confirmation toast
     toast({
       title: "Filters gewist",
       description: "Alle filterinstellingen zijn teruggezet naar de standaardwaarden.",
     });
   }, [toast]);
-  
-  // Laad projecten functie met useCallback om re-renders te voorkomen
+
+  /**
+   * Load projects from cache or API
+   *
+   * This function attempts to load projects using the following strategy:
+   * 1. If forceRefresh is false, try to load from IndexedDB cache first
+   * 2. If cache is empty or forceRefresh is true, fetch from API
+   * 3. Update the cache with fresh data when fetching from API
+   *
+   * @param forceRefresh - Whether to bypass cache and fetch directly from API
+   */
   const loadProjects = useCallback(async (forceRefresh = false) => {
+    // Update UI state to show loading
     setLoadingState('loading');
     setLoadingMessage('Projecten worden geladen...');
     setError(null);
-    
-    // Probeer eerst projecten uit IndexedDB te laden, tenzij forceren van refresh
+
+    // Try to load from cache first (unless force refresh is requested)
     if (!forceRefresh) {
       try {
         console.log('Attempting to load projects from IndexedDB...');
         const localProjects = await dbService.getAllProjects();
-        
+
+        // Check if we have valid cached data
         if (localProjects && localProjects.length > 0) {
           console.log(`Loaded ${localProjects.length} projects from IndexedDB`);
-          // Gebruik de projecten direct zoals ze uit de database komen
+
+          // Update state with cached projects
           setProjects(localProjects);
           setLoadingState('complete');
           setLoadingMessage(`${localProjects.length} projecten geladen uit lokale cache`);
+          return; // Exit early if we successfully loaded from cache
         } else {
+          // Cache miss - continue to API fetch
           console.log('No projects in IndexedDB or empty response, fetching from API');
           throw new Error('No projects in local database');
         }
       } catch (apiError) {
-        console.error('Error calling API:', apiError);
+        // Handle cache loading errors
+        console.error('Error loading from cache:', apiError);
         const errorMessage = apiError instanceof Error ? apiError.message : 'Onbekende fout';
-        setError('API fout: ' + errorMessage);
+        setError('Cache fout: ' + errorMessage);
         setLoadingState('error');
-        setLoadingMessage('Er is een fout opgetreden bij het API verzoek. Probeer het later opnieuw.');
+        setLoadingMessage('Er is een fout opgetreden bij het laden uit cache. Probeer het later opnieuw.');
+        return; // Exit on error
       }
-      
-      return;
     }
-    
-    // Als we hier zijn, laden we projecten direct van de API (forceRefresh=true)
+
+    // Direct API fetch path (either forceRefresh=true or cache was empty)
     try {
       console.log('API call to: /dashboard/projects/active');
       setLoadingMessage('Projecten worden geladen vanaf API...');
-      
+
+      // Fetch projects from API
       const activeProjects = await fetchActiveProjects();
       console.log(`Loaded ${activeProjects.length} projects from API`);
-      
-      // Gebruik de projecten direct zoals ze van de API komen
+
+      // Update state with fetched projects
       setProjects(activeProjects);
       setLoadingState('complete');
       setLoadingMessage(`${activeProjects.length} projecten geladen vanaf API`);
-      
-      // Update IndexedDB cache
+
+      // Update IndexedDB cache with fresh data
       try {
         await dbService.saveProjects(activeProjects);
         console.log('Projects saved to IndexedDB cache');
       } catch (dbError) {
         console.error('Error saving projects to IndexedDB:', dbError);
+        // Non-critical error, don't show to user
       }
     } catch (error) {
+      // Handle API fetch errors
       console.error('Error fetching active projects:', error);
       setLoadingState('error');
       setLoadingMessage('Er is een fout opgetreden bij het laden van de projecten. Probeer het later opnieuw.');
@@ -194,47 +351,70 @@ const ProjectsPage: React.FC = () => {
     }
   }, []);
 
-  // Effect to load projects AND filters on component mount
-  // Gebruik een ref om te onthouden of we filters hebben geladen
+  /**
+   * Track whether initial data loading has been completed
+   */
   const initialLoadDone = React.useRef(false);
-  
+
+  /**
+   * Load initial data when component mounts
+   *
+   * This effect runs once when the component mounts and:
+   * 1. Loads saved filter settings from localStorage
+   * 2. Loads projects data (from cache or API)
+   */
   useEffect(() => {
-    // Alleen laden als het nog niet gedaan is
+    // Only load if not already done
     if (!initialLoadDone.current) {
-      console.log('Initiële pagina laden - filters en projecten worden geladen...');
-      
-      // Eerst de opgeslagen filters ophalen en toepassen
+      console.log('Initial page load - loading filters and projects...');
+
+      // First load saved filter settings
       loadFiltersFromStorage();
-      
-      // Dan de projecten laden
+
+      // Then load projects data
       loadProjects();
-      
-      // Markeer dat initiële load gedaan is
+
+      // Mark initial load as complete
       initialLoadDone.current = true;
     }
   }, [loadProjects, loadFiltersFromStorage]);
-  
-  // Luister naar focus events om filters opnieuw te laden
+
+  /**
+   * Reload filter settings when window regains focus
+   *
+   * This allows filter settings to stay in sync when the user
+   * returns to the page after visiting other pages.
+   */
   useEffect(() => {
+    // Handler for window focus events
     const handleFocus = () => {
-      console.log('Window kreeg focus - controleren of filters bijgewerkt moeten worden');
+      console.log('Window regained focus - checking for updated filter settings');
       loadFiltersFromStorage();
     };
-    
+
+    // Register event listener
     window.addEventListener('focus', handleFocus);
-    
+
+    // Clean up event listener on component unmount
     return () => {
       window.removeEventListener('focus', handleFocus);
     };
   }, [loadFiltersFromStorage]);
-  
-  // Effect om filters op te slaan bij elke wijziging
+
+  /**
+   * Automatically save filter settings when they change
+   *
+   * This effect runs whenever any filter setting changes and
+   * saves the current settings to localStorage.
+   */
   useEffect(() => {
-    // Als filters nog geladen moeten worden, sla dan nog niet op
+    // Skip saving during initial load to avoid overwriting
+    // settings that might be loaded from localStorage
     if (!initialLoadDone.current) {
       return;
     }
-    
+
+    // Collect all current filter settings
     const filterSettings = {
       searchQuery,
       selectedClient,
@@ -243,59 +423,85 @@ const ProjectsPage: React.FC = () => {
       selectedTag,
       sortOrder
     };
-    
-    saveFiltersToStorage(filterSettings);
-  }, [searchQuery, selectedClient, selectedPhase, selectedStatus, selectedTag, sortOrder, saveFiltersToStorage]);
 
-  // Synchroniseer projecten met de Gripp API
+    // Save to localStorage
+    saveFiltersToStorage(filterSettings);
+  }, [
+    // Filter dependencies
+    searchQuery,
+    selectedClient,
+    selectedPhase,
+    selectedStatus,
+    selectedTag,
+    sortOrder,
+
+    // Function dependency
+    saveFiltersToStorage
+  ]);
+
+  /**
+   * Synchronize projects with the Gripp API
+   *
+   * This function performs a full synchronization process:
+   * 1. Call the sync API endpoint to trigger server-side sync
+   * 2. Clear local cache
+   * 3. Fetch fresh data from API
+   * 4. Update local state and cache
+   */
   const handleSync = useCallback(async () => {
+    // Prevent multiple simultaneous sync operations
     if (syncing) return;
-    
+
     try {
+      // Update UI to show syncing state
       setSyncing(true);
       setLoadingState('syncing');
       setLoadingMessage('Projecten worden gesynchroniseerd met Gripp...');
-      
+
+      // Show initial toast notification
       toast({
         title: "Synchronisatie gestart",
         description: "Projecten worden gesynchroniseerd met Gripp...",
       });
-      
-      // Eerst Gripp projecten synchroniseren
+
+      // Step 1: Call the sync API endpoint to trigger server-side sync
       await syncProjects();
-      
+
+      // Show progress notification
       toast({
         title: "Data gesynchroniseerd",
         description: "Projecten zijn gesynchroniseerd met Gripp, gegevens worden opgehaald...",
       });
-      
-      // Wacht een seconde om zeker te weten dat de database is bijgewerkt
+
+      // Wait a moment to ensure server-side processing is complete
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // IndexedDB cache leegmaken
+
+      // Step 2: Clear local cache
       setLoadingMessage("Cache wordt leeggemaakt...");
       await dbService.clearProjects();
-      
+
+      // Show progress notification
       toast({
         title: "Data ophalen",
         description: "Bijgewerkte project gegevens worden opgehaald...",
       });
-      
+
       console.log('Forcing projects refresh');
-      
-      // Forceer een directe refresh van de API
+
+      // Step 3: Fetch fresh data from API with cache busting
       const timestamp = new Date().getTime();
       const refreshedProjects = await fetchActiveProjects(`?refresh=true&_t=${timestamp}`);
-      
+
+      // Step 4: Process the fetched data
       if (refreshedProjects && refreshedProjects.length > 0) {
         console.log(`Successfully loaded ${refreshedProjects.length} projects after sync`);
-        
-        // Update state direct met de nieuwe projecten
+
+        // Update state with fresh data
         setProjects(refreshedProjects);
         setLoadingState('complete');
         setLoadingMessage(`${refreshedProjects.length} projecten succesvol gesynchroniseerd.`);
-        
-        // Werk ook IndexedDB bij voor toekomstige laadcycli
+
+        // Update IndexedDB cache for future use
         try {
           console.log('Saving projects to IndexedDB cache');
           await dbService.saveProjects(refreshedProjects);
@@ -303,17 +509,19 @@ const ProjectsPage: React.FC = () => {
         } catch (dbError) {
           console.error('Error saving projects to IndexedDB:', dbError);
         }
-        
+
+        // Show success notification
         toast({
           title: "Synchronisatie voltooid",
           description: `${refreshedProjects.length} projecten zijn succesvol bijgewerkt.`,
           variant: "default",
         });
       } else {
+        // Handle case where no projects were returned
         console.error('No projects returned after sync or empty array');
         setLoadingState('error');
         setLoadingMessage('Geen projecten gevonden na synchronisatie. Probeer het later opnieuw.');
-        
+
         toast({
           title: "Waarschuwing",
           description: "Geen projecten gevonden na synchronisatie.",
@@ -321,47 +529,64 @@ const ProjectsPage: React.FC = () => {
         });
       }
     } catch (err) {
+      // Handle errors in the sync process
       console.error('Error syncing projects:', err);
       setLoadingState('error');
       setLoadingMessage('Synchronisatie mislukt. Probeer het later opnieuw.');
-      
+
       toast({
         title: "Synchronisatie mislukt",
         description: "Er is een fout opgetreden bij het synchroniseren van de projecten.",
         variant: "destructive",
       });
-      
-      // Probeer toch de projecten te laden (niet geforceerd) om te zorgen
-      // dat de gebruiker niet met een lege UI zit
+
+      // Fallback: Try to load projects from cache to ensure
+      // the user doesn't end up with an empty UI
       try {
         await loadProjects(false);
       } catch (loadError) {
         console.error('Error loading projects after sync failure:', loadError);
       }
     } finally {
+      // Always reset syncing state when done
       setSyncing(false);
     }
   }, [toast, loadProjects]);
 
-  // Navigeer naar project details
+  /**
+   * Navigate to project details view
+   *
+   * This function:
+   * 1. First tries to find the project in the local state
+   * 2. If not found, fetches the project details from the API
+   * 3. Updates the UI to show the selected project
+   *
+   * @param id - The ID of the project to view
+   */
   const handleProjectClick = useCallback(async (id: number) => {
     try {
+      // Update UI state
       setLoadingDetails(true);
       setError(null);
-      
-      // Zoek eerst in de lokale projecten
+
+      // First try to find the project in local state (faster)
       const localProject = projects.find(p => p.id === id);
       if (localProject) {
+        console.log(`Found project ${id} in local state`);
         setSelectedProject(localProject);
         setLoadingDetails(false);
         return;
       }
-      
-      // Als het project niet lokaal gevonden wordt, haal het op van de API
+
+      // If not found locally, fetch from API
+      console.log(`Project ${id} not found locally, fetching from API`);
       const projectDetails = await fetchProjectDetails(id);
+
       if (projectDetails) {
+        console.log(`Successfully fetched project ${id} details from API`);
         setSelectedProject(projectDetails);
       } else {
+        console.error(`Failed to fetch project ${id} details`);
         setError('Project details konden niet worden geladen');
       }
     } catch (err) {
@@ -372,29 +597,54 @@ const ProjectsPage: React.FC = () => {
     }
   }, [projects]);
 
-  // Sluit project details
+  /**
+   * Close project details view and return to projects list
+   */
   const handleCloseDetails = useCallback(() => {
     setSelectedProject(null);
   }, []);
 
-  // Filter opties
+  /**
+   * Extract unique client names from projects for filter dropdown
+   */
   const clients = useMemo(() => {
-    const uniqueClients = new Set(projects.map(p => p.company?.searchname || '').filter(Boolean));
+    // Get all unique client names from projects
+    const uniqueClients = new Set(
+      projects
+        .map(p => p.company?.searchname || '')
+        .filter(Boolean) // Remove empty strings
+    );
+
+    // Convert to sorted array
     return Array.from(uniqueClients).sort();
   }, [projects]);
 
+  /**
+   * Extract unique phase names from projects for filter dropdown
+   */
   const phases = useMemo(() => {
-    const uniquePhases = new Set(projects.map(p => p.phase?.searchname || '').filter(Boolean));
+    // Get all unique phase names from projects
+    const uniquePhases = new Set(
+      projects
+        .map(p => p.phase?.searchname || '')
+        .filter(Boolean) // Remove empty strings
+    );
+
+    // Convert to sorted array
     return Array.from(uniquePhases).sort();
   }, [projects]);
 
-  // Extraheer unieke tags uit alle projecten
+  /**
+   * Extract unique tag names from projects for filter dropdown
+   *
+   * Handles both string (JSON) and array tag formats.
+   */
   const tags = useMemo(() => {
-    // Verzamel alle tags van alle projecten
+    // Collect all tags from all projects
     const allTags: string[] = [];
-    
+
     projects.forEach(project => {
-      // Als tags een string is (JSON formaat), probeer te parsen
+      // Handle string format (JSON string that needs parsing)
       if (typeof project.tags === 'string') {
         try {
           const parsedTags = JSON.parse(project.tags);
@@ -405,30 +655,48 @@ const ProjectsPage: React.FC = () => {
         } catch (error) {
           console.error('Error parsing tags JSON:', error);
         }
-      } 
-      // Als tags een array is, gebruik direct
+      }
+      // Handle array format (direct use)
       else if (Array.isArray(project.tags)) {
         project.tags.forEach(tag => {
-          const tagName = typeof tag === 'object' ? (tag.searchname || tag.name) : tag;
+          // Handle both object tags and string tags
+          const tagName = typeof tag === 'object'
+            ? (tag.searchname || tag.name)
+            : tag;
+
           if (tagName) allTags.push(tagName);
         });
       }
     });
-    
-    // Filter unieke tags
+
+    // Remove duplicates and sort
     const uniqueTags = new Set(allTags);
     return Array.from(uniqueTags).sort();
   }, [projects]);
 
-  // Functie om de voortgang van een project te berekenen
+  /**
+   * Calculate the progress percentage of a project
+   *
+   * Compares written hours to budgeted hours to determine
+   * how much of the project budget has been used.
+   *
+   * @param project - The project to calculate progress for
+   * @returns Progress percentage (0-100+)
+   */
   const calculateProjectProgress = useCallback((project: GrippProject) => {
+    // Check if project has valid project lines
     if (!project.projectlines || !Array.isArray(project.projectlines)) return 0;
-    
+
     try {
-      const written = project.projectlines.reduce((sum, line) => 
+      // Calculate total written hours
+      const written = project.projectlines.reduce((sum, line) =>
         sum + (line && line.amountwritten ? parseFloat(line.amountwritten) : 0), 0);
-      const budgeted = project.projectlines.reduce((sum, line) => 
+
+      // Calculate total budgeted hours
+      const budgeted = project.projectlines.reduce((sum, line) =>
         sum + (line && line.amount ? line.amount : 0), 0);
+
+      // Calculate percentage (can be over 100%)
       return budgeted > 0 ? (written / budgeted) * 100 : 0;
     } catch (error) {
       console.error('Error calculating project progress:', error);
@@ -436,13 +704,23 @@ const ProjectsPage: React.FC = () => {
     }
   }, []);
 
-  // Functie om de status van een project te bepalen op basis van voortgang
+  /**
+   * Determine the status category of a project based on its progress
+   *
+   * Status categories:
+   * - 'normal': < 75% of budget used
+   * - 'warning': 75-100% of budget used
+   * - 'over-budget': > 100% of budget used
+   *
+   * @param project - The project to determine status for
+   * @returns Status category string
+   */
   const getProjectStatus = useCallback((project: GrippProject) => {
     const progress = calculateProjectProgress(project);
-    
-    if (progress > 100) return 'over-budget';
-    if (progress >= 75) return 'warning';
-    return 'normal';
+
+    if (progress > 100) return 'over-budget';  // Over budget
+    if (progress >= 75) return 'warning';      // Approaching budget limit
+    return 'normal';                           // Within budget
   }, [calculateProjectProgress]);
 
   // Sorteer en filter projecten
@@ -452,27 +730,27 @@ const ProjectsPage: React.FC = () => {
       console.log('No projects to filter/sort');
       return [];
     }
-    
+
     // Log eerste paar projecten om te zien wat we hebben
     console.log('First few projects:', projects.slice(0, 3).map(p => ({ id: p.id, name: p.name })));
-    
+
     return projects
       .filter(project => {
         // Filter op zoekterm
         if (searchQuery && !project.name?.toLowerCase().includes(searchQuery.toLowerCase())) {
           return false;
         }
-        
+
         // Filter op client
         if (selectedClient && selectedClient !== 'all' && project.company?.searchname !== selectedClient) {
           return false;
         }
-        
+
         // Filter op fase
         if (selectedPhase && selectedPhase !== 'all' && project.phase?.searchname !== selectedPhase) {
           return false;
         }
-        
+
         // Filter op status (voortgang)
         if (selectedStatus && selectedStatus !== 'all') {
           const status = getProjectStatus(project);
@@ -480,25 +758,25 @@ const ProjectsPage: React.FC = () => {
             return false;
           }
         }
-        
+
         // Filter op tag
         if (selectedTag && selectedTag !== 'all') {
           // Check if the project has the selected tag
           const projectTags = project.tags || [];
           let hasTag = false;
-          
+
           // If tags is a string, parse it first
           if (typeof projectTags === 'string') {
             try {
               const parsedTags = JSON.parse(projectTags);
-              hasTag = parsedTags.some((tag: any) => 
+              hasTag = parsedTags.some((tag: any) =>
                 (tag.searchname === selectedTag) || (tag.name === selectedTag)
               );
             } catch (error) {
               console.error('Error parsing tags:', error);
               hasTag = false;
             }
-          } 
+          }
           // If tags is an array, check directly
           else if (Array.isArray(projectTags)) {
             hasTag = projectTags.some((tag: any) => {
@@ -506,12 +784,12 @@ const ProjectsPage: React.FC = () => {
               return (tag.searchname === selectedTag) || (tag.name === selectedTag);
             });
           }
-          
+
           if (!hasTag) {
             return false;
           }
         }
-        
+
         return true;
       })
       .sort((a, b) => {
@@ -530,16 +808,16 @@ const ProjectsPage: React.FC = () => {
           case 'name-desc':
             return (b.name || '').localeCompare(a.name || '');
           case 'budget-asc': {
-            const aBudget = a.projectlines?.reduce((sum, line) => 
+            const aBudget = a.projectlines?.reduce((sum, line) =>
               sum + (line?.amount || 0), 0) || 0;
-            const bBudget = b.projectlines?.reduce((sum, line) => 
+            const bBudget = b.projectlines?.reduce((sum, line) =>
               sum + (line?.amount || 0), 0) || 0;
             return aBudget - bBudget;
           }
           case 'budget-desc': {
-            const aBudget = a.projectlines?.reduce((sum, line) => 
+            const aBudget = a.projectlines?.reduce((sum, line) =>
               sum + (line?.amount || 0), 0) || 0;
-            const bBudget = b.projectlines?.reduce((sum, line) => 
+            const bBudget = b.projectlines?.reduce((sum, line) =>
               sum + (line?.amount || 0), 0) || 0;
             return bBudget - aBudget;
           }
@@ -558,26 +836,26 @@ const ProjectsPage: React.FC = () => {
         }
       });
   }, [projects, searchQuery, selectedClient, selectedPhase, selectedStatus, selectedTag, sortOrder, calculateProjectProgress, getProjectStatus]);
-  
+
   console.log('Filtered projects count:', filteredProjects.length);
 
   // Functie om een specifiek project te vernieuwen
   const refreshSelectedProject = useCallback(async () => {
     if (!selectedProject) return;
-    
+
     try {
       setLoadingDetails(true);
       const refreshedProject = await syncProjectById(selectedProject.id);
-      
+
       if (refreshedProject) {
         // Update het project in de state
         setSelectedProject(refreshedProject);
-        
+
         // Update het project in de lijst met projecten
-        setProjects(prev => 
+        setProjects(prev =>
           prev.map(p => p.id === refreshedProject.id ? refreshedProject : p)
         );
-        
+
         // Update het project in de cache
         try {
           await dbService.saveProject(refreshedProject);
@@ -585,7 +863,7 @@ const ProjectsPage: React.FC = () => {
         } catch (error) {
           console.error('Error caching project:', error);
         }
-        
+
         toast({
           title: 'Project bijgewerkt',
           description: 'Project is succesvol bijgewerkt met de laatste gegevens',
@@ -612,7 +890,7 @@ const ProjectsPage: React.FC = () => {
   // Renders loading spinner with appropriate message based on the current loading state
   const renderLoadingState = () => {
     if (loadingState === 'idle') return null;
-    
+
     return (
       <div className="w-full flex items-center justify-center p-8">
         <div className="flex flex-col items-center space-y-4">
@@ -634,9 +912,9 @@ const ProjectsPage: React.FC = () => {
   // Als er een project is geselecteerd, toon de details
   if (selectedProject) {
     return (
-      <ProjectDetails 
-        project={selectedProject} 
-        onClose={handleCloseDetails} 
+      <ProjectDetails
+        project={selectedProject}
+        onClose={handleCloseDetails}
         onRefresh={refreshSelectedProject}
       />
     );
@@ -646,26 +924,26 @@ const ProjectsPage: React.FC = () => {
     <div className="container mx-auto py-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">Projecten</h1>
-        
+
         <div className="flex space-x-2">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={async () => {
               try {
                 setLoadingState('loading');
                 setLoadingMessage('Cache wordt leeggemaakt...');
-                
+
                 // De cache leegmaken
                 await dbService.clearCache();
                 console.log('Cache cleared');
-                
+
                 // De projecten uit IndexedDB verwijderen
                 await dbService.clearProjects();
                 console.log('Projects cleared from IndexedDB');
-                
+
                 // Projecten direct van de API laden
                 await loadProjects(true);
-                
+
                 toast({
                   title: "Cache geleegd",
                   description: "De cache is succesvol geleegd en projecten zijn opnieuw geladen.",
@@ -674,7 +952,7 @@ const ProjectsPage: React.FC = () => {
                 console.error('Error clearing cache:', error);
                 setLoadingState('error');
                 setLoadingMessage('Er is een fout opgetreden bij het leegmaken van de cache');
-                
+
                 toast({
                   title: "Fout",
                   description: "Er is een fout opgetreden bij het leegmaken van de cache.",
@@ -685,15 +963,15 @@ const ProjectsPage: React.FC = () => {
           >
             Cache leegmaken
           </Button>
-          
-          <Button 
-            variant="outline" 
+
+          <Button
+            variant="outline"
             onClick={() => loadProjects(true)}
           >
             Direct van API laden
           </Button>
-          
-          <Button 
+
+          <Button
             disabled={syncing}
             onClick={handleSync}
           >
@@ -702,7 +980,7 @@ const ProjectsPage: React.FC = () => {
           </Button>
         </div>
       </div>
-      
+
       {error && (
         <Alert variant="destructive" className="mb-6">
           <AlertTriangle className="h-4 w-4" />
@@ -710,9 +988,9 @@ const ProjectsPage: React.FC = () => {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      
+
       {renderLoadingState()}
-      
+
       {!error && loadingState !== 'loading' && loadingState !== 'syncing' && (
         <>
           <Card>
@@ -759,7 +1037,7 @@ const ProjectsPage: React.FC = () => {
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
                 </div>
-                
+
                 <Select value={selectedClient} onValueChange={setSelectedClient}>
                   <SelectTrigger>
                     <SelectValue placeholder="Alle klanten" />
@@ -771,7 +1049,7 @@ const ProjectsPage: React.FC = () => {
                     ))}
                   </SelectContent>
                 </Select>
-                
+
                 <Select value={selectedPhase} onValueChange={setSelectedPhase}>
                   <SelectTrigger>
                     <SelectValue placeholder="Alle fases" />
@@ -783,7 +1061,7 @@ const ProjectsPage: React.FC = () => {
                     ))}
                   </SelectContent>
                 </Select>
-                
+
                 <Select value={selectedStatus} onValueChange={setSelectedStatus}>
                   <SelectTrigger>
                     <SelectValue placeholder="Alle statussen" />
@@ -795,7 +1073,7 @@ const ProjectsPage: React.FC = () => {
                     <SelectItem value="over-budget" className="text-red-700">Over budget ({'>'} 100%)</SelectItem>
                   </SelectContent>
                 </Select>
-                
+
                 <Select value={selectedTag} onValueChange={setSelectedTag}>
                   <SelectTrigger>
                     <SelectValue placeholder="Alle tags" />
@@ -807,7 +1085,7 @@ const ProjectsPage: React.FC = () => {
                     ))}
                   </SelectContent>
                 </Select>
-                
+
                 <Select value={sortOrder} onValueChange={setSortOrder}>
                   <SelectTrigger>
                     <SelectValue placeholder="Sorteren op deadline (oplopend)" />
@@ -826,12 +1104,12 @@ const ProjectsPage: React.FC = () => {
               </div>
             </CardContent>
           </Card>
-          
+
           <div className="mt-6">
             <p className="text-sm text-muted-foreground mb-4">
               {filteredProjects.length} projecten gevonden
             </p>
-            
+
             {filteredProjects.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredProjects.map(project => (
@@ -851,7 +1129,7 @@ const ProjectsPage: React.FC = () => {
           </div>
         </>
       )}
-      
+
       {selectedProject && (
         <Dialog open={!!selectedProject} onOpenChange={() => handleCloseDetails()}>
           <DialogContent className="max-w-3xl">
@@ -859,12 +1137,12 @@ const ProjectsPage: React.FC = () => {
               <DialogTitle className="flex items-start justify-between">
                 <span>{selectedProject.name}</span>
                 {calculateProjectProgress(selectedProject) > 0 && (
-                  <Badge 
+                  <Badge
                     className={
-                      calculateProjectProgress(selectedProject) > 100 
-                        ? 'bg-red-500' 
-                        : calculateProjectProgress(selectedProject) > 75 
-                          ? 'bg-amber-500' 
+                      calculateProjectProgress(selectedProject) > 100
+                        ? 'bg-red-500'
+                        : calculateProjectProgress(selectedProject) > 75
+                          ? 'bg-amber-500'
                           : 'bg-green-500'
                     }
                   >
@@ -883,4 +1161,4 @@ const ProjectsPage: React.FC = () => {
   );
 };
 
-export default ProjectsPage; 
+export default ProjectsPage;

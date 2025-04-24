@@ -196,3 +196,12 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Toegevoegd ontbrekende import voor projectService in de API server
 - **Getest**: Ja, API endpoints werken correct en projecten worden correct opgehaald
 - **Status**: ✅ Succesvol
+
+### Wijziging #18 - Fix project loading in frontend (Datum: 22-04-2025)
+- **Bestanden**: src/pages/projects/index.tsx
+- **Doel**: Oplossen van een probleem met het laden van projecten in de frontend
+- **Wijzigingen**:
+  - Aangepast project loading logica om direct van API te laden als IndexedDB leeg is
+  - Verbeterd error handling voor project loading
+- **Getest**: Ja, projecten worden correct geladen en weergegeven in de frontend
+- **Status**: ✅ Succesvol

@@ -36,6 +36,7 @@ import { cacheService } from './cache-service';
 // Configuration
 import { API_PORT, killProcessOnPort } from '../../config/ports';
 import { syncAllData, syncAbsenceRequests } from '../../services/sync.service';
+import { syncService } from '../../services/sync-service';
 
 // Define __dirname equivalent for ESM
 const __filename = fileURLToPath(import.meta.url);
@@ -515,7 +516,22 @@ app.post('/api/sync', async (req: Request, res: Response) => {
   }
 });
 
-// Add projects sync endpoint
+// Add the new sync endpoints
+app.use('/api/v2/sync', async (req: Request, res: Response, next) => {
+  // Check if database is initialized
+  if (!db) {
+    console.error('Database not initialized');
+    return res.status(503).json({
+      success: false,
+      error: 'Database not ready. Please try again in a few seconds.'
+    });
+  }
+
+  // Continue to the sync endpoints
+  next();
+}, require('../endpoints/sync').default);
+
+// Legacy projects sync endpoint for backward compatibility
 app.post('/api/sync/projects', async (req: Request, res: Response) => {
   try {
     if (!db) {
@@ -532,11 +548,12 @@ app.post('/api/sync/projects', async (req: Request, res: Response) => {
     cacheService.clearProjectData();
 
     try {
-      // Here you would use your projects sync function
-      // For now, we'll just return success
+      // Use the new sync service
+      const success = await syncService.syncProjects();
+
       return res.json({
-        success: true,
-        message: 'Projects synced successfully'
+        success,
+        message: success ? 'Projects synced successfully' : 'Failed to sync projects'
       });
     } catch (syncError) {
       console.error('Error in project sync:', syncError);

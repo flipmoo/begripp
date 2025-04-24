@@ -43,9 +43,9 @@ Voor elke wijziging volgen we deze stappen:
 - [ ] Logging verbeteren
 
 ### 2.2 Database interactie optimaliseren
-- [ ] Database queries optimaliseren
-- [ ] Caching strategieën verbeteren
-- [ ] Data synchronisatie optimaliseren
+- [x] Database queries optimaliseren
+- [x] Caching strategieën verbeteren
+- [x] Data synchronisatie optimaliseren
 
 ## Fase 3: Frontend optimalisatie
 

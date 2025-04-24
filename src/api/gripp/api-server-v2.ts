@@ -436,7 +436,11 @@ app.post('/api/sync', async (req, res) => {
 /**
  * Add database middleware to all API routes
  */
-app.use('/api/v1', requireDatabase(db));
+app.use('/api/v1', (req, res, next) => {
+  // Voeg de database toe aan de request
+  (req as any).db = db;
+  next();
+});
 
 /**
  * Mount API routes

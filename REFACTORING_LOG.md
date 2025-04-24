@@ -188,3 +188,11 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Verbeterd documentatie van de geconsolideerde functies
 - **Getest**: Ja, applicatie start zonder errors en alle functionaliteit werkt correct
 - **Status**: ✅ Succesvol
+
+### Wijziging #17 - Fix projectService import in API server (Datum: 22-04-2025)
+- **Bestanden**: src/api/gripp/api-server.ts
+- **Doel**: Oplossen van een probleem met de projectService import in de API server
+- **Wijzigingen**:
+  - Toegevoegd ontbrekende import voor projectService in de API server
+- **Getest**: Ja, API endpoints werken correct en projecten worden correct opgehaald
+- **Status**: ✅ Succesvol

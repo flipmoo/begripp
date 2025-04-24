@@ -52,12 +52,12 @@ Voor elke wijziging volgen we deze stappen:
 ### 3.1 Componenten optimaliseren
 - [x] Grote componenten opsplitsen
 - [x] Props typing verbeteren
-- [ ] Component structuur standaardiseren
+- [x] Component structuur standaardiseren
 
 ### 3.2 State management verbeteren
-- [ ] React Query gebruik optimaliseren
-- [ ] Caching strategie verbeteren
-- [ ] Error handling verbeteren
+- [x] React Query gebruik optimaliseren
+- [x] Caching strategie verbeteren
+- [x] Error handling verbeteren
 
 ## Fase 4: Performance optimalisatie
 

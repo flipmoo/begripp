@@ -254,3 +254,22 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
 - **Reden**: Verschillende pogingen tot optimalisatie leidden tot witte schermen en instabiliteit
 - **Getest**: Ja, applicatie werkt weer stabiel
 - **Status**: ✅ Succesvol
+
+### Wijziging #22 - Veilige optimalisaties en richtlijnen (Datum: 22-04-2025)
+- **Bestanden**:
+  - docs/COMPONENT_GUIDELINES.md
+  - src/components/common/ExampleComponent.tsx (nieuw)
+  - src/hooks/useOptimizedQuery.ts (nieuw)
+  - src/hooks/useErrorHandler.ts (nieuw)
+  - src/components/examples/OptimizedQueryExample.tsx (nieuw)
+  - docs/LESSONS_LEARNED.md (nieuw)
+- **Doel**: Implementeren van veilige optimalisaties en richtlijnen zonder stabiliteit in gevaar te brengen
+- **Wijzigingen**:
+  - Gemaakt richtlijnen voor component structuur
+  - Gemaakt voorbeeld component dat de richtlijnen volgt
+  - Gemaakt geoptimaliseerde query hook voor betere caching en error handling
+  - Gemaakt error handler hook voor betere foutafhandeling
+  - Gemaakt voorbeeld component dat de nieuwe hooks gebruikt
+  - Gedocumenteerd lessen geleerd van eerdere optimalisatiepogingen
+- **Getest**: Ja, alle functionaliteit werkt nog steeds correct
+- **Status**: ✅ Succesvol

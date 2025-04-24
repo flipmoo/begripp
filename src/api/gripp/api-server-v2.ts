@@ -216,33 +216,11 @@ app.use('/api/', standardLimiter);
 app.use('/api/dashboard', dashboardLimiter);
 
 /**
- * Add database middleware to all API routes
+ * Legacy routes for backward compatibility
+ * These routes don't use the database middleware to avoid issues
  */
-app.use('/api', requireDatabase(db));
-
-/**
- * Mount API routes
- */
-app.use('/api', apiRoutes);
-
-/**
- * Add legacy routes for backward compatibility
- * These routes will be deprecated in the future
- */
-app.use('/api/health', (req, res) => {
-  res.redirect(301, '/api/v1/health');
-});
-
-app.use('/api/cache/clear', (req, res) => {
-  res.redirect(307, '/api/v1/cache/clear');
-});
-
-app.use('/api/sync', (req, res) => {
-  res.redirect(307, '/api/v1/sync');
-});
-
 // Dashboard API compatibility routes
-app.use('/api/dashboard/projects/active', async (req, res) => {
+app.get('/api/dashboard/projects/active', async (req, res) => {
   try {
     if (!db) {
       return res.status(500).json({ error: 'Database not connected' });
@@ -273,7 +251,7 @@ app.use('/api/dashboard/projects/active', async (req, res) => {
   }
 });
 
-app.use('/api/dashboard/projects/:id', async (req, res) => {
+app.get('/api/dashboard/projects/:id', async (req, res) => {
   try {
     if (!db) {
       return res.status(500).json({ error: 'Database not connected' });
@@ -325,6 +303,32 @@ app.post('/api/sync/projects', async (req, res) => {
       details: error instanceof Error ? error.message : 'Unknown error'
     });
   }
+});
+
+/**
+ * Add database middleware to all API routes
+ */
+app.use('/api/v1', requireDatabase(db));
+
+/**
+ * Mount API routes
+ */
+app.use('/api', apiRoutes);
+
+/**
+ * Add legacy routes for backward compatibility
+ * These routes will be deprecated in the future
+ */
+app.use('/api/health', (req, res) => {
+  res.redirect(301, '/api/v1/health');
+});
+
+app.use('/api/cache/clear', (req, res) => {
+  res.redirect(307, '/api/v1/cache/clear');
+});
+
+app.use('/api/sync', (req, res) => {
+  res.redirect(307, '/api/v1/sync');
 });
 
 /**

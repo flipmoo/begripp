@@ -180,14 +180,28 @@ const serverStartTime = Date.now();
  * Connects to the SQLite database and stores the connection
  * for use by API endpoints.
  */
-getDatabase()
-  .then(async database => {
-    db = database;
-    console.log('Database connected successfully');
-  })
-  .catch(error => {
-    console.error('Database connection error:', error);
-  });
+(async () => {
+  try {
+    console.log('Opening database connection to ' + join(__dirname, '../../db/database.sqlite') + '...');
+    const database = await getDatabase();
+    if (database) {
+      console.log('Database initialized successfully on server startup');
+      db = database;
+
+      // Test database connection
+      const version = await db.get('SELECT sqlite_version() as version');
+      console.log(`SQLite version: ${version?.version}`);
+
+      // Initialize services
+      await optimizedProjectService.initialize(db);
+      console.log('Project service initialized');
+    } else {
+      console.error('Database initialization failed - db object is null');
+    }
+  } catch (dbError) {
+    console.error('Error during forced database initialization:', dbError);
+  }
+})();
 
 // Apply middleware
 app.use(cors());                // Enable CORS for all routes
@@ -270,11 +284,8 @@ app.get('/api/employee-stats', async (req, res) => {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    // Genereer dummy data voor employee stats
-    // Dit is een tijdelijke oplossing totdat we de echte implementatie hebben
-    const employees = generateDummyEmployeeStats();
-    console.log(`Returning ${employees.length} dummy employees via legacy route`);
-    res.json({ response: employees });
+    // Redirect naar de nieuwe API endpoint
+    res.redirect(307, `/api/v1/employees/week?year=${year}&week=${week}${isDashboard ? '&dashboard=true' : ''}`);
   } catch (error) {
     console.error('Error fetching employee stats:', error);
     res.status(500).json({
@@ -305,11 +316,8 @@ app.get('/api/employee-month-stats', async (req, res) => {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    // Genereer dummy data voor employee stats
-    // Dit is een tijdelijke oplossing totdat we de echte implementatie hebben
-    const employees = generateDummyEmployeeStats();
-    console.log(`Returning ${employees.length} dummy employees via legacy route`);
-    res.json({ response: employees });
+    // Redirect naar de nieuwe API endpoint
+    res.redirect(307, `/api/v1/employees/month?year=${year}&month=${month}${isDashboard ? '&dashboard=true' : ''}`);
   } catch (error) {
     console.error('Error fetching employee month stats:', error);
     res.status(500).json({
@@ -322,50 +330,7 @@ app.get('/api/employee-month-stats', async (req, res) => {
   }
 });
 
-// Helper functie om dummy employee stats te genereren
-function generateDummyEmployeeStats() {
-  return [
-    {
-      id: 99622,
-      name: "Koen Straatman",
-      function: "Developer",
-      contract_period: "Fulltime",
-      contract_hours: 40,
-      holiday_hours: 200,
-      expected_hours: 40,
-      leave_hours: 0,
-      written_hours: 38,
-      actual_hours: 38,
-      active: true
-    },
-    {
-      id: 99623,
-      name: "Anthony Thissen",
-      function: "Developer",
-      contract_period: "Fulltime",
-      contract_hours: 40,
-      holiday_hours: 200,
-      expected_hours: 40,
-      leave_hours: 0,
-      written_hours: 36,
-      actual_hours: 36,
-      active: true
-    },
-    {
-      id: 99624,
-      name: "Jochem Boon",
-      function: "Developer",
-      contract_period: "Fulltime",
-      contract_hours: 40,
-      holiday_hours: 200,
-      expected_hours: 40,
-      leave_hours: 8,
-      written_hours: 32,
-      actual_hours: 32,
-      active: true
-    }
-  ];
-}
+
 
 app.get('/api/dashboard/projects/:id', async (req, res) => {
   try {

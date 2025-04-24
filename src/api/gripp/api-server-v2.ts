@@ -37,6 +37,7 @@ import { API_PORT, killProcessOnPort } from '../../config/ports';
 import { projectService } from './services/project';
 import { optimizedProjectService } from './services/optimized-project';
 import { hourService } from './services/hour';
+import { invoiceService } from './services/invoice';
 import { cacheService } from './cache-service';
 
 // Define __dirname equivalent for ESM
@@ -701,6 +702,125 @@ app.post('/api/sync', async (req, res) => {
       error: {
         message: `Failed to sync all data: ${error instanceof Error ? error.message : 'Unknown error'}`,
         code: 'SYNC_ERROR'
+      }
+    });
+  }
+});
+
+// Invoices endpoint
+app.get('/api/invoices', async (req, res) => {
+  try {
+    console.log('Legacy route: Fetching invoices');
+    const year = req.query.year ? parseInt(req.query.year as string) : 0;
+
+    const filters = [];
+
+    // Only apply year filter if a specific year is requested
+    if (year > 0) {
+      const startDate = `${year}-01-01`;
+      const endDate = `${year + 1}-01-01`;
+
+      filters.push({
+        field: 'invoice.date',
+        operator: 'greaterequals',
+        value: startDate
+      });
+
+      filters.push({
+        field: 'invoice.date',
+        operator: 'less',
+        value: endDate
+      });
+    } else {
+      // If no specific year, get all invoices from 2024 onwards
+      filters.push({
+        field: 'invoice.date',
+        operator: 'greaterequals',
+        value: '2024-01-01'
+      });
+    }
+
+    // Zet cache-control headers om browser caching te voorkomen
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    const response = await invoiceService.get({
+      filters: filters,
+      options: {
+        orderings: [
+          {
+            field: 'invoice.date',
+            direction: 'desc',
+          },
+        ],
+      }
+    });
+
+    res.json(response.result);
+  } catch (error) {
+    console.error('Error fetching invoices:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: `Error fetching invoices: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        code: 'INTERNAL_SERVER_ERROR'
+      }
+    });
+  }
+});
+
+// Unpaid invoices endpoint
+app.get('/api/invoices/unpaid', async (req, res) => {
+  try {
+    console.log('Legacy route: Fetching unpaid invoices');
+
+    // Parse year parameter if provided
+    const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+
+    // Zet cache-control headers om browser caching te voorkomen
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    // Just use the invoiceService which now includes client-side filtering
+    const response = await invoiceService.getUnpaid(year);
+    res.json(response.result);
+  } catch (error) {
+    console.error('Error fetching unpaid invoices:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: `Error fetching unpaid invoices: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        code: 'INTERNAL_SERVER_ERROR'
+      }
+    });
+  }
+});
+
+// Overdue invoices endpoint
+app.get('/api/invoices/overdue', async (req, res) => {
+  try {
+    console.log('Legacy route: Fetching overdue invoices');
+
+    // Parse year parameter if provided
+    const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+
+    // Zet cache-control headers om browser caching te voorkomen
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    // Just use the invoiceService which now includes client-side filtering
+    const response = await invoiceService.getOverdue(year);
+    res.json(response.result);
+  } catch (error) {
+    console.error('Error fetching overdue invoices:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: `Error fetching overdue invoices: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        code: 'INTERNAL_SERVER_ERROR'
       }
     });
   }

@@ -17,10 +17,8 @@ const ProjectsPage: React.FC = () => {
 };
 
 const ProjectsPageContent: React.FC = () => {
-  const { loadingState, loadingMessage, error, filteredProjects } = React.useContext(
-    require('../../contexts/ProjectsContext').ProjectsContext
-  );
-  
+  const { loadingState, loadingMessage, error, filteredProjects } = require('../../contexts/ProjectsContext').useProjects();
+
   return (
     <div className="container mx-auto py-6 space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -32,7 +30,7 @@ const ProjectsPageContent: React.FC = () => {
         </div>
         <ProjectSync />
       </div>
-      
+
       {error && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
@@ -40,9 +38,9 @@ const ProjectsPageContent: React.FC = () => {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      
+
       <ProjectFilters />
-      
+
       {loadingState === 'loading' || loadingState === 'syncing' ? (
         <div className="space-y-4">
           <div className="text-center text-muted-foreground mb-4">
@@ -64,7 +62,7 @@ const ProjectsPageContent: React.FC = () => {
           <ProjectList />
         </>
       )}
-      
+
       <ProjectDetails />
     </div>
   );

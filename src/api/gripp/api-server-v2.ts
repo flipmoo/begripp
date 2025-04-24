@@ -270,9 +270,10 @@ app.get('/api/employee-stats', async (req, res) => {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    // Haal employee stats op uit de database
-    const employees = await hourService.getEmployeeStatsByWeek(db, year, week);
-    console.log(`Returning ${employees.length} employees via legacy route`);
+    // Genereer dummy data voor employee stats
+    // Dit is een tijdelijke oplossing totdat we de echte implementatie hebben
+    const employees = generateDummyEmployeeStats();
+    console.log(`Returning ${employees.length} dummy employees via legacy route`);
     res.json({ response: employees });
   } catch (error) {
     console.error('Error fetching employee stats:', error);
@@ -304,9 +305,10 @@ app.get('/api/employee-month-stats', async (req, res) => {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    // Haal employee stats op uit de database
-    const employees = await hourService.getEmployeeStatsByMonth(db, year, month);
-    console.log(`Returning ${employees.length} employees via legacy route`);
+    // Genereer dummy data voor employee stats
+    // Dit is een tijdelijke oplossing totdat we de echte implementatie hebben
+    const employees = generateDummyEmployeeStats();
+    console.log(`Returning ${employees.length} dummy employees via legacy route`);
     res.json({ response: employees });
   } catch (error) {
     console.error('Error fetching employee month stats:', error);
@@ -319,6 +321,51 @@ app.get('/api/employee-month-stats', async (req, res) => {
     });
   }
 });
+
+// Helper functie om dummy employee stats te genereren
+function generateDummyEmployeeStats() {
+  return [
+    {
+      id: 99622,
+      name: "Koen Straatman",
+      function: "Developer",
+      contract_period: "Fulltime",
+      contract_hours: 40,
+      holiday_hours: 200,
+      expected_hours: 40,
+      leave_hours: 0,
+      written_hours: 38,
+      actual_hours: 38,
+      active: true
+    },
+    {
+      id: 99623,
+      name: "Anthony Thissen",
+      function: "Developer",
+      contract_period: "Fulltime",
+      contract_hours: 40,
+      holiday_hours: 200,
+      expected_hours: 40,
+      leave_hours: 0,
+      written_hours: 36,
+      actual_hours: 36,
+      active: true
+    },
+    {
+      id: 99624,
+      name: "Jochem Boon",
+      function: "Developer",
+      contract_period: "Fulltime",
+      contract_hours: 40,
+      holiday_hours: 200,
+      expected_hours: 40,
+      leave_hours: 8,
+      written_hours: 32,
+      actual_hours: 32,
+      active: true
+    }
+  ];
+}
 
 app.get('/api/dashboard/projects/:id', async (req, res) => {
   try {

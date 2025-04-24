@@ -284,7 +284,7 @@ app.get('/api/employee-stats', async (req, res) => {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    // Haal de data op uit de cache of genereer een lege response
+    // Haal de data op uit de cache of haal het op uit de database
     const cacheKey = `employees_week_${year}_${week}`;
     const cachedData = cacheService.get(cacheKey);
 
@@ -294,30 +294,122 @@ app.get('/api/employee-stats', async (req, res) => {
     }
 
     console.log(`Cache MISS for key: ${cacheKey}`);
-    console.log(`Fetching employee data for week ${week} of ${year}`);
+    console.log(`Fetching employee data for week ${week} of ${year} (${year}-W${week})`);
 
-    // Genereer een lege response met de juiste structuur
-    const employees = [
-      {
-        id: 99622,
-        name: "Koen Straatman",
-        function: "Developer",
-        contract_period: "Fulltime",
-        contract_hours: 40,
-        holiday_hours: 200,
-        expected_hours: 40,
-        leave_hours: 0,
-        written_hours: 0,
-        actual_hours: 0,
-        active: true
-      }
-    ];
+    try {
+      // Bereken de start- en einddatum van de week
+      const startDate = new Date(year, 0, 1 + (week - 1) * 7);
+      const dayOfWeek = startDate.getDay();
+      const diff = startDate.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+      const weekStart = new Date(startDate.setDate(diff));
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
 
-    // Sla de data op in de cache
-    cacheService.set(cacheKey, { response: employees });
+      const formattedStartDate = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
+      const formattedEndDate = `${weekEnd.getFullYear()}-${String(weekEnd.getMonth() + 1).padStart(2, '0')}-${String(weekEnd.getDate()).padStart(2, '0')}`;
 
-    // Stuur de response
-    res.json({ response: employees });
+      console.log(`Week dates: ${formattedStartDate} to ${formattedEndDate}`);
+
+      // Haal medewerkers op uit de database
+      const employees = await db.all(`
+        SELECT e.id, e.firstname, e.lastname,
+               (e.firstname || ' ' || e.lastname) as name,
+               e.function, e.active,
+               c.startdate as contract_startdate,
+               c.enddate as contract_enddate,
+               c.hours_monday_even, c.hours_tuesday_even,
+               c.hours_wednesday_even, c.hours_thursday_even,
+               c.hours_friday_even,
+               c.hours_monday_odd, c.hours_tuesday_odd,
+               c.hours_wednesday_odd, c.hours_thursday_odd,
+               c.hours_friday_odd
+        FROM employees e
+        LEFT JOIN contracts c ON e.id = c.employee_id
+        WHERE e.active = 1
+        ORDER BY e.lastname, e.firstname
+      `);
+
+      // Haal uren op voor deze week
+      const hoursData = await db.all(`
+        SELECT employee_id, date, SUM(hours) as total_hours
+        FROM hours
+        WHERE date >= ? AND date <= ?
+        GROUP BY employee_id, date
+      `, [formattedStartDate, formattedEndDate]);
+
+      // Haal verlofuren op voor deze week
+      const leaveData = await db.all(`
+        SELECT ar.employee_id, arl.date, arl.amount as hours
+        FROM absence_request_lines arl
+        JOIN absence_requests ar ON arl.absencerequest_id = ar.id
+        WHERE arl.date >= ? AND arl.date <= ?
+          AND (arl.status_id = 2 OR arl.status_id = 1)
+      `, [formattedStartDate, formattedEndDate]);
+
+      // Verwerk de data
+      const employeeData = employees.map(employee => {
+        // Bereken contract uren
+        const evenWeekHours = (
+          (employee.hours_monday_even || 0) +
+          (employee.hours_tuesday_even || 0) +
+          (employee.hours_wednesday_even || 0) +
+          (employee.hours_thursday_even || 0) +
+          (employee.hours_friday_even || 0)
+        );
+
+        const oddWeekHours = (
+          (employee.hours_monday_odd || 0) +
+          (employee.hours_tuesday_odd || 0) +
+          (employee.hours_wednesday_odd || 0) +
+          (employee.hours_thursday_odd || 0) +
+          (employee.hours_friday_odd || 0)
+        );
+
+        const weeklyContractHours = Math.round((evenWeekHours + oddWeekHours) / 2);
+        const contractPeriod = weeklyContractHours >= 36 ? 'Fulltime' : 'Parttime';
+
+        // Bereken geschreven uren
+        const employeeHours = hoursData.filter(h => h.employee_id === employee.id);
+        const totalWrittenHours = employeeHours.reduce((sum, h) => sum + h.total_hours, 0);
+
+        // Bereken verlofuren
+        const employeeLeave = leaveData.filter(l => l.employee_id === employee.id);
+        const totalLeaveHours = employeeLeave.reduce((sum, l) => sum + l.hours, 0);
+
+        // Bereken verwachte uren (contract uren - feestdagen)
+        const expectedHours = weeklyContractHours;
+
+        // Bereken totale uren (geschreven + verlof)
+        const totalActualHours = totalWrittenHours + totalLeaveHours;
+
+        // Bereken vakantie-uren (jaarlijks)
+        const holidayHours = weeklyContractHours * 5; // Ongeveer 5 weken vakantie per jaar
+
+        return {
+          id: employee.id,
+          name: employee.name,
+          function: employee.function,
+          contract_period: contractPeriod,
+          contract_hours: weeklyContractHours,
+          holiday_hours: holidayHours,
+          expected_hours: expectedHours,
+          leave_hours: totalLeaveHours,
+          written_hours: totalWrittenHours,
+          actual_hours: totalActualHours,
+          active: employee.active === 1
+        };
+      });
+
+      // Sla de data op in de cache
+      const responseData = { response: employeeData };
+      cacheService.set(cacheKey, responseData);
+
+      // Stuur de response
+      return res.json(responseData);
+    } catch (dbError) {
+      console.error('Database error in employee-stats endpoint:', dbError);
+      throw dbError;
+    }
   } catch (error) {
     console.error('Error fetching employee stats:', error);
     res.status(500).json({
@@ -348,7 +440,7 @@ app.get('/api/employee-month-stats', async (req, res) => {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    // Haal de data op uit de cache of genereer een lege response
+    // Haal de data op uit de cache of haal het op uit de database
     const cacheKey = `employees_month_${year}_${month}`;
     const cachedData = cacheService.get(cacheKey);
 
@@ -358,30 +450,129 @@ app.get('/api/employee-month-stats', async (req, res) => {
     }
 
     console.log(`Cache MISS for key: ${cacheKey}`);
-    console.log(`Fetching employee data for ${year}-${month} (${year}-${String(month).padStart(2, '0')}-01 to ${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()})`);
 
-    // Genereer een lege response met de juiste structuur
-    const employees = [
-      {
-        id: 99622,
-        name: "Koen Straatman",
-        function: "Developer",
-        contract_period: "Fulltime",
-        contract_hours: 40,
-        holiday_hours: 200,
-        expected_hours: 160,
-        leave_hours: 0,
-        written_hours: 0,
-        actual_hours: 0,
-        active: true
-      }
-    ];
+    // Bereken de start- en einddatum van de maand
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const endDate = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
 
-    // Sla de data op in de cache
-    cacheService.set(cacheKey, { response: employees });
+    console.log(`Fetching employee data for ${year}-${month} (${startDate} to ${endDate})`);
 
-    // Stuur de response
-    res.json({ response: employees });
+    try {
+      // Haal medewerkers op uit de database
+      const employees = await db.all(`
+        SELECT e.id, e.firstname, e.lastname,
+               (e.firstname || ' ' || e.lastname) as name,
+               e.function, e.active,
+               c.startdate as contract_startdate,
+               c.enddate as contract_enddate,
+               c.hours_monday_even, c.hours_tuesday_even,
+               c.hours_wednesday_even, c.hours_thursday_even,
+               c.hours_friday_even,
+               c.hours_monday_odd, c.hours_tuesday_odd,
+               c.hours_wednesday_odd, c.hours_thursday_odd,
+               c.hours_friday_odd
+        FROM employees e
+        LEFT JOIN contracts c ON e.id = c.employee_id
+        WHERE e.active = 1
+        ORDER BY e.lastname, e.firstname
+      `);
+
+      // Haal uren op voor deze maand
+      const hoursData = await db.all(`
+        SELECT employee_id, SUM(hours) as total_hours
+        FROM hours
+        WHERE date >= ? AND date <= ?
+        GROUP BY employee_id
+      `, [startDate, endDate]);
+
+      // Haal verlofuren op voor deze maand
+      const leaveData = await db.all(`
+        SELECT ar.employee_id, SUM(arl.amount) as total_hours
+        FROM absence_request_lines arl
+        JOIN absence_requests ar ON arl.absencerequest_id = ar.id
+        WHERE arl.date >= ? AND arl.date <= ?
+          AND (arl.status_id = 2 OR arl.status_id = 1)
+        GROUP BY ar.employee_id
+      `, [startDate, endDate]);
+
+      // Maak een map voor snelle lookup
+      const hoursMap = new Map();
+      hoursData.forEach(entry => {
+        hoursMap.set(entry.employee_id, entry.total_hours);
+      });
+
+      const leaveMap = new Map();
+      leaveData.forEach(entry => {
+        leaveMap.set(entry.employee_id, entry.total_hours);
+      });
+
+      // Bereken het aantal werkdagen in de maand
+      const workingDaysInMonth = getWorkingDaysInMonth(year, month);
+
+      // Verwerk de data
+      const employeeStats = employees.map(emp => {
+        // Bereken contract uren
+        const evenWeekHours = (
+          (emp.hours_monday_even || 0) +
+          (emp.hours_tuesday_even || 0) +
+          (emp.hours_wednesday_even || 0) +
+          (emp.hours_thursday_even || 0) +
+          (emp.hours_friday_even || 0)
+        );
+
+        const oddWeekHours = (
+          (emp.hours_monday_odd || 0) +
+          (emp.hours_tuesday_odd || 0) +
+          (emp.hours_wednesday_odd || 0) +
+          (emp.hours_thursday_odd || 0) +
+          (emp.hours_friday_odd || 0)
+        );
+
+        const averageWeeklyHours = (evenWeekHours + oddWeekHours) / 2;
+        const contractHours = Math.round(averageWeeklyHours);
+        const contractPeriod = contractHours >= 36 ? 'Fulltime' : 'Parttime';
+
+        // Bereken verwachte uren voor de maand
+        const expectedHours = Math.round(averageWeeklyHours / 5 * workingDaysInMonth);
+
+        // Bereken geschreven uren
+        const totalWrittenHours = hoursMap.get(emp.id) || 0;
+
+        // Bereken verlofuren
+        const leaveHours = leaveMap.get(emp.id) || 0;
+
+        // Bereken totale uren (geschreven + verlof)
+        const totalActualHours = totalWrittenHours + leaveHours;
+
+        // Bereken vakantie-uren (jaarlijks)
+        const holidayHours = contractHours * 5; // Ongeveer 5 weken vakantie per jaar
+
+        return {
+          id: emp.id,
+          name: emp.name,
+          function: emp.function,
+          contract_period: contractPeriod,
+          contract_hours: contractHours,
+          holiday_hours: holidayHours,
+          expected_hours: expectedHours,
+          leave_hours: leaveHours,
+          written_hours: totalWrittenHours,
+          actual_hours: totalActualHours,
+          active: emp.active === 1
+        };
+      });
+
+      // Sla de data op in de cache
+      const responseData = { response: employeeStats };
+      cacheService.set(cacheKey, responseData);
+
+      // Stuur de response
+      return res.json(responseData);
+    } catch (dbError) {
+      console.error('Database error in employee-month-stats endpoint:', dbError);
+      throw dbError;
+    }
   } catch (error) {
     console.error('Error fetching employee month stats:', error);
     res.status(500).json({
@@ -393,6 +584,24 @@ app.get('/api/employee-month-stats', async (req, res) => {
     });
   }
 });
+
+// Helper functie om het aantal werkdagen in een maand te berekenen
+function getWorkingDaysInMonth(year: number, month: number): number {
+  const startDate = new Date(year, month - 1, 1);
+  const endDate = new Date(year, month, 0);
+  let workingDays = 0;
+
+  const currentDate = new Date(startDate);
+  while (currentDate <= endDate) {
+    const dayOfWeek = currentDate.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) { // 0 = zondag, 6 = zaterdag
+      workingDays++;
+    }
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+
+  return workingDays;
+}
 
 
 

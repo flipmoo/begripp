@@ -220,3 +220,26 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Verbeterd logging voor synchronisatie operaties
 - **Getest**: Ja, synchronisatie werkt correct en is betrouwbaarder
 - **Status**: ✅ Succesvol
+
+### Wijziging #20 - Refactoren van ProjectsPage component (Datum: 22-04-2025)
+- **Bestanden**:
+  - src/contexts/ProjectsContext.tsx (nieuw)
+  - src/components/projects/ProjectFilters.tsx (nieuw)
+  - src/components/projects/ProjectList.tsx (nieuw)
+  - src/components/projects/ProjectSync.tsx (nieuw)
+  - src/components/projects/ProjectDetails.tsx (nieuw)
+  - src/pages/projects/ProjectsPage.tsx (nieuw)
+  - src/pages/projects/index.tsx
+  - src/utils/formatters.ts (nieuw)
+- **Doel**: Opsplitsen van het grote ProjectsPage component in kleinere, meer gespecialiseerde componenten
+- **Wijzigingen**:
+  - Gemaakt ProjectsContext voor state management
+  - Opgesplitst ProjectsPage in kleinere componenten:
+    - ProjectFilters: Component voor het beheren van filters
+    - ProjectList: Component voor het weergeven van de lijst met projecten
+    - ProjectSync: Component voor het synchroniseren van projecten
+    - ProjectDetails: Component voor het weergeven van project details
+  - Verbeterd type definities en props
+  - Toegevoegd formatteerfuncties in utils/formatters.ts
+- **Getest**: Ja, alle functionaliteit werkt nog steeds correct
+- **Status**: ✅ Succesvol

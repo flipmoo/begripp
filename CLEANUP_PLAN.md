@@ -50,8 +50,8 @@ Voor elke wijziging volgen we deze stappen:
 ## Fase 3: Frontend optimalisatie
 
 ### 3.1 Componenten optimaliseren
-- [ ] Grote componenten opsplitsen
-- [ ] Props typing verbeteren
+- [x] Grote componenten opsplitsen
+- [x] Props typing verbeteren
 - [ ] Component structuur standaardiseren
 
 ### 3.2 State management verbeteren

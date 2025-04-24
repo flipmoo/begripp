@@ -395,7 +395,13 @@ app.get('/api/dashboard/projects/:id', async (req, res) => {
 app.post('/api/sync/projects', async (req, res) => {
   try {
     if (!db) {
-      return res.status(500).json({ error: 'Database not connected' });
+      return res.status(500).json({
+        success: false,
+        error: {
+          message: 'Database not connected',
+          code: 'DATABASE_ERROR'
+        }
+      });
     }
 
     console.log('Legacy route: Syncing projects with Gripp');
@@ -415,8 +421,49 @@ app.post('/api/sync/projects', async (req, res) => {
     console.error('Error syncing projects:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to sync projects',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      error: {
+        message: `Failed to sync projects: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        code: 'SYNC_ERROR'
+      }
+    });
+  }
+});
+
+// Legacy route for syncing all data
+app.post('/api/sync', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({
+        success: false,
+        error: {
+          message: 'Database not connected',
+          code: 'DATABASE_ERROR'
+        }
+      });
+    }
+
+    console.log('Legacy route: Syncing all data with Gripp');
+
+    // Clear all caches
+    cacheService.clearAll();
+
+    // Sync all data (projects, employees, etc.)
+    // In deze dummy implementatie synchroniseren we alleen projecten
+    await optimizedProjectService.syncProjects(db);
+
+    // Return success response
+    res.json({
+      success: true,
+      message: 'All data synced successfully'
+    });
+  } catch (error) {
+    console.error('Error syncing all data:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: `Failed to sync all data: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        code: 'SYNC_ERROR'
+      }
     });
   }
 });
@@ -443,7 +490,12 @@ app.use('/api/cache/clear', (req, res) => {
   res.redirect(307, '/api/v1/cache/clear');
 });
 
-app.use('/api/sync', (req, res) => {
+// Redirect /api/sync to /api/v1/sync
+app.use('/api/sync', (req, res, next) => {
+  // Als het een specifieke endpoint is zoals /api/sync/projects, dan niet redirecten
+  if (req.path !== '/') {
+    return next();
+  }
   res.redirect(307, '/api/v1/sync');
 });
 

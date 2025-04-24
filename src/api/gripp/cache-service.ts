@@ -17,8 +17,8 @@ export const CACHE_KEYS = {
   DASHBOARD_EMPLOYEES: 'dashboard_employees',
   DASHBOARD_ACTIVE_PROJECTS: 'dashboard_active_projects',
   // Define which keys are dashboard-related
-  isDashboardKey: (key: string) => key === 'dashboard_stats' || 
-                                   key === 'dashboard_projects' || 
+  isDashboardKey: (key: string) => key === 'dashboard_stats' ||
+                                   key === 'dashboard_projects' ||
                                    key === 'dashboard_employees' ||
                                    key === 'dashboard_active_projects' ||
                                    key.startsWith('employees_week_') && key.includes('dashboard=true') ||
@@ -81,12 +81,12 @@ export const cacheService = {
    */
   clearEmployeeData: (): void => {
     const keys = cache.keys();
-    const employeeKeys = keys.filter(key => 
-      key.startsWith('employees_week_') || 
+    const employeeKeys = keys.filter(key =>
+      key.startsWith('employees_week_') ||
       key.startsWith('employees_month_') ||
       key === CACHE_KEYS.DASHBOARD_EMPLOYEES
     );
-    
+
     if (employeeKeys.length > 0) {
       cache.del(employeeKeys);
       console.log(`Cleared ${employeeKeys.length} employee cache entries`);
@@ -98,10 +98,10 @@ export const cacheService = {
    */
   clearInvoiceData: (): void => {
     const keys = cache.keys();
-    const invoiceKeys = keys.filter(key => 
+    const invoiceKeys = keys.filter(key =>
       key.startsWith('invoices_')
     );
-    
+
     if (invoiceKeys.length > 0) {
       cache.del(invoiceKeys);
       console.log(`Cleared ${invoiceKeys.length} invoice cache entries`);
@@ -113,15 +113,15 @@ export const cacheService = {
    */
   clearDashboardData: (): void => {
     const keys = cache.keys();
-    const dashboardKeys = keys.filter(key => 
-      key === CACHE_KEYS.DASHBOARD_STATS || 
+    const dashboardKeys = keys.filter(key =>
+      key === CACHE_KEYS.DASHBOARD_STATS ||
       key === CACHE_KEYS.DASHBOARD_PROJECTS ||
       key === CACHE_KEYS.DASHBOARD_EMPLOYEES ||
       key === CACHE_KEYS.DASHBOARD_ACTIVE_PROJECTS ||
       (key.startsWith('employees_week_') && key.includes('dashboard=true')) ||
       (key.startsWith('employees_month_') && key.includes('dashboard=true'))
     );
-    
+
     if (dashboardKeys.length > 0) {
       cache.del(dashboardKeys);
       console.log(`Cleared ${dashboardKeys.length} dashboard cache entries`);
@@ -133,28 +133,28 @@ export const cacheService = {
    */
   clearProjectData: (): void => {
     const keys = cache.keys();
-    const projectKeys = keys.filter(key => 
+    const projectKeys = keys.filter(key =>
       key === CACHE_KEYS.DASHBOARD_PROJECTS ||
       key === CACHE_KEYS.DASHBOARD_ACTIVE_PROJECTS ||
       key.includes('project') ||
       key.includes('Project') ||
       key.startsWith('dashboard_projects_')
     );
-    
+
     if (projectKeys.length > 0) {
       console.log(`Found ${projectKeys.length} project cache entries to clear:`, projectKeys);
       cache.del(projectKeys);
       console.log(`Cleared ${projectKeys.length} project cache entries`);
-      
+
       // Double check if all keys were cleared
-      const remainingKeys = cache.keys().filter(key => 
+      const remainingKeys = cache.keys().filter(key =>
         key === CACHE_KEYS.DASHBOARD_PROJECTS ||
         key === CACHE_KEYS.DASHBOARD_ACTIVE_PROJECTS ||
         key.includes('project') ||
         key.includes('Project') ||
         key.startsWith('dashboard_projects_')
       );
-      
+
       if (remainingKeys.length > 0) {
         console.warn(`Some project keys remain after clearing: ${remainingKeys.length}`, remainingKeys);
         // Force delete any remaining keys one by one
@@ -166,13 +166,13 @@ export const cacheService = {
     } else {
       console.log('No project cache entries found to clear');
     }
-    
+
     // Also clear specific cache keys that might be related
     if (CACHE_KEYS.DASHBOARD_PROJECTS) {
       console.log(`Explicitly clearing DASHBOARD_PROJECTS key: ${CACHE_KEYS.DASHBOARD_PROJECTS}`);
       cache.del(CACHE_KEYS.DASHBOARD_PROJECTS);
     }
-    
+
     if (CACHE_KEYS.DASHBOARD_ACTIVE_PROJECTS) {
       console.log(`Explicitly clearing DASHBOARD_ACTIVE_PROJECTS key: ${CACHE_KEYS.DASHBOARD_ACTIVE_PROJECTS}`);
       cache.del(CACHE_KEYS.DASHBOARD_ACTIVE_PROJECTS);
@@ -186,4 +186,12 @@ export const cacheService = {
   keys: (): string[] => {
     return cache.keys();
   },
-}; 
+
+  /**
+   * Clear all caches
+   */
+  clearAll: (): void => {
+    console.log('Clearing all caches');
+    cache.flushAll();
+  },
+};

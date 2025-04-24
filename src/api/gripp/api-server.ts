@@ -10,13 +10,12 @@
  */
 
 // Express and middleware
-import express, { Express, Request, Response, Router } from 'express';
+import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 
 // Database
 import { getDatabase } from '../../db/database';
-import { Database } from 'sqlite3';
 import { Database as SqliteDatabase } from 'sqlite';
 
 // Utilities
@@ -27,20 +26,11 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 // Date utilities
-import { startOfWeek, setWeek, addDays, format, getDay } from 'date-fns';
 import { getWeekDates } from './utils/date-utils';
 
 // Services
-import { executeRequest } from './client';
-import { grippClient } from './client';
-import { employeeService } from './services/employee';
-import { contractService } from './services/contract';
-import { hourService } from './services/hour';
-import { absenceService, AbsenceRequest } from './services/absence';
-import { projectService, ProjectService } from './services/project';
 import { invoiceService } from './services/invoice';
-import { cacheService, CACHE_KEYS } from './cache-service';
-import { getAbsenceRequests } from './simple-client';
+import { cacheService } from './cache-service';
 
 // Configuration
 import { API_PORT, killProcessOnPort } from '../../config/ports';
@@ -60,17 +50,11 @@ interface GrippRequest {
   method: string;
 
   /** Parameters to pass to the method */
-  params: any[];
+  params: unknown[];
 
   /** Request ID for tracking responses */
   id: number;
 }
-
-/**
- * Promisified version of child_process.exec
- * Used for executing shell commands
- */
-const exec = promisify(execCallback);
 
 /**
  * Load environment variables from .env file
@@ -174,7 +158,7 @@ const endpointHits = new Map<string, number>();
  * Tracks endpoint usage and logs warnings for high traffic endpoints.
  * This helps identify potential performance bottlenecks or abuse.
  */
-const apiMonitor = (req: Request, res: Response, next: Function) => {
+const apiMonitor = (req: Request, res: Response, next: () => void) => {
   const endpoint = req.path;
 
   // Get current hit count or default to 0
@@ -265,7 +249,7 @@ let db: SqliteDatabase | null = null;
  * Server start timestamp
  * Used for uptime calculation in health checks
  */
-let serverStartTime = Date.now();
+const serverStartTime = Date.now();
 
 /**
  * Initialize database connection on server startup
@@ -1861,7 +1845,7 @@ app.get('/api/invoices', async (req, res) => {
     console.log('API server: Fetching invoices');
     const year = req.query.year ? parseInt(req.query.year as string) : 0;
 
-    let filters = [];
+    const filters = [];
 
     // Only apply year filter if a specific year is requested
     if (year > 0) {

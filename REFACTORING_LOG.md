@@ -137,3 +137,16 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Refactoring van complexe functies in kleinere, beter gedocumenteerde functies
 - **Getest**: Ja, Simple API server werkt correct en alle endpoints functioneren zoals verwacht
 - **Status**: ✅ Succesvol (bevestigd door gebruiker)
+
+### Wijziging #12 - Oplossen van linting errors (Datum: 22-04-2025)
+- **Bestanden**: src/api/gripp/api-server.ts, src/api/gripp/simple-api-server.ts
+- **Doel**: Verbeteren van code kwaliteit door linting errors op te lossen
+- **Wijzigingen**:
+  - Ongebruikte imports verwijderd
+  - Ongebruikte variabelen verwijderd of gemarkeerd met eslint-disable comments
+  - Type 'any' vervangen door specifiekere types
+  - Let variabelen die niet opnieuw worden toegewezen veranderd in const
+  - Verbeterde error handling met type checking
+  - Verbeterde code formatting en consistentie
+- **Getest**: Ja, alle functionaliteit werkt nog steeds correct
+- **Status**: ✅ Succesvol (bevestigd door gebruiker)

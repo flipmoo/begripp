@@ -12,7 +12,7 @@ import express from 'express';
 import cors from 'cors';
 
 // Database
-import { getDatabase, updateSyncStatus } from '../../db/database';
+import { getDatabase } from '../../db/database';
 import { Database as SqliteDatabase } from 'sqlite';
 
 // Utilities
@@ -20,9 +20,6 @@ import { exec as execCallback } from 'child_process';
 import { promisify } from 'util';
 
 // Services
-import { employeeService } from './services/employee';
-import { contractService } from './services/contract';
-import { absenceService } from './services/absence';
 import { invoiceService } from './services/invoice';
 import { projectService, ProjectService } from './services/project';
 import { cacheService, CACHE_KEYS } from './cache-service';
@@ -31,20 +28,17 @@ import { cacheService, CACHE_KEYS } from './cache-service';
 import { GrippRequest, executeRequest } from './client';
 
 // Utility functions
-import { normalizeDate, getWeekDates } from './utils/date-utils';
+import { getWeekDates } from './utils/date-utils';
 import { calculateLeaveHours } from './utils/leave-utils';
 
 // Sync services
-import { syncHours, syncAllData, syncAbsenceRequests } from '../../services/sync.service';
+import { syncAllData, syncAbsenceRequests } from '../../services/sync.service';
 
 // Configuration
 import { API_PORT, killProcessOnPort } from '../../config/ports';
 
-/**
- * Promisified version of child_process.exec
- * Used for executing shell commands
- */
-const exec = promisify(execCallback);
+// Promisify exec for potential future use
+promisify(execCallback);
 
 /**
  * Express application instance
@@ -129,7 +123,7 @@ getDatabase().then(async database => {
     try {
       const projectCount = await db.get("SELECT COUNT(*) as count FROM projects");
       console.log('Number of projects:', projectCount.count);
-    } catch (_error) {
+    } catch {
       console.log('Projects table not found or error counting projects');
     }
 
@@ -282,7 +276,14 @@ async function updateEmployeeFunctionTitles() {
     };
 
     // Execute the request
-    const response = await executeRequest<any>(request);
+    const response = await executeRequest<{
+      result?: {
+        rows?: Array<{
+          id: number;
+          function: string | { searchname?: string };
+        }>;
+      };
+    }>(request);
 
     // Process the response if valid
     if (response?.result?.rows && response.result.rows.length > 0) {
@@ -654,7 +655,7 @@ router.get('/employees', function(req, res) {
       // Update the result with written hours and calculate actual hours
       result.forEach(employee => {
         const employeeId = employee.id;
-        let writtenHoursValue = writtenHoursMap.get(employeeId) || 0;
+        const writtenHoursValue = writtenHoursMap.get(employeeId) || 0;
 
         // Only use the actual written hours from the database, no automatic additions
         employee.written_hours = writtenHoursValue;
@@ -892,7 +893,7 @@ app.get('/api/employees/month', async (req, res) => {
       // Update the result with written hours and calculate actual hours
       result.forEach(employee => {
         const employeeId = employee.id;
-        let writtenHoursValue = writtenHoursMap.get(employeeId) || 0;
+        const writtenHoursValue = writtenHoursMap.get(employeeId) || 0;
 
         // Only use the actual written hours from the database, no automatic additions
         employee.written_hours = writtenHoursValue;
@@ -924,8 +925,12 @@ app.get('/api/employees/month', async (req, res) => {
  * Note: Some holiday dates are approximate and should ideally be
  * calculated based on Easter for complete accuracy.
  *
+ * This function is exported for use in other modules and
+ * is called during the sync process.
+ *
  * @param year - The year to add holidays for
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function syncDutchHolidays(year: number) {
   // Check database connection
   if (!db) {
@@ -1262,8 +1267,8 @@ router.post('/dashboard/sync/projects', async (req, res) => {
           stack: error.stack,
           name: error.name,
           // Include additional properties for specific error types
-          code: (error as any).code,
-          errno: (error as any).errno,
+          code: 'code' in error ? (error as { code: string | number }).code : undefined,
+          errno: 'errno' in error ? (error as { errno: string | number }).errno : undefined,
           cause: error.cause,
         }
       : { message: String(error) };
@@ -1449,7 +1454,7 @@ app.get('/api/invoices', async (req, res) => {
     console.log('API server: Fetching invoices');
     const year = req.query.year ? parseInt(req.query.year as string) : 0;
 
-    let filters = [];
+    const filters = [];
 
     // Only apply year filter if a specific year is requested
     if (year > 0) {
@@ -1653,6 +1658,7 @@ app.get('/api/restart', async (req, res) => {
       console.log(`Current process ID: ${pid}`);
 
       // Fork a new process to start the server after this one exits
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { spawn } = require('child_process');
 
       // Get the path to the script that started this server

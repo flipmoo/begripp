@@ -26,8 +26,8 @@ Voor elke wijziging volgen we deze stappen:
 - [x] src/pages/invoices/index.tsx
 
 ### 1.2 Verbeteren van code formatting en linting
-- [ ] Consistente code formatting toepassen
-- [ ] Linting errors oplossen
+- [x] Consistente code formatting toepassen
+- [x] Linting errors oplossen
 - [ ] TypeScript strict mode verbeteren
 
 ### 1.3 Verwijderen van ongebruikte code

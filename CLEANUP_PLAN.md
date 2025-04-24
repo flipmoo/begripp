@@ -5,7 +5,7 @@ Dit document beschrijft het plan voor het opschonen en optimaliseren van de code
 ## Fase 1: Codebase structuur verbeteren
 
 ### 1.1 Opschonen van imports en exports
-- [ ] src/App.tsx
+- [x] src/App.tsx
 - [ ] src/main.tsx
 - [ ] src/api/gripp/api-server.ts
 - [ ] src/api/gripp/simple-api-server.ts

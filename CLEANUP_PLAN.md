@@ -16,7 +16,7 @@ Voor elke wijziging volgen we deze stappen:
 ### 1.1 Opschonen van imports en exports
 - [x] src/App.tsx
 - [x] src/main.tsx
-- [ ] src/api/gripp/api-server.ts
+- [x] src/api/gripp/api-server.ts
 - [ ] src/api/gripp/simple-api-server.ts
 - [x] src/services/api.ts
 - [x] src/pages/dashboard/index.tsx

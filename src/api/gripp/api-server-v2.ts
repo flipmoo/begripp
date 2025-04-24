@@ -36,6 +36,7 @@ import { API_PORT, killProcessOnPort } from '../../config/ports';
 // Services
 import { projectService } from './services/project';
 import { optimizedProjectService } from './services/optimized-project';
+import { hourService } from './services/hour';
 import { cacheService } from './cache-service';
 
 // Define __dirname equivalent for ESM
@@ -248,6 +249,74 @@ app.get('/api/dashboard/projects/active', async (req, res) => {
   } catch (error) {
     console.error('Error fetching active projects:', error);
     res.status(500).json({ error: 'Failed to fetch active projects' });
+  }
+});
+
+// Employee stats endpoint
+app.get('/api/employee-stats', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ error: 'Database not connected' });
+    }
+
+    const year = parseInt(req.query.year as string) || new Date().getFullYear();
+    const week = parseInt(req.query.week as string) || new Date().getDay();
+    const isDashboard = req.query.dashboard === 'true';
+
+    console.log(`Legacy route: Fetching employee stats for year=${year}, week=${week}, isDashboard=${isDashboard}`);
+
+    // Zet cache-control headers om browser caching te voorkomen
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    // Haal employee stats op uit de database
+    const employees = await hourService.getEmployeeStatsByWeek(db, year, week);
+    console.log(`Returning ${employees.length} employees via legacy route`);
+    res.json({ response: employees });
+  } catch (error) {
+    console.error('Error fetching employee stats:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: `Error fetching employee stats: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        code: 'INTERNAL_SERVER_ERROR'
+      }
+    });
+  }
+});
+
+// Employee month stats endpoint
+app.get('/api/employee-month-stats', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ error: 'Database not connected' });
+    }
+
+    const year = parseInt(req.query.year as string) || new Date().getFullYear();
+    const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
+    const isDashboard = req.query.dashboard === 'true';
+
+    console.log(`Legacy route: Fetching employee month stats for year=${year}, month=${month}, isDashboard=${isDashboard}`);
+
+    // Zet cache-control headers om browser caching te voorkomen
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    // Haal employee stats op uit de database
+    const employees = await hourService.getEmployeeStatsByMonth(db, year, month);
+    console.log(`Returning ${employees.length} employees via legacy route`);
+    res.json({ response: employees });
+  } catch (error) {
+    console.error('Error fetching employee month stats:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: `Error fetching employee month stats: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        code: 'INTERNAL_SERVER_ERROR'
+      }
+    });
   }
 });
 

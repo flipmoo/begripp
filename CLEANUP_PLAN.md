@@ -38,9 +38,9 @@ Voor elke wijziging volgen we deze stappen:
 ## Fase 2: Backend optimalisatie
 
 ### 2.1 API structuur verbeteren
-- [ ] Consistente API structuur implementeren
-- [ ] Error handling verbeteren
-- [ ] Logging verbeteren
+- [x] Consistente API structuur implementeren
+- [x] Error handling verbeteren
+- [x] Logging verbeteren
 
 ### 2.2 Database interactie optimaliseren
 - [x] Database queries optimaliseren

@@ -19,6 +19,8 @@
     "restart-api": "tsx src/scripts/restart-api.ts",
     "api": "npm run db:init && tsx src/api/gripp/api-server.ts",
     "api:debug": "npm run db:init && tsx --inspect src/api/gripp/api-server.ts",
+    "api:v2": "npm run db:init && tsx src/scripts/start-api-v2.ts",
+    "api:v2:debug": "npm run db:init && tsx --inspect src/scripts/start-api-v2.ts",
     "simple-api": "tsx src/api/gripp/simple-api-server.ts",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",

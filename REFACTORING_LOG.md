@@ -325,3 +325,33 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Gemaakt FAQ met veelgestelde vragen
 - **Getest**: N/A
 - **Status**: ✅ Succesvol
+
+### Wijziging #26 - Consistente API structuur implementeren (Datum: 22-04-2025)
+- **Bestanden**:
+  - src/api/routes/index.ts (nieuw)
+  - src/api/routes/projects.ts (nieuw)
+  - src/api/routes/employees.ts (nieuw)
+  - src/api/routes/invoices.ts (nieuw)
+  - src/api/routes/sync.ts (nieuw)
+  - src/api/routes/health.ts (nieuw)
+  - src/api/routes/cache.ts (nieuw)
+  - src/api/middleware/error-handler.ts (nieuw)
+  - src/api/middleware/database.ts (nieuw)
+  - src/api/utils/response.ts (nieuw)
+  - src/api/gripp/api-server-v2.ts (nieuw)
+  - src/scripts/start-api-v2.ts (nieuw)
+  - docs/API_STRUCTURE.md (nieuw)
+  - package.json (gewijzigd)
+- **Doel**: Implementeren van een consistente API structuur met versioning en gestandaardiseerde response formaten
+- **Wijzigingen**:
+  - Gemaakt nieuwe API routes met consistente structuur
+  - Geïmplementeerd versioning met /api/v1 prefix
+  - Gestandaardiseerd response formaat voor alle endpoints
+  - Gemaakt error handling middleware
+  - Gemaakt database middleware
+  - Gemaakt nieuwe API server implementatie
+  - Toegevoegd scripts voor het starten van de nieuwe API server
+  - Gemaakt documentatie voor de nieuwe API structuur
+  - Behouden backward compatibility met oude API endpoints
+- **Getest**: Ja, de nieuwe API server start succesvol en de oude functionaliteit blijft werken
+- **Status**: ✅ Succesvol

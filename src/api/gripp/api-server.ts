@@ -30,6 +30,7 @@ import { getWeekDates } from '../../utils/date-utils';
 
 // Services
 import { invoiceService } from './services/invoice';
+import { projectService } from './services/project';
 import { cacheService } from './cache-service';
 
 // Configuration

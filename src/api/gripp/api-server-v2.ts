@@ -331,7 +331,7 @@ app.get('/api/employee-stats', async (req, res) => {
 
       // Haal uren op voor deze week
       const hoursData = await db.all(`
-        SELECT employee_id, date, SUM(hours) as total_hours
+        SELECT employee_id, date, SUM(amount) as total_hours
         FROM hours
         WHERE date >= ? AND date <= ?
         GROUP BY employee_id, date
@@ -480,7 +480,7 @@ app.get('/api/employee-month-stats', async (req, res) => {
 
       // Haal uren op voor deze maand
       const hoursData = await db.all(`
-        SELECT employee_id, SUM(hours) as total_hours
+        SELECT employee_id, SUM(amount) as total_hours
         FROM hours
         WHERE date >= ? AND date <= ?
         GROUP BY employee_id

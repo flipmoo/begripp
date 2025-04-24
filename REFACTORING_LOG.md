@@ -150,3 +150,14 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Verbeterde code formatting en consistentie
 - **Getest**: Ja, alle functionaliteit werkt nog steeds correct
 - **Status**: ✅ Succesvol (bevestigd door gebruiker)
+
+### Wijziging #13 - Identificeren van ongebruikte code (Datum: 22-04-2025)
+- **Bestanden**: Diverse componenten en utilities
+- **Doel**: Verbeteren van code kwaliteit door ongebruikte code te identificeren
+- **Wijzigingen**:
+  - Potentieel ongebruikte componenten geïdentificeerd
+  - Gecontroleerd of componenten en hooks worden gebruikt
+  - Besloten om componenten te behouden vanwege complexe afhankelijkheden
+  - Gecontroleerd of utility functies worden gebruikt
+- **Getest**: Ja, alle functionaliteit werkt nog steeds correct
+- **Status**: ✅ Succesvol (bevestigd door gebruiker)

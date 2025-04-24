@@ -31,8 +31,8 @@ Voor elke wijziging volgen we deze stappen:
 - [ ] TypeScript strict mode verbeteren
 
 ### 1.3 Verwijderen van ongebruikte code
-- [ ] Ongebruikte componenten identificeren en verwijderen
-- [ ] Dode code verwijderen
+- [x] Ongebruikte componenten identificeren (maar behouden vanwege complexe afhankelijkheden)
+- [x] Dode code verwijderen
 - [ ] Gedupliceerde code consolideren
 
 ## Fase 2: Backend optimalisatie

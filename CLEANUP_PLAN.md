@@ -4,6 +4,15 @@ Dit document beschrijft het plan voor het opschonen en optimaliseren van de code
 
 ## Fase 1: Codebase structuur verbeteren
 
+### Werkwijze
+Voor elke wijziging volgen we deze stappen:
+1. Analyseer het bestand en identificeer verbeterpunten
+2. Maak een gedetailleerd plan voor de wijzigingen
+3. Voer de wijzigingen uit
+4. Start de applicatie en test de functionaliteit
+5. Commit de wijzigingen
+6. Update het refactoring logboek en cleanup plan
+
 ### 1.1 Opschonen van imports en exports
 - [x] src/App.tsx
 - [x] src/main.tsx

@@ -1,8 +1,8 @@
 /**
- * Team Dashboard Page
+ * Dashboard Page
  *
- * This page displays an overview of team performance, project statuses,
- * employee availability, and other key metrics for project management.
+ * This page displays an overview of project statuses, employee availability,
+ * and other key metrics for project management.
  */
 
 // React and hooks
@@ -24,16 +24,19 @@ import { EmployeeWithStats } from '../../services/employee.service';
 
 // API and Services
 import { fetchActiveProjects, syncProjects } from '../../api/dashboard/grippApi';
-import { dbService } from '../../api/dashboard/dbService';
+import { apiService } from '../../api/dashboard/apiService';
 import { getEmployeeStats, clearEmployeeCache } from '../../services/employee.service';
 import { forceRefreshCache } from '../../api/dashboard/utils';
 
 // Dashboard Components
-import OverBudgetProjects from '../../components/dashboard/OverBudgetProjects';
-import IncompleteHoursFilter, { IncompleteHoursFilterRef } from '../../components/dashboard/IncompleteHoursFilter';
-import DashboardStats from '../../components/dashboard/DashboardStats';
+import UnifiedOverBudgetProjects from '../../components/dashboard/UnifiedOverBudgetProjects';
+import UnifiedOverBudgetProjectLines from '../../components/dashboard/UnifiedOverBudgetProjectLines';
+import UnifiedIncompleteHoursFilter, { UnifiedIncompleteHoursFilterRef } from '../../components/dashboard/UnifiedIncompleteHoursFilter';
+import UnifiedDashboardStats from '../../components/dashboard/UnifiedDashboardStats';
 import EmployeeAvailability from '../../components/dashboard/EmployeeAvailability';
 import ProjectDeadlines from '../../components/dashboard/ProjectDeadlines';
+import InvoiceSummary from '../../components/dashboard/InvoiceSummary';
+import InvoiceTable from '../../components/dashboard/InvoiceTable';
 
 // Stores
 import { useEmployeeStore } from '../../stores/employees';
@@ -44,7 +47,7 @@ import { useProjectsStore } from '../../stores/projects';
 import { formatDate } from '../../utils/date-utils';
 
 /**
- * TeamDashboardPage Component
+ * DashboardPage Component
  *
  * Main dashboard page that displays project statistics, employee data,
  * and provides tools for project management and monitoring.
@@ -58,7 +61,7 @@ import { formatDate } from '../../utils/date-utils';
  * - Automatic data refresh
  * - Manual synchronization with Gripp API
  */
-const TeamDashboardPage: React.FC = () => {
+const DashboardPage: React.FC = () => {
   // Hooks
   const { toast } = useToast();
 
@@ -74,7 +77,7 @@ const TeamDashboardPage: React.FC = () => {
   const [hasShownToast, setHasShownToast] = useState(false);
 
   // Refs
-  const incompleteHoursFilterRef = useRef<IncompleteHoursFilterRef>(null);
+  const unifiedIncompleteHoursFilterRef = useRef<UnifiedIncompleteHoursFilterRef>(null);
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   /**
@@ -92,69 +95,13 @@ const TeamDashboardPage: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      // Force refresh path - clear cache and fetch from API
-      if (forceRefresh) {
-        console.log('Force refresh requested, clearing IndexedDB cache and fetching from API');
-
-        try {
-          // Clear the IndexedDB projects cache
-          await dbService.clearProjects();
-        } catch (clearError) {
-          console.error('Error clearing IndexedDB cache:', clearError);
-        }
-
-        // Fetch fresh data from API with timestamp for cache busting
-        const timestamp = new Date().getTime();
-        const activeProjects = await fetchActiveProjects(`?refresh=true&_t=${timestamp}`);
-
-        if (activeProjects && activeProjects.length > 0) {
-          setProjects(activeProjects);
-          setLastRefresh(new Date());
-
-          // Save projects to IndexedDB for future use
-          try {
-            await dbService.saveProjects(activeProjects);
-          } catch (dbError) {
-            console.error('Error saving projects to IndexedDB:', dbError);
-          }
-        } else {
-          setError('Geen projecten gevonden');
-        }
-
-        setLoading(false);
-        return;
-      }
-
-      // Normal path - try cache first
-      try {
-        // Attempt to load from IndexedDB cache
-        const cachedProjects = await dbService.getAllProjects();
-        if (cachedProjects && cachedProjects.length > 0) {
-          console.log(`Loaded ${cachedProjects.length} projects from cache`);
-          setProjects(cachedProjects);
-          setLoading(false);
-          return;
-        }
-      } catch (dbError) {
-        console.error('Error loading projects from IndexedDB:', dbError);
-      }
-
-      // Cache miss - fetch from API
-      console.log('No cached projects found, fetching from API');
-      const timestamp = new Date().getTime();
-      const activeProjects = await fetchActiveProjects(`?_t=${timestamp}`);
+      console.log('Loading projects from API...');
+      const activeProjects = await apiService.getAllProjects();
 
       if (activeProjects && activeProjects.length > 0) {
-        console.log(`Fetched ${activeProjects.length} projects from API`);
+        console.log(`Loaded ${activeProjects.length} projects from API`);
         setProjects(activeProjects);
         setLastRefresh(new Date());
-
-        // Save to cache for future use
-        try {
-          await dbService.saveProjects(activeProjects);
-        } catch (dbError) {
-          console.error('Error saving projects to IndexedDB:', dbError);
-        }
       } else {
         setError('Geen projecten gevonden');
       }
@@ -182,8 +129,14 @@ const TeamDashboardPage: React.FC = () => {
       const now = new Date();
       const currentYear = now.getFullYear();
 
-      // Calculate current week number
-      const currentWeek = Math.floor(now.getDate() / 7) + 1;
+      // Calculate current week number using the proper function
+      // Instead of the incorrect calculation: Math.floor(now.getDate() / 7) + 1
+      const getWeekNumber = (date: Date): number => {
+        const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+        const pastDaysOfYear = (date.getTime() - firstDayOfYear.getTime()) / 86400000;
+        return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+      };
+      const currentWeek = getWeekNumber(now);
 
       // Clear employee cache if force refresh is requested
       if (forceRefresh) {
@@ -222,9 +175,9 @@ const TeamDashboardPage: React.FC = () => {
       await loadProjects(true);
       await loadEmployees(true);
 
-      // Refresh the incomplete hours filter component
-      if (incompleteHoursFilterRef.current) {
-        incompleteHoursFilterRef.current.refreshData();
+      // Refresh the unified incomplete hours filter component
+      if (unifiedIncompleteHoursFilterRef.current) {
+        unifiedIncompleteHoursFilterRef.current.refreshData();
       }
 
       // Update last refresh timestamp
@@ -250,7 +203,7 @@ const TeamDashboardPage: React.FC = () => {
         });
       }
     }
-  }, [loadProjects, loadEmployees, toast]);
+  }, [loadProjects, loadEmployees, toast, unifiedIncompleteHoursFilterRef]);
 
   /**
    * Load all dashboard data with force refresh
@@ -265,9 +218,9 @@ const TeamDashboardPage: React.FC = () => {
       await loadProjects(true);
       await loadEmployees(true);
 
-      // Refresh the incomplete hours filter component
-      if (incompleteHoursFilterRef.current) {
-        incompleteHoursFilterRef.current.refreshData();
+      // Refresh the unified incomplete hours filter component
+      if (unifiedIncompleteHoursFilterRef.current) {
+        unifiedIncompleteHoursFilterRef.current.refreshData();
       }
 
       // Update last refresh timestamp
@@ -275,7 +228,7 @@ const TeamDashboardPage: React.FC = () => {
     } catch (error) {
       console.error('Error in loadDashboardData:', error);
     }
-  }, [loadProjects, loadEmployees]);
+  }, [loadProjects, loadEmployees, unifiedIncompleteHoursFilterRef]);
 
   /**
    * Listen for refresh events from child components
@@ -351,85 +304,66 @@ const TeamDashboardPage: React.FC = () => {
       // Show initial toast notification
       toast({
         title: "Synchronisatie gestart",
-        description: "Projecten worden gesynchroniseerd...",
+        description: "Data wordt gesynchroniseerd met Gripp...",
       });
 
-      // Step 1: Call the sync API endpoint to trigger server-side sync
-      const result = await syncProjects();
-      console.log('Sync result:', result);
+      // Step 1: Call the sync API endpoint to trigger server-side sync for all data
+      console.log('Syncing all data from Gripp API...');
 
-      // Step 2: Clear local cache to ensure fresh data
-      try {
-        console.log('Clearing IndexedDB cache...');
-        await dbService.clearProjects();
-        console.log('IndexedDB cache cleared');
-      } catch (clearError) {
-        console.error('Error clearing IndexedDB cache:', clearError);
+      // Call the sync endpoint to sync all data from Gripp
+      const response = await fetch('/api/v1/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          incremental: false,
+          force: true
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Sync failed with status: ${response.status}`);
       }
 
-      // Step 3: Fetch and save fresh data
-      try {
-        console.log('Fetching fresh projects from API...');
-        const timestamp = new Date().getTime();
-        const freshProjects = await fetchActiveProjects(`?refresh=true&_t=${timestamp}`);
+      const syncData = await response.json();
+      console.log('Sync result:', syncData);
 
-        if (freshProjects && freshProjects.length > 0) {
-          console.log(`Retrieved ${freshProjects.length} projects after sync`);
+      if (!syncData.success) {
+        throw new Error('Synchronisatie mislukt');
+      }
 
-          // Save to IndexedDB for future use
-          await dbService.saveProjects(freshProjects);
-          console.log('Projects saved to IndexedDB');
+      // Step 2: Fetch fresh data
+      console.log('Fetching fresh projects from API...');
+      const freshProjects = await apiService.getAllProjects();
 
-          // Wait a short time to ensure database operations are complete
-          await new Promise(resolve => setTimeout(resolve, 800));
+      if (freshProjects && freshProjects.length > 0) {
+        console.log(`Retrieved ${freshProjects.length} projects after sync`);
 
-          // Update state with fresh data (create new array to ensure re-render)
-          console.log('Updating state with fresh projects');
-          setProjects([...freshProjects]);
-          setLastRefresh(new Date());
+        // Update state with fresh data (create new array to ensure re-render)
+        console.log('Updating state with fresh projects');
+        setProjects([...freshProjects]);
+        setLastRefresh(new Date());
 
-          // Force refresh cache for other components
-          await forceRefreshCache();
+        // Force refresh cache for other components
+        await forceRefreshCache();
 
-          // Show success notification
-          toast({
-            title: "Synchronisatie voltooid",
-            description: `${freshProjects.length} projecten zijn bijgewerkt.`,
-          });
-        } else {
-          // Handle case where no projects were returned
-          console.warn('No projects received after sync');
-          toast({
-            title: "Synchronisatie waarschuwing",
-            description: "Er zijn geen projecten ontvangen na synchronisatie.",
-            variant: "destructive",
-          });
-        }
-      } catch (dbError) {
-        console.error('Error updating projects after sync:', dbError);
-
-        // Fallback: Try direct API fetch without caching
-        try {
-          console.log('Attempting fallback refresh...');
-          const timestamp = new Date().getTime();
-          const fallbackProjects = await fetchActiveProjects(`?_t=${timestamp}`);
-          if (fallbackProjects && fallbackProjects.length > 0) {
-            setProjects([...fallbackProjects]);
-            console.log('State updated with fallback projects');
-          }
-        } catch (fallbackError) {
-          console.error('Fallback refresh failed:', fallbackError);
-        }
-
-        // Show error notification
+        // Show success notification
         toast({
-          title: "Synchronisatie fout",
-          description: "Er is een fout opgetreden bij het bijwerken van de projecten.",
+          title: "Synchronisatie voltooid",
+          description: "Alle data is gesynchroniseerd met Gripp.",
+        });
+      } else {
+        // Handle case where no projects were returned
+        console.warn('No projects received after sync');
+        toast({
+          title: "Synchronisatie waarschuwing",
+          description: "Er zijn geen projecten ontvangen na synchronisatie.",
           variant: "destructive",
         });
       }
 
-      // Step 4: Refresh other dashboard data
+      // Step 3: Refresh other dashboard data
       loadDashboardData();
     } catch (error) {
       // Handle any unexpected errors in the sync process
@@ -442,8 +376,8 @@ const TeamDashboardPage: React.FC = () => {
 
       // Emergency fallback: Try one more time to update projects
       try {
-        const timestamp = new Date().getTime();
-        const emergencyProjects = await fetchActiveProjects(`?_t=${timestamp}`);
+        console.log('Attempting emergency refresh...');
+        const emergencyProjects = await apiService.getAllProjects();
         if (emergencyProjects && emergencyProjects.length > 0) {
           setProjects([...emergencyProjects]);
         }
@@ -577,22 +511,22 @@ const TeamDashboardPage: React.FC = () => {
       {isDataMissing && (
         <div className="bg-amber-100 border-l-4 border-amber-500 text-amber-700 p-4 mb-6 rounded-md" role="alert">
           <p className="font-bold">API Configuration Notice</p>
-          <p>This application requires the API server to run on port 3002 and the frontend on port 3000. If you see missing data, please ensure both servers are running on the correct ports.</p>
-          <p className="mt-2 text-sm">Use <code className="bg-amber-200 px-1 rounded">npm run kill-api</code> followed by <code className="bg-amber-200 px-1 rounded">npm run api</code> to restart the API server correctly.</p>
+          <p>This application requires the API server to run on port 3004 and the frontend on port 3000. If you see missing data, please ensure both servers are running on the correct ports.</p>
+          <p className="mt-2 text-sm">Use <code className="bg-amber-200 px-1 rounded">npm run simple-api</code> to restart the API server correctly.</p>
         </div>
       )}
 
       <div className="space-y-6">
         {/* Header with title and sync button */}
         <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold">Team Dashboard</h1>
+          <h1 className="text-3xl font-bold">Dashboard</h1>
           <Button
             onClick={handleSync}
             className="flex items-center gap-2"
             disabled={syncing}
           >
             <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Synchroniseren...' : 'Synchroniseren'}
+            {syncing ? 'Synchroniseren...' : 'Synchroniseren met Gripp'}
           </Button>
         </div>
 
@@ -611,13 +545,25 @@ const TeamDashboardPage: React.FC = () => {
           </div>
         ) : (
           <>
-            {/* Main dashboard statistics */}
-            <DashboardStats projects={projects} employees={employees} />
+            {/* Dashboard statistics */}
+            <div className="mb-6">
+              <h3 className="text-lg font-medium mb-3">Dashboard Statistieken</h3>
+              <UnifiedDashboardStats />
+            </div>
 
             {/* Project monitoring components */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <OverBudgetProjects projects={projects} />
-              <IncompleteHoursFilter ref={incompleteHoursFilterRef} />
+            <div className="mb-6">
+              <h3 className="text-lg font-medium mb-3">Project Monitoring</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <UnifiedOverBudgetProjects />
+                <UnifiedOverBudgetProjectLines />
+                <UnifiedIncompleteHoursFilter ref={unifiedIncompleteHoursFilterRef} />
+              </div>
+            </div>
+
+            {/* Invoice Summary */}
+            <div className="mt-6 mb-6">
+              <InvoiceSummary />
             </div>
 
             {/* Deadlines by month visualization */}
@@ -652,4 +598,4 @@ const TeamDashboardPage: React.FC = () => {
   );
 };
 
-export default TeamDashboardPage;
+export default DashboardPage;

@@ -14,9 +14,9 @@ export async function initializeDatabase() {
 
     // Check if database file exists
     const dbPath = join(__dirname, 'database.sqlite');
-    
+
     console.log(`Database path: ${dbPath}`);
-    
+
     // Controleer bestandstoegang en permissies
     try {
         if (existsSync(dbPath)) {
@@ -34,12 +34,12 @@ export async function initializeDatabase() {
                 // Create an empty file
                 writeFileSync(dbPath, '', { flag: 'w' });
                 console.log(`Database file created successfully`);
-                
+
                 // Verify the file was created
                 if (!existsSync(dbPath)) {
                     throw new Error('Failed to create database file: File not found after creation');
                 }
-                
+
                 // Verify permissions
                 accessSync(dbPath, constants.R_OK | constants.W_OK);
                 console.log(`New database file is readable and writable`);
@@ -57,22 +57,22 @@ export async function initializeDatabase() {
     try {
         // Open database connection
         console.log(`Opening database connection to ${dbPath}...`);
-        
+
         // Enable verbose logging for SQLite
         sqlite3.verbose();
-        
+
         db = await open({
             filename: dbPath,
             driver: sqlite3.Database
         });
-        
+
         console.log('Database connection opened successfully');
 
         // Read and execute schema
         try {
             const schemaPath = join(__dirname, 'schema.sql');
             console.log(`Looking for schema at ${schemaPath}`);
-            
+
             if (existsSync(schemaPath)) {
                 console.log('Schema file found, loading...');
                 const schema = readFileSync(schemaPath, 'utf-8');
@@ -116,8 +116,8 @@ export async function initializeDatabase() {
             value TEXT
           )
         `);
-        
-        // Create sync_status table for tracking synchronization 
+
+        // Create sync_status table for tracking synchronization
         await db.exec(`
           CREATE TABLE IF NOT EXISTS sync_status (
             endpoint TEXT PRIMARY KEY,
@@ -127,10 +127,20 @@ export async function initializeDatabase() {
           )
         `);
 
+        // Create cache table for unified caching
+        await db.exec(`
+          CREATE TABLE IF NOT EXISTS cache (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            timestamp INTEGER,
+            expires INTEGER
+          )
+        `);
+
         return db;
     } catch (err) {
         console.error('Database initialization error:', err);
-        
+
         // Gedetailleerde error informatie
         if (err instanceof Error) {
             console.error('Database error details:', {
@@ -141,7 +151,7 @@ export async function initializeDatabase() {
                 errno: (err as any).errno
             });
         }
-        
+
         throw err;
     }
 }
@@ -183,4 +193,4 @@ export async function closeDatabase() {
         await db.close();
         db = null;
     }
-} 
+}

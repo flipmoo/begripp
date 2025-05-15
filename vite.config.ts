@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { FRONTEND_PORT, API_PORT, killProcessOnPort } from './src/config/ports';
+import { FRONTEND_PORT, API_PORT } from './src/config/ports';
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -9,33 +9,53 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Mock Node.js modules
+      'sqlite3': path.resolve(__dirname, './src/mocks/sqlite3.ts'),
+      'sqlite': path.resolve(__dirname, './src/mocks/sqlite.ts'),
+      'better-sqlite3': path.resolve(__dirname, './src/mocks/better-sqlite3.ts'),
+      // Mock Node.js core modules
+      'fs': path.resolve(__dirname, './src/mocks/fs.ts'),
+      'path': path.resolve(__dirname, './src/mocks/path.ts'),
+      'url': path.resolve(__dirname, './src/mocks/url.ts'),
+      // Mock specific sqlite modules
+      '/node_modules/sqlite/build/Database.js': path.resolve(__dirname, './src/mocks/Database.js'),
+      '/node_modules/sqlite/build/Statement.js': path.resolve(__dirname, './src/mocks/Statement.js'),
     },
   },
-  server: {
-    host: '0.0.0.0', // Beschikbaar maken op alle netwerkinterfaces
-    port: FRONTEND_PORT,
-    strictPort: true, // Don't try alternative ports
-    onServerStart: async (server) => {
-      server.httpServer?.on('error', async (e) => {
-        if (e.code === 'EADDRINUSE') {
-          console.error(`Port ${FRONTEND_PORT} is in use. Attempting to kill the process...`);
-          const killed = await killProcessOnPort(FRONTEND_PORT);
-          if (killed) {
-            console.log(`Successfully killed process on port ${FRONTEND_PORT}. Restarting server...`);
-            // The server will restart automatically when strictPort is true
-          } else {
-            console.error(`Failed to kill process on port ${FRONTEND_PORT}. Please kill it manually.`);
-          }
-        }
-      });
+  optimizeDeps: {
+    exclude: ['sqlite3', 'better-sqlite3', 'sqlite', 'fs', 'path', 'url'],
+  },
+  build: {
+    commonjsOptions: {
+      esmExternals: true,
     },
+  },
+  define: {
+    // Polyfill for Node.js process
+    'process.env': {},
+  },
+  server: {
+    host: true, // Luister op alle beschikbare netwerkinterfaces
+    port: FRONTEND_PORT, // Gebruik geconfigureerde poort voor de frontend
+    strictPort: true, // Gebruik altijd de geconfigureerde poort
     proxy: {
       '/api': {
         target: `http://localhost:${API_PORT}`,
         changeOrigin: true,
         secure: false,
-        rewrite: (path) => path
+        rewrite: (path) => path,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('Proxy error:', err);
+          });
+          proxy.on('proxyReq', (_proxyReq, req, _res) => {
+            console.log('Sending Request:', req.method, req.url);
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            console.log('Received Response:', proxyRes.statusCode, req.url);
+          });
+        }
       },
     },
   },
-}); 
+});

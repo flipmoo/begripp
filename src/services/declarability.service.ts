@@ -27,18 +27,18 @@ export async function getDeclarabilityByPeriod(
 ): Promise<DeclarabilityPeriod | null> {
   try {
     console.log(`Fetching declarability data for ${period} ${periodNumber} of ${year}`);
-    
+
     // Format the query based on period type
     const periodQuery = period === 'week' ? `week=${periodNumber}` : `month=${periodNumber}`;
-    const url = `${API_BASE}/dashboard/declarability?year=${year}&${periodQuery}`;
-    
+    const url = `${API_BASE}/v1/dashboard/declarability?year=${year}&${periodQuery}`;
+
     const response = await fetchWithRetry(url);
-    
+
     if (!response.ok) {
       console.error(`API error (${response.status}): Failed to fetch declarability data`);
       return null;
     }
-    
+
     return await response.json();
   } catch (error) {
     console.error('Error fetching declarability data:', error);
@@ -51,16 +51,27 @@ export async function getDeclarabilityByPeriod(
  */
 export async function getEmployeeDepartments(): Promise<{ id: number, name: string, employeeCount: number }[]> {
   try {
-    const response = await fetchWithRetry(`${API_BASE}/dashboard/departments`);
-    
+    const response = await fetchWithRetry(`${API_BASE}/v1/employees/departments`);
+
     if (!response.ok) {
       console.error(`API error (${response.status}): Failed to fetch department data`);
       return [];
     }
-    
-    return await response.json();
+
+    const data = await response.json();
+
+    // Check if the response has the expected structure (unified data structure)
+    if (data.success && data.data) {
+      console.log(`Received department data from unified API`);
+      return data.data;
+    }
+    // Fallback for backward compatibility
+    else {
+      console.log(`Received department data from legacy API`);
+      return data;
+    }
   } catch (error) {
     console.error('Error fetching department data:', error);
     return [];
   }
-} 
+}

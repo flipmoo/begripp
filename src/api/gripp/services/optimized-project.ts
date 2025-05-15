@@ -1,6 +1,6 @@
 /**
  * Optimized Project Service
- * 
+ *
  * Een geoptimaliseerde versie van de project service met betere performance.
  */
 import { Database } from 'sqlite';
@@ -46,7 +46,7 @@ export class OptimizedProjectService {
   async initialize(db: Database): Promise<void> {
     // Initialiseer de database optimizer
     dbOptimizer.initialize(db);
-    
+
     // Controleer of de projects tabel bestaat
     const tableExists = await this.ensureProjectsTableExists(db);
     if (!tableExists) {
@@ -54,7 +54,7 @@ export class OptimizedProjectService {
       await this.createProjectsTable(db);
       await this.syncProjects(db);
     }
-    
+
     // Maak indexen aan als ze nog niet bestaan
     if (!this.indexesCreated) {
       await this.createIndexes(db);
@@ -74,7 +74,7 @@ export class OptimizedProjectService {
       if (cachedProjects) {
         return cachedProjects;
       }
-      
+
       // Controleer of de projects tabel bestaat
       const tableExists = await this.ensureProjectsTableExists(db);
       if (!tableExists) {
@@ -85,9 +85,9 @@ export class OptimizedProjectService {
 
       // Gebruik de database optimizer voor de query
       const projects = await dbOptimizer.query<GrippProject>(`
-        SELECT * FROM projects 
-        WHERE archived = 0 
-        AND name NOT LIKE '#0%' 
+        SELECT *, type FROM projects
+        WHERE archived = 0
+        AND name NOT LIKE '#0%'
         AND name NOT LIKE '#1%'
         AND number != 0
         AND number != 1
@@ -95,10 +95,10 @@ export class OptimizedProjectService {
       `);
 
       console.log(`Retrieved ${projects.length} active projects (excluding template projects)`);
-      
+
       // Sla op in de cache
       enhancedCache.set(CACHE_KEYS.ACTIVE_PROJECTS, projects, CACHE_TTL.ACTIVE_PROJECTS, CacheLevel.MEMORY);
-      
+
       return projects;
     } catch (error) {
       console.error('Error fetching active projects:', error);
@@ -120,7 +120,7 @@ export class OptimizedProjectService {
       if (cachedProject) {
         return cachedProject;
       }
-      
+
       // Controleer of de projects tabel bestaat
       const tableExists = await this.ensureProjectsTableExists(db);
       if (!tableExists) {
@@ -131,14 +131,14 @@ export class OptimizedProjectService {
 
       // Gebruik de database optimizer voor de query
       const project = await dbOptimizer.queryOne<GrippProject>(`
-        SELECT * FROM projects WHERE id = ?
+        SELECT *, type FROM projects WHERE id = ?
       `, [id]);
 
       // Sla op in de cache als het project bestaat
       if (project) {
         enhancedCache.set(cacheKey, project, CACHE_TTL.PROJECT_DETAILS, CacheLevel.MEMORY);
       }
-      
+
       return project || null;
     } catch (error) {
       console.error(`Error fetching project ${id}:`, error);
@@ -160,7 +160,7 @@ export class OptimizedProjectService {
       if (cachedProjects) {
         return cachedProjects;
       }
-      
+
       // Controleer of de projects tabel bestaat
       const tableExists = await this.ensureProjectsTableExists(db);
       if (!tableExists) {
@@ -171,16 +171,16 @@ export class OptimizedProjectService {
 
       // Gebruik de database optimizer voor de query
       const projects = await dbOptimizer.query<GrippProject>(`
-        SELECT * FROM projects 
+        SELECT *, type FROM projects
         WHERE json_extract(company, '$.id') = ?
         ORDER BY deadline IS NULL, deadline ASC
       `, [companyId]);
 
       console.log(`Retrieved ${projects.length} projects for company ${companyId}`);
-      
+
       // Sla op in de cache
       enhancedCache.set(cacheKey, projects, CACHE_TTL.PROJECTS, CacheLevel.MEMORY);
-      
+
       return projects;
     } catch (error) {
       console.error(`Error fetching projects for company ${companyId}:`, error);
@@ -202,7 +202,7 @@ export class OptimizedProjectService {
       if (cachedProjects) {
         return cachedProjects;
       }
-      
+
       // Controleer of de projects tabel bestaat
       const tableExists = await this.ensureProjectsTableExists(db);
       if (!tableExists) {
@@ -213,16 +213,16 @@ export class OptimizedProjectService {
 
       // Gebruik de database optimizer voor de query
       const projects = await dbOptimizer.query<GrippProject>(`
-        SELECT * FROM projects 
+        SELECT *, type FROM projects
         WHERE json_extract(phase, '$.id') = ?
         ORDER BY deadline IS NULL, deadline ASC
       `, [phaseId]);
 
       console.log(`Retrieved ${projects.length} projects for phase ${phaseId}`);
-      
+
       // Sla op in de cache
       enhancedCache.set(cacheKey, projects, CACHE_TTL.PROJECTS, CacheLevel.MEMORY);
-      
+
       return projects;
     } catch (error) {
       console.error(`Error fetching projects for phase ${phaseId}:`, error);
@@ -236,15 +236,15 @@ export class OptimizedProjectService {
    */
   async syncProjects(db: Database): Promise<void> {
     let transactionStarted = false;
-    
+
     try {
       console.log('Starting project synchronization');
-      
+
       // Controleer of de database verbinding geldig is
       if (!db) {
         throw new Error('Database connection is not valid');
       }
-      
+
       // Test de database verbinding met een eenvoudige query
       try {
         await db.get('SELECT 1');
@@ -253,11 +253,11 @@ export class OptimizedProjectService {
         console.error('Database connection test failed:', dbTestError);
         throw new Error(`Database connection test failed: ${dbTestError instanceof Error ? dbTestError.message : String(dbTestError)}`);
       }
-      
+
       // Controleer of de projects tabel bestaat
       const tableExists = await this.ensureProjectsTableExists(db);
       console.log('Projects table exists:', tableExists);
-      
+
       if (!tableExists) {
         console.log('Creating projects table...');
         await this.createProjectsTable(db);
@@ -274,12 +274,12 @@ export class OptimizedProjectService {
         console.error('Error fetching projects from Gripp API:', grippError);
         throw new Error(`Failed to fetch projects from Gripp API: ${grippError instanceof Error ? grippError.message : String(grippError)}`);
       }
-      
+
       if (!projects || projects.length === 0) {
         console.warn('No projects retrieved from Gripp API');
         return;
       }
-      
+
       // Begin een transactie
       console.log('Starting database transaction');
       await db.run('BEGIN TRANSACTION');
@@ -300,7 +300,7 @@ export class OptimizedProjectService {
       let savedCount = 0;
       let errorCount = 0;
       const errors = [];
-      
+
       // Gebruik prepared statement voor betere performance
       const stmt = await db.prepare(`
         INSERT INTO projects (
@@ -321,7 +321,7 @@ export class OptimizedProjectService {
           ?, ?, ?
         )
       `);
-      
+
       for (const project of projects) {
         try {
           // Valideer project
@@ -330,55 +330,55 @@ export class OptimizedProjectService {
             errorCount++;
             continue;
           }
-          
+
           // Converteer complexe objecten naar JSON strings
           const serializedProject = this.serializeProject(project);
-          
+
           // Voeg het project toe aan de database
           await stmt.run(
-            project.id, 
-            project.name || '', 
-            project.number || 0, 
-            project.color, 
+            project.id,
+            project.name || '',
+            project.number || 0,
+            project.color,
             serializedProject.archivedon,
-            project.clientreference || '', 
-            project.isbasis ? 1 : 0, 
+            project.clientreference || '',
+            project.isbasis ? 1 : 0,
             project.archived ? 1 : 0,
             project.workdeliveraddress || '',
-            serializedProject.createdon, 
+            serializedProject.createdon,
             serializedProject.updatedon,
             project.searchname || '',
             serializedProject.extendedproperties,
-            project.totalinclvat || '0', 
-            project.totalexclvat || '0', 
+            project.totalinclvat || '0',
+            project.totalexclvat || '0',
             serializedProject.startdate,
-            serializedProject.deadline, 
-            serializedProject.deliverydate, 
+            serializedProject.deadline,
+            serializedProject.deliverydate,
             serializedProject.enddate,
-            project.addhoursspecification ? 1 : 0, 
+            project.addhoursspecification ? 1 : 0,
             project.description || '',
-            project.filesavailableforclient ? 1 : 0, 
+            project.filesavailableforclient ? 1 : 0,
             project.discr || '',
-            serializedProject.templateset, 
-            serializedProject.validfor, 
+            serializedProject.templateset,
+            serializedProject.validfor,
             serializedProject.accountmanager,
-            serializedProject.phase, 
-            serializedProject.company, 
+            serializedProject.phase,
+            serializedProject.company,
             serializedProject.contact,
-            serializedProject.identity, 
-            serializedProject.extrapdf1, 
+            serializedProject.identity,
+            serializedProject.extrapdf1,
             serializedProject.extrapdf2,
-            serializedProject.umbrellaproject, 
-            serializedProject.tags, 
+            serializedProject.umbrellaproject,
+            serializedProject.tags,
             serializedProject.employees,
-            serializedProject.employees_starred, 
-            serializedProject.files, 
+            serializedProject.employees_starred,
+            serializedProject.files,
             serializedProject.projectlines,
             project.viewonlineurl || ''
           );
-          
+
           savedCount++;
-          
+
           if (savedCount % 100 === 0) {
             console.log(`Saved ${savedCount}/${projects.length} projects`);
           }
@@ -393,7 +393,7 @@ export class OptimizedProjectService {
           // Continue with next project instead of failing the entire process
         }
       }
-      
+
       // Finaliseer de prepared statement
       await stmt.finalize();
 
@@ -402,19 +402,19 @@ export class OptimizedProjectService {
         console.log('Committing transaction');
         await db.run('COMMIT');
         transactionStarted = false;
-        
+
         console.log(`Successfully synchronized ${savedCount}/${projects.length} projects (${errorCount} errors)`);
-        
+
         if (errors.length > 0) {
           console.error('Errors during project synchronization:', errors);
         }
-        
+
         // Maak indexen aan als ze nog niet bestaan
         if (!this.indexesCreated) {
           await this.createIndexes(db);
           this.indexesCreated = true;
         }
-        
+
         // Leeg de cache
         this.clearCache();
       } else {
@@ -426,7 +426,7 @@ export class OptimizedProjectService {
       }
     } catch (error) {
       console.error('Error in syncProjects:', error);
-      
+
       // Rollback bij een fout indien nodig
       if (transactionStarted && db) {
         try {
@@ -437,7 +437,7 @@ export class OptimizedProjectService {
           console.error('Error during rollback:', rollbackError);
         }
       }
-      
+
       throw error;
     }
   }
@@ -461,7 +461,7 @@ export class OptimizedProjectService {
       console.warn('Project missing required ID');
       return false;
     }
-    
+
     return true;
   }
 
@@ -507,7 +507,7 @@ export class OptimizedProjectService {
   private async ensureProjectsTableExists(db: Database): Promise<boolean> {
     try {
       const result = await db.get(`
-        SELECT name FROM sqlite_master 
+        SELECT name FROM sqlite_master
         WHERE type='table' AND name='projects'
       `);
       return !!result;
@@ -580,22 +580,22 @@ export class OptimizedProjectService {
   private async createIndexes(db: Database): Promise<void> {
     try {
       console.log('Creating indexes for projects table...');
-      
+
       // Index voor archived
       await db.run('CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(archived)');
-      
+
       // Index voor number
       await db.run('CREATE INDEX IF NOT EXISTS idx_projects_number ON projects(number)');
-      
+
       // Index voor deadline
       await db.run('CREATE INDEX IF NOT EXISTS idx_projects_deadline ON projects(deadline)');
-      
+
       // Index voor name
       await db.run('CREATE INDEX IF NOT EXISTS idx_projects_name ON projects(name)');
-      
+
       // Index voor searchname
       await db.run('CREATE INDEX IF NOT EXISTS idx_projects_searchname ON projects(searchname)');
-      
+
       console.log('Indexes created successfully');
     } catch (error) {
       console.error('Error creating indexes:', error);
@@ -609,10 +609,10 @@ export class OptimizedProjectService {
   async analyzeAndOptimize(db: Database): Promise<void> {
     try {
       console.log('Analyzing and optimizing database...');
-      
+
       // Gebruik de database optimizer
       await dbOptimizer.analyzeAndOptimize();
-      
+
       console.log('Database analysis and optimization completed');
     } catch (error) {
       console.error('Error analyzing and optimizing database:', error);

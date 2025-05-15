@@ -180,11 +180,51 @@ export const cacheService = {
   },
 
   /**
+   * Check if project data exists in cache
+   * @returns True if project data exists in cache
+   */
+  hasProjectData: (): boolean => {
+    const keys = cache.keys();
+    return keys.some(key =>
+      key === CACHE_KEYS.DASHBOARD_PROJECTS ||
+      key === CACHE_KEYS.DASHBOARD_ACTIVE_PROJECTS ||
+      key.includes('project') ||
+      key.includes('Project') ||
+      key.startsWith('dashboard_projects_')
+    );
+  },
+
+  /**
    * Get all keys in cache
    * @returns Array of keys
    */
   keys: (): string[] => {
     return cache.keys();
+  },
+
+  /**
+   * Clear cache by type
+   * @param type Type of cache to clear (e.g., 'invoices', 'employees', 'projects')
+   */
+  clearCache: (type: string): void => {
+    console.log(`Clearing cache for type: ${type}`);
+
+    switch (type.toLowerCase()) {
+      case 'invoices':
+        cacheService.clearInvoiceData();
+        break;
+      case 'employees':
+        cacheService.clearEmployeeData();
+        break;
+      case 'projects':
+        cacheService.clearProjectData();
+        break;
+      case 'dashboard':
+        cacheService.clearDashboardData();
+        break;
+      default:
+        console.warn(`Unknown cache type: ${type}`);
+    }
   },
 
   /**

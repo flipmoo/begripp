@@ -40,39 +40,64 @@ const STORAGE_KEY = 'incomplete-hours-filters';
 const syncHoursData = async (startDate: string, endDate: string) => {
   try {
     console.log(`Syncing employee hours data from ${startDate} to ${endDate}...`);
-    
-    // Sync the data
-    const syncResponse = await fetch(`/api/sync`, {
+
+    // Sync the data using the hours-specific sync endpoint
+    const syncResponse = await fetch(`http://localhost:3004/api/v1/sync/hours`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ startDate, endDate }),
     });
-    
+
     if (!syncResponse.ok) {
-      const errorData = await syncResponse.json();
+      const errorData = await syncResponse.json().catch(() => null);
       console.error('Sync response error:', errorData);
       throw new Error(`Failed to sync data: ${syncResponse.status} ${syncResponse.statusText}`);
     }
-    
+
+    const syncData = await syncResponse.json();
+    console.log('Hours sync response:', syncData);
+
+    // Sync leave hours
+    console.log(`Syncing employee leave hours from ${startDate} to ${endDate}...`);
+    const leaveResponse = await fetch(`http://localhost:3004/api/v1/sync/leave`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ startDate, endDate }),
+    });
+
+    if (!leaveResponse.ok) {
+      const errorData = await leaveResponse.json().catch(() => null);
+      console.error('Leave sync response error:', errorData);
+      throw new Error(`Failed to sync leave data: ${leaveResponse.status} ${leaveResponse.statusText}`);
+    }
+
+    const leaveData = await leaveResponse.json();
+    console.log('Leave sync response:', leaveData);
+
     // Wait a moment for sync to complete
     await new Promise(resolve => setTimeout(resolve, 500));
-    
+
     // Clear the cache
-    const cacheResponse = await fetch('/api/cache/clear', {
+    const cacheResponse = await fetch(`http://localhost:3004/api/v1/cache/clear`, {
       method: 'POST',
     });
-    
+
     if (!cacheResponse.ok) {
-      const errorData = await cacheResponse.json();
+      const errorData = await cacheResponse.json().catch(() => null);
       console.error('Cache clear response error:', errorData);
       throw new Error(`Failed to clear cache: ${cacheResponse.status} ${cacheResponse.statusText}`);
     }
-    
+
+    const cacheData = await cacheResponse.json();
+    console.log('Cache clear response:', cacheData);
+
     // Clear local cache
     await clearEmployeeCache();
-    
+
     return true;
   } catch (error) {
     console.error('Error syncing hours data:', error);
@@ -89,7 +114,7 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [syncingData, setSyncingData] = useState(false);
-  
+
   // Expose refreshData function to parent
   useImperativeHandle(ref, () => ({
     refreshData: () => {
@@ -110,7 +135,7 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
     }
     return null;
   };
-  
+
   // Initiële waarden voor filters, gebruik opgeslagen waarden als ze bestaan
   const savedFilters = loadSavedFilters();
 
@@ -121,9 +146,16 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
   const [selectedYear, setSelectedYear] = useState<number>(
     savedFilters?.selectedYear || new Date().getFullYear()
   );
+  // Calculate current week number using the proper function
+  const getWeekNumber = (date: Date): number => {
+    const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+    const pastDaysOfYear = (date.getTime() - firstDayOfYear.getTime()) / 86400000;
+    return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+  };
+
   const [selectedPeriod, setSelectedPeriod] = useState<number>(
-    savedFilters?.selectedPeriod !== undefined ? savedFilters.selectedPeriod : 
-    (periodType === 'week' ? Math.floor(new Date().getDate() / 7) + 1 : new Date().getMonth())
+    savedFilters?.selectedPeriod !== undefined ? savedFilters.selectedPeriod :
+    (periodType === 'week' ? getWeekNumber(new Date()) : new Date().getMonth())
   );
   const [percentageRange, setPercentageRange] = useState<[number, number]>(
     savedFilters?.percentageRange || [0, 200]
@@ -178,7 +210,7 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
       { value: currentYear, label: `${currentYear}` },
     ];
   }, []);
-  
+
   // Functie om de huidige filter instellingen op te slaan
   const saveFilters = () => {
     try {
@@ -190,9 +222,9 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
         showExcluded,
         excludedEmployees: Array.from(excludedEmployees)
       };
-      
+
       localStorage.setItem(STORAGE_KEY, JSON.stringify(filtersToSave));
-      
+
       toast({
         title: "Filters opgeslagen",
         description: "De filter instellingen zijn opgeslagen en worden gebruikt bij het opnieuw laden van de pagina.",
@@ -206,7 +238,7 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
       });
     }
   };
-  
+
   // Helper function to auto-save filters without showing toast notifications
   const autoSaveFilters = (overrides: Partial<SavedFilters> = {}) => {
     setTimeout(() => {
@@ -220,7 +252,7 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
           excludedEmployees: Array.from(excludedEmployees),
           ...overrides // Apply any overrides
         };
-        
+
         localStorage.setItem(STORAGE_KEY, JSON.stringify(filtersToSave));
         console.log('Filters automatically saved');
       } catch (error) {
@@ -232,20 +264,20 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
   // Function to get date range for the selected period
   const getSelectedPeriodDateRange = (): { startDate: string, endDate: string } => {
     const year = selectedYear;
-    
+
     if (periodType === 'month') {
       // Create date for first day of selected month
       const month = selectedPeriod + 1; // JavaScript months are 0-indexed, but our UI is 1-indexed
       const monthStr = month.toString().padStart(2, '0');
-      
+
       // First day of selected month
       const startDate = `${year}-${monthStr}-01`;
-      
+
       // Last day of selected month
       const lastDay = new Date(year, month, 0).getDate();
       const lastDayStr = lastDay.toString().padStart(2, '0');
       const endDate = `${year}-${monthStr}-${lastDayStr}`;
-      
+
       return { startDate, endDate };
     } else {
       // For week, create a date range for the selected week
@@ -253,17 +285,17 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
       const date = new Date(year, 0, 1 + (selectedPeriod - 1) * 7);
       const month = date.getMonth() + 1;
       const day = date.getDate();
-      
+
       const startDate = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
-      
+
       // End date is 6 days later
       const endDateObj = new Date(date);
       endDateObj.setDate(date.getDate() + 6);
       const endMonth = endDateObj.getMonth() + 1;
       const endDay = endDateObj.getDate();
-      
+
       const endDate = `${endDateObj.getFullYear()}-${endMonth.toString().padStart(2, '0')}-${endDay.toString().padStart(2, '0')}`;
-      
+
       return { startDate, endDate };
     }
   };
@@ -274,18 +306,18 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
     try {
       const { startDate, endDate } = getSelectedPeriodDateRange();
       console.log(`Syncing hours for period: ${startDate} to ${endDate}`);
-      
+
       const success = await syncHoursData(startDate, endDate);
-      
+
       if (success) {
         toast({
           title: "Synchronisatie voltooid",
-          description: "Medewerker uren zijn bijgewerkt.",
+          description: "Medewerker uren en verlofuren zijn bijgewerkt.",
         });
         // Trigger a refresh of the data
         setRetryCount(prev => prev + 1);
       } else {
-        setError('Synchronisatie van uren is mislukt. Probeer het later opnieuw.');
+        setError('Synchronisatie van uren en verlofuren is mislukt. Probeer het later opnieuw.');
         toast({
           title: "Synchronisatie mislukt",
           description: "Er is een fout opgetreden bij het synchroniseren van de uren.",
@@ -311,36 +343,36 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
       try {
         setLoading(true);
         setError(null);
-        
+
         let result;
-        
+
         // Force refresh when filters change to avoid using cached data with different criteria
         // We still want to respect the cache when just loading the component initially
         const isFilterChange = retryCount > 0;
-        
+
         if (periodType === 'week') {
           result = await getEmployeeStats(
-            selectedYear, 
-            selectedPeriod, 
-            undefined, 
-            isFilterChange, 
+            selectedYear,
+            selectedPeriod,
+            undefined,
+            isFilterChange,
             false, // Not preloading
             true   // Is dashboard request
           );
         } else {
           result = await getEmployeeMonthStats(
-            selectedYear, 
-            selectedPeriod, 
-            isFilterChange, 
+            selectedYear,
+            selectedPeriod,
+            isFilterChange,
             false, // Not preloading
             true   // Is dashboard request
           );
         }
-        
-        // Verwerk het resultaat direct, zonder additionele checks 
+
+        // Verwerk het resultaat direct, zonder additionele checks
         // die kunnen leiden tot onnodige rerenders
         const employeeData = result.data || [];
-        
+
         // Map om dubbele medewerkers te verwijderen, houdt alleen de meest recente
         const uniqueEmployees = new Map();
         employeeData
@@ -349,7 +381,7 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
             // Als deze medewerker nog niet in de map staat, of als deze nieuwer is
             // (hogere verwachte uren), vervang de bestaande
             const currentEmployee = uniqueEmployees.get(employee.id);
-            if (!currentEmployee || 
+            if (!currentEmployee ||
                 (currentEmployee.expectedHours < employee.expectedHours)) {
               uniqueEmployees.set(employee.id, employee);
             }
@@ -360,9 +392,9 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
           .map(employee => {
             // Calculate percentage of written hours vs expected hours
             // Inclusief verlofuren in de berekening van het percentage
-            const percentage = employee.expectedHours > 0 ? 
+            const percentage = employee.expectedHours > 0 ?
               ((employee.writtenHours + employee.leaveHours) / employee.expectedHours) * 100 : 100;
-            
+
             return {
               ...employee,
               percentage,
@@ -370,7 +402,7 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
             };
           })
           .sort((a, b) => a.percentage - b.percentage); // Sort by percentage (lowest first)
-        
+
         setEmployees(transformedEmployees);
         // Reset retry count after successful fetch
         if (retryCount > 0) {
@@ -379,7 +411,7 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
       } catch (err) {
         console.error('Error fetching employee hours:', err);
         setError('Er is een fout opgetreden bij het laden van de medewerker uren. Controleer of de API-server draait.');
-        
+
         // Retry after 5 seconds if the API server might be starting up
         if (retryCount < 3) {
           setTimeout(() => {
@@ -398,18 +430,18 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
   useEffect(() => {
     const filtered = employees.filter(employee => {
       // Filter by percentage range
-      const isInPercentageRange = 
-        employee.percentage >= percentageRange[0] && 
+      const isInPercentageRange =
+        employee.percentage >= percentageRange[0] &&
         employee.percentage <= percentageRange[1];
-      
+
       // Filter by excluded status
       const passesExclusionFilter = showExcluded || !employee.excluded;
-      
+
       return isInPercentageRange && passesExclusionFilter;
     });
-    
+
     setFilteredEmployees(filtered);
-    
+
     // Notify parent component if callback is provided
     if (onFilterChange) {
       onFilterChange(filtered);
@@ -432,22 +464,22 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
       } else {
         newSet.add(employeeId);
       }
-      
+
       // After updating the state, automatically save filters
       autoSaveFilters({ excludedEmployees: Array.from(newSet) });
-      
+
       return newSet;
     });
-    
+
     // Update the excluded status in the employees array directly
-    setEmployees(prevEmployees => 
-      prevEmployees.map(employee => 
-        employee.id === employeeId 
-          ? { ...employee, excluded: !employee.excluded } 
+    setEmployees(prevEmployees =>
+      prevEmployees.map(employee =>
+        employee.id === employeeId
+          ? { ...employee, excluded: !employee.excluded }
           : employee
       )
     );
-    
+
     // Force refresh data after toggling exclusion
     setRetryCount(prev => prev + 1);
   };
@@ -457,7 +489,7 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Medewerkers met Onvolledige Uren</CardTitle>
         <div className="flex items-center gap-2">
-          <Button 
+          <Button
             variant="outline"
             size="sm"
             className="flex items-center gap-1"
@@ -466,10 +498,10 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
             <Save className="h-4 w-4" />
             <span>Filters opslaan</span>
           </Button>
-          <button 
+          <button
             onClick={handleSyncData}
             disabled={syncingData}
-            className="p-1 text-gray-500 hover:text-blue-500 focus:outline-none" 
+            className="p-1 text-gray-500 hover:text-blue-500 focus:outline-none"
             title="Synchroniseer medewerker uren voor deze periode"
           >
             <RefreshCw className={`h-5 w-5 ${syncingData ? 'animate-spin text-blue-500' : ''}`} />
@@ -483,20 +515,20 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
             <span>Medewerker uren worden gesynchroniseerd...</span>
           </div>
         )}
-        
+
         {/* Filter controls */}
         <div className="space-y-4 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Period type selector */}
             <div className="space-y-2">
               <Label>Periode type</Label>
-              <Select 
-                value={periodType} 
+              <Select
+                value={periodType}
                 onValueChange={(value) => {
                   setPeriodType(value as 'week' | 'month');
                   // Force refresh when period type changes
                   setRetryCount(prev => prev + 1);
-                  
+
                   // Auto-save the filters when period type changes
                   autoSaveFilters({ periodType: value as 'week' | 'month' });
                 }}
@@ -510,17 +542,17 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
                 </SelectContent>
               </Select>
             </div>
-            
+
             {/* Year selector */}
             <div className="space-y-2">
               <Label>Jaar</Label>
-              <Select 
-                value={selectedYear.toString()} 
+              <Select
+                value={selectedYear.toString()}
                 onValueChange={(value) => {
                   setSelectedYear(parseInt(value));
                   // Force refresh when year changes
                   setRetryCount(prev => prev + 1);
-                  
+
                   // Auto-save the filters when year changes
                   autoSaveFilters({ selectedYear: parseInt(value) });
                 }}
@@ -537,17 +569,17 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
                 </SelectContent>
               </Select>
             </div>
-            
+
             {/* Period selector */}
             <div className="space-y-2">
               <Label>{periodType === 'week' ? 'Week' : 'Maand'}</Label>
-              <Select 
-                value={selectedPeriod.toString()} 
+              <Select
+                value={selectedPeriod.toString()}
                 onValueChange={(value) => {
                   setSelectedPeriod(parseInt(value));
                   // Force refresh when period changes
                   setRetryCount(prev => prev + 1);
-                  
+
                   // Auto-save the filters when period changes
                   autoSaveFilters({ selectedPeriod: parseInt(value) });
                 }}
@@ -565,7 +597,7 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
               </Select>
             </div>
           </div>
-          
+
           {/* Percentage range slider */}
           <div className="space-y-2">
             <div className="flex justify-between items-center">
@@ -583,7 +615,7 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
               onValueCommit={(value) => {
                 // Only trigger refresh when the user finishes dragging
                 setRetryCount(prev => prev + 1);
-                
+
                 // Auto-save the filters when percentage range changes
                 autoSaveFilters({ percentageRange: value as [number, number] });
               }}
@@ -591,8 +623,8 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
             />
             {/* Quick filter buttons */}
             <div className="flex gap-2 mt-2">
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
                 onClick={() => {
                   setPercentageRange([0, 99]);
@@ -603,8 +635,8 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
                 <AlertCircle className="h-4 w-4 mr-1 text-red-500" />
                 &lt; 100%
               </Button>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
                 onClick={() => {
                   setPercentageRange([100, 100]);
@@ -615,8 +647,8 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
                 <CheckCircle className="h-4 w-4 mr-1 text-green-500" />
                 Precies 100%
               </Button>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
                 onClick={() => {
                   setPercentageRange([101, 200]);
@@ -627,8 +659,8 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
                 <AlertCircle className="h-4 w-4 mr-1 text-yellow-500" />
                 &gt; 100%
               </Button>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
                 onClick={() => {
                   setPercentageRange([0, 200]);
@@ -641,16 +673,16 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
               </Button>
             </div>
           </div>
-          
+
           {/* Show excluded employees checkbox */}
           <div className="flex items-center space-x-2">
-            <Checkbox 
-              id="show-excluded" 
+            <Checkbox
+              id="show-excluded"
               checked={showExcluded}
               onCheckedChange={(checked) => {
                 setShowExcluded(checked === true);
                 setRetryCount(prev => prev + 1);
-                
+
                 // Auto-save the filters when show excluded changes
                 autoSaveFilters({ showExcluded: checked === true });
               }}
@@ -658,7 +690,7 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
             <Label htmlFor="show-excluded">Toon uitgesloten medewerkers</Label>
           </div>
         </div>
-        
+
         {/* Employee list */}
         {loading ? (
           <div className="text-center py-4 text-gray-500">
@@ -668,7 +700,7 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
         ) : error ? (
           <div className="text-center py-4">
             <p className="text-red-500 mb-2">{error}</p>
-            <Button 
+            <Button
               onClick={handleRetry}
               variant="outline"
               className="flex items-center mx-auto"
@@ -684,20 +716,20 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
         ) : (
           <div className="space-y-4">
             {filteredEmployees.map(employee => (
-              <div 
-                key={`${employee.id}_${employee.contractPeriod || ''}`} 
+              <div
+                key={`${employee.id}_${employee.contractPeriod || ''}`}
                 className={`space-y-1 p-2 rounded-md border ${
-                  employee.excluded 
-                    ? 'border-red-100 bg-red-50' 
-                    : employee.percentage === 100 
-                      ? 'border-green-100 bg-green-50' 
-                      : employee.percentage > 100 
-                        ? 'border-yellow-100 bg-yellow-50' 
+                  employee.excluded
+                    ? 'border-red-100 bg-red-50'
+                    : employee.percentage === 100
+                      ? 'border-green-100 bg-green-50'
+                      : employee.percentage > 100
+                        ? 'border-yellow-100 bg-yellow-50'
                         : 'border-red-100 bg-red-50'
                 }`}
               >
                 <div className="flex justify-between items-center">
-                  <div 
+                  <div
                     className="font-medium cursor-pointer hover:text-blue-600"
                     onClick={() => handleEmployeeClick(employee.id)}
                   >
@@ -705,10 +737,10 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
                   </div>
                   <div className="flex items-center space-x-2">
                     <span className={
-                      employee.percentage === 100 
-                        ? "text-green-500 font-medium" 
-                        : employee.percentage > 100 
-                          ? "text-yellow-500 font-medium" 
+                      employee.percentage === 100
+                        ? "text-green-500 font-medium"
+                        : employee.percentage > 100
+                          ? "text-yellow-500 font-medium"
                           : "text-red-500 font-medium"
                     }>
                       {Math.round(employee.percentage)}%
@@ -724,13 +756,13 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
                     </Button>
                   </div>
                 </div>
-                <Progress 
-                  value={employee.percentage > 200 ? 200 : employee.percentage} 
+                <Progress
+                  value={employee.percentage > 200 ? 200 : employee.percentage}
                   className={`h-2 ${
-                    employee.percentage === 100 
-                      ? "bg-green-100" 
-                      : employee.percentage > 100 
-                        ? "bg-yellow-100" 
+                    employee.percentage === 100
+                      ? "bg-green-100"
+                      : employee.percentage > 100
+                        ? "bg-yellow-100"
                         : "bg-red-100"
                   }`}
                 />
@@ -746,10 +778,10 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
                   <div className="flex justify-between text-sm font-medium">
                     <span>Totaal: {(employee.writtenHours + employee.leaveHours).toFixed(1)} uur</span>
                     <span className={
-                      employee.percentage === 100 
-                        ? "text-green-500" 
-                        : employee.percentage > 100 
-                          ? "text-yellow-500" 
+                      employee.percentage === 100
+                        ? "text-green-500"
+                        : employee.percentage > 100
+                          ? "text-yellow-500"
                           : "text-red-500"
                     }>
                       Verschil: {((employee.writtenHours + employee.leaveHours) - employee.expectedHours).toFixed(1)} uur
@@ -765,4 +797,4 @@ const IncompleteHoursFilter = forwardRef<IncompleteHoursFilterRef, IncompleteHou
   );
 });
 
-export default IncompleteHoursFilter; 
+export default IncompleteHoursFilter;

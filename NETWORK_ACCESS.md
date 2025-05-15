@@ -1,61 +1,73 @@
-# Applicatie toegankelijk maken binnen het netwerk
+# Netwerktoegang voor Het Nieuwe Werken
 
-Deze instructies helpen je om de applicatie beschikbaar te maken voor anderen binnen hetzelfde netwerk.
+Deze handleiding beschrijft hoe je de applicatie kunt starten zodat deze toegankelijk is vanaf andere apparaten op het netwerk.
 
-## Configuratie
+## Vereisten
 
-De volgende aanpassingen zijn gemaakt om netwerktoegankelijkheid mogelijk te maken:
+- Node.js en npm geïnstalleerd
+- Toegang tot het lokale netwerk
+- Firewall instellingen die poorten 3002 en 3004 toestaan
 
-1. De Vite development server is geconfigureerd om te luisteren op alle netwerkinterfaces (`0.0.0.0`)
-2. De API server is geconfigureerd om te luisteren op alle netwerkinterfaces
-3. De npm scripts zijn bijgewerkt om expliciet de host parameter te gebruiken
-4. Een nieuw script is toegevoegd om je netwerk IP-adres te tonen
+## Starten van de applicatie voor netwerktoegang
 
-## Starten van de applicatie voor gedeelde toegang
+1. Open een terminal in de hoofdmap van het project
+2. Voer het volgende commando uit:
 
-Om de applicatie voor iedereen in je netwerk toegankelijk te maken:
+```bash
+./start-network.sh
+```
 
-1. Start de API server:
-   ```
-   npm run kill-api && npm run api
-   ```
+Dit script zal:
+- Controleren of de benodigde poorten beschikbaar zijn
+- De API-server starten op poort 3004
+- De frontend starten op poort 3002
+- Het IP-adres van je computer tonen, dat anderen kunnen gebruiken om toegang te krijgen
 
-2. Start de frontend development server:
-   ```
-   npm run dev
-   ```
+## Toegang vanaf andere apparaten
 
-3. Of gebruik het gecombineerde commando voor beide servers:
-   ```
-   npm run dev:all
-   ```
+Andere apparaten op hetzelfde netwerk kunnen de applicatie benaderen via:
 
-4. Vind je netwerkadres:
-   ```
-   npm run network-info
-   ```
+- Frontend: `http://<jouw-ip-adres>:3002`
+- API: `http://<jouw-ip-adres>:3004`
 
-5. Deel de getoonde URL's met je collega's, bijvoorbeeld:
-   - Frontend: http://192.168.1.184:3000
-   - API: http://192.168.1.184:3002
+Bijvoorbeeld, als je IP-adres 192.168.2.41 is:
+- Frontend: `http://192.168.2.41:3002`
+- API: `http://192.168.2.41:3004`
 
-## Opmerkingen en Problemen
+## Problemen oplossen
 
-- Zorg ervoor dat je firewall toegang toestaat tot de poorten 3000 en 3002
-- Voor sommige netwerken moet je mogelijk poort-forwarding instellen op je router
-- Gebruikers moeten toegang hebben tot beide URLs (frontend en API)
-- Als de frontend en API niet op hetzelfde adres draaien, kunnen er CORS-problemen ontstaan
+### Firewall blokkering
 
-## Handleiding voor Gebruikers
+Als andere apparaten geen verbinding kunnen maken, controleer dan of je firewall de poorten 3002 en 3004 toestaat voor inkomende verbindingen.
 
-Gebruikers moeten alleen de frontend URL openen in hun browser (bijv. `http://192.168.1.184:3000`). 
-Ze gebruiken de applicatie zoals normaal via hun browsers. De applicatie communiceert automatisch 
-met de API server. 
+Op macOS:
+1. Ga naar Systeemvoorkeuren > Beveiliging & Privacy > Firewall
+2. Klik op "Firewall-opties..."
+3. Zorg ervoor dat Node.js toegang heeft of voeg het handmatig toe
 
-Als er problemen zijn, controleer het volgende:
-- Zijn beide servers actief?
-- Zijn de firewalls correct ingesteld?
-- Bevinden alle gebruikers zich in hetzelfde netwerk?
+Op Windows:
+1. Ga naar Configuratiescherm > Systeem en beveiliging > Windows Firewall
+2. Klik op "Een app of functie toestaan via Windows Firewall"
+3. Zoek Node.js in de lijst of voeg het handmatig toe
 
-Wanneer een gebruiker voor het eerst toegang krijgt, moet je mogelijk de API server opnieuw opstarten 
-om ervoor te zorgen dat alle services beschikbaar zijn. 
+### API niet bereikbaar
+
+Als de frontend wel werkt maar de API niet bereikbaar is, controleer dan:
+1. Of de API-server draait (controleer de terminal output)
+2. Of de API-server luistert op alle netwerkinterfaces (0.0.0.0)
+3. Of er geen CORS-fouten zijn in de browser console
+
+## Stoppen van de servers
+
+Druk op `Ctrl+C` in de terminal waar je het script hebt gestart om beide servers te stoppen.
+
+## Technische details
+
+De volgende aanpassingen zijn gemaakt om netwerktoegang mogelijk te maken:
+
+1. API configuratie aangepast om relatieve URLs te gebruiken in de browser
+2. CORS instellingen aangepast om alle origins toe te staan
+3. Servers geconfigureerd om te luisteren op alle netwerkinterfaces (0.0.0.0)
+4. Vite configuratie aangepast voor strikte poortbinding
+
+Deze aanpassingen zorgen ervoor dat de applicatie toegankelijk is vanaf andere apparaten op het netwerk, terwijl de API ook bereikbaar blijft.

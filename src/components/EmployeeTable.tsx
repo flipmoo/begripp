@@ -12,20 +12,22 @@ interface EmployeeTableProps {
 }
 
 export default function EmployeeTable({ employees }: EmployeeTableProps) {
-  const getPercentageColor = (percentage: number) => {
-    if (percentage < 80) return 'text-red-600';
-    if (percentage < 90) return 'text-amber-500';
-    if (percentage > 110) return 'text-blue-600';
+  const getDifferenceColor = (difference: number) => {
+    if (difference < 0) return 'text-red-600';
     return 'text-green-600';
   };
 
-  const calculatePercentage = (actual: number, expected: number) => {
-    if (expected === 0) return 0;
-    return Math.round((actual / expected) * 100);
+  const calculateDifference = (actual: number, expected: number) => {
+    return actual - expected;
   };
 
   const formatHours = (hours: number) => {
     return `${hours.toFixed(1)}`;
+  };
+
+  const formatDifference = (difference: number) => {
+    if (difference === 0) return '0';
+    return `${difference > 0 ? '+' : ''}${difference.toFixed(1)}`;
   };
 
   // Create a map to deduplicate employees
@@ -51,11 +53,11 @@ export default function EmployeeTable({ employees }: EmployeeTableProps) {
             <TableHead>CONTRACT PERIOD</TableHead>
             <TableHead className="text-right">CONTRACT HOURS</TableHead>
             <TableHead className="text-right">HOLIDAY HOURS</TableHead>
-            <TableHead className="text-right">EXPECTED HOURS</TableHead>
             <TableHead className="text-right">LEAVE HOURS</TableHead>
+            <TableHead className="text-right">EXPECTED HOURS</TableHead>
             <TableHead className="text-right">WRITTEN HOURS</TableHead>
             <TableHead className="text-right">ACTUAL HOURS</TableHead>
-            <TableHead className="text-right">PERCENTAGE</TableHead>
+            <TableHead className="text-right">DIFFERENCE</TableHead>
             <TableHead className="text-right">ACTIONS</TableHead>
           </TableRow>
         </TableHeader>
@@ -68,14 +70,20 @@ export default function EmployeeTable({ employees }: EmployeeTableProps) {
                 <TableCell>{employee.contractPeriod || '-'}</TableCell>
                 <TableCell className="text-right">{employee.contractHours || 0}</TableCell>
                 <TableCell className="text-right">{employee.holidayHours || 0}</TableCell>
-                <TableCell className="text-right">{formatHours(employee.expectedHours)}</TableCell>
-                <TableCell className="text-right">{formatHours(employee.leaveHours)}</TableCell>
-                <TableCell className="text-right">{formatHours(employee.writtenHours)}</TableCell>
-                <TableCell className="text-right">{formatHours(employee.actualHours)}</TableCell>
+                <TableCell className="text-right">{formatHours(employee.leave_hours || employee.leaveHours || 0)}</TableCell>
+                <TableCell className="text-right">{formatHours(employee.expected_hours || employee.expectedHours || 0)}</TableCell>
+                <TableCell className="text-right">{formatHours(employee.written_hours || employee.writtenHours || 0)}</TableCell>
+                <TableCell className="text-right">{formatHours(employee.actual_hours || employee.actualHours || 0)}</TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end gap-2">
-                    <span className={getPercentageColor(calculatePercentage(employee.actualHours, employee.expectedHours))}>
-                      {calculatePercentage(employee.actualHours, employee.expectedHours)}%
+                    <span className={getDifferenceColor(calculateDifference(
+                      employee.actual_hours || employee.actualHours || 0,
+                      employee.expected_hours || employee.expectedHours || 0
+                    ))}>
+                      {formatDifference(calculateDifference(
+                        employee.actual_hours || employee.actualHours || 0,
+                        employee.expected_hours || employee.expectedHours || 0
+                      ))}
                     </span>
                   </div>
                 </TableCell>
@@ -101,4 +109,4 @@ export default function EmployeeTable({ employees }: EmployeeTableProps) {
       </Table>
     </div>
   );
-} 
+}

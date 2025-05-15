@@ -2,7 +2,7 @@
  * Dashboard utilities for handling browser cache and refresh operations
  */
 
-import { dbService } from './dbService';
+// No need to import dbService anymore
 
 /**
  * Forces a refresh of IndexedDB by clearing the database and application cache
@@ -10,12 +10,12 @@ import { dbService } from './dbService';
  */
 export const forceRefreshCache = async (): Promise<void> => {
   console.log('Forcing refresh of browser caches');
-  
+
   try {
     // Clear IndexedDB
     const dbName = 'bravoure-dashboard';
     const request = indexedDB.deleteDatabase(dbName);
-    
+
     await new Promise<void>((resolve, reject) => {
       request.onerror = () => {
         console.error('Error deleting IndexedDB database:', request.error);
@@ -27,12 +27,12 @@ export const forceRefreshCache = async (): Promise<void> => {
         resolve();
       };
     });
-    
+
     // Clear localStorage cache markers
     localStorage.removeItem('dashboard_last_refresh');
-    
+
     console.log('Cache refresh complete');
-    
+
     // Force a hard reload of the page
     window.location.reload();
   } catch (error) {
@@ -47,14 +47,14 @@ export const forceRefreshCache = async (): Promise<void> => {
  */
 export const quickReloadDashboard = (callback?: () => void): void => {
   console.log('Quick reloading dashboard data');
-  
+
   // We can trigger a reload by creating a custom event
-  const reloadEvent = new CustomEvent('dashboard:reload', { 
-    detail: { timestamp: new Date().getTime() } 
+  const reloadEvent = new CustomEvent('dashboard:reload', {
+    detail: { timestamp: new Date().getTime() }
   });
   window.dispatchEvent(reloadEvent);
-  
+
   if (callback) {
     setTimeout(callback, 500);
   }
-}; 
+};

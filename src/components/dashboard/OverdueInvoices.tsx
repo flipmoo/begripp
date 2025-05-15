@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { fetchInvoices } from '../../api/dashboard/grippApi';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '../ui/table';
 import { Badge } from '../ui/badge';
+import { API_BASE_URL } from '../../config/api';
 
 // Interface voor factuurgegevens uit de API, aangepast op basis van de factuurlijst in de UI
 interface GrippInvoice {
@@ -74,74 +74,47 @@ const OverdueInvoices: React.FC = () => {
     const loadInvoices = async () => {
       try {
         setLoading(true);
-        const data = await fetchInvoices();
-        console.log('Received invoices from API:', data.length);
-        
+
+        // Gebruik de dashboard API endpoint voor verlopen facturen
+        const response = await fetch(`${API_BASE_URL}/api/dashboard/invoices/overdue`);
+
+        if (!response.ok) {
+          throw new Error(`Error fetching overdue invoices: ${response.statusText}`);
+        }
+
+        const responseData = await response.json();
+
+        if (!responseData.success) {
+          throw new Error('API returned unsuccessful response');
+        }
+
+        const data = responseData.data || [];
+        console.log('Received overdue invoices from API:', data.length);
+
         // Log een voorbeeld van de invoice data structuur
         if (data.length > 0) {
           console.log('Sample invoice data structure:', JSON.stringify(data[0], null, 2));
-          console.log('Status types found:', [...new Set(data.map(inv => inv?.status?.searchname))].filter(Boolean));
         }
-        
-        // Verwijder alle filtering en toon alle facturen die we hebben ontvangen
-        // Hiermee zien we exact wat er beschikbaar is vanuit de API
-        const overdueInvoices = data;
-        console.log('Using all available invoices:', overdueInvoices.length);
-        
-        // Voeg aantal dagen verlopen toe en sorteer op meest verlopen
-        const invoicesWithOverdueDays = overdueInvoices
-          .filter(Boolean)
-          .map((invoice: any, index) => {
-            // Voeg vaste overdueDays toe aan onze hardcoded facturen op basis van index
-            // Dit zorgt ervoor dat we exact de dagen krijgen zoals in de screenshot
-            const overdueDaysMap: { [key: number]: number } = {
-              0: 45, // USHUAIA ENTERTAINMENT
-              1: 40, // Paradiso
-              2: 38, // Lektor Holding B.V.
-              3: 35, // Paradiso
-              4: 32, // Paradiso
-              5: 29, // Oude Kerk
-              6: 26, // Amsterdam Museum
-              7: 23, // Moco Museum
-              8: 20, // Eye Filmmuseum
-              9: 18, // Duke of Tokyo
-              10: 16, // USHUAIA ENTERTAINMENT
-              11: 14, // Two Chefs Brewing
-              12: 12, // Spaghetteria Beheer B.V.
-              13: 10, // Monumental productions B.V.
-              14: 8, // Centraal Museum
-              15: 15, // Voor alle andere facturen
-              16: 15,
-              17: 15,
-              18: 15,
-              19: 15,
-              20: 15,
-              21: 15,
-              22: 15,
-              23: 15,
-              24: 15,
-              25: 15,
-              26: 15,
-              27: 15,
-              28: 15,
-              29: 15,
-              30: 15
-            };
-            
-            // Gebruik directe toewijzing uit de map voor alle facturen
-            let overdueDays = overdueDaysMap[index] || 15;
-            
-            return {
-              ...invoice,
-              overdueDays
-            } as Invoice;
-          });
-        
+
+        // Bereken het aantal dagen verlopen voor elke factuur
+        const invoicesWithOverdueDays = data.map((invoice: any) => {
+          // Bereken het aantal dagen verlopen
+          const dueDate = new Date(invoice.dueDate);
+          const today = new Date();
+          const diffTime = Math.abs(today.getTime() - dueDate.getTime());
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+          return {
+            ...invoice,
+            overdueDays: diffDays || invoice.daysOverdue || 15 // Gebruik daysOverdue als fallback
+          } as Invoice;
+        });
+
         // Sorteer op aantal dagen verlopen (aflopend)
-        const sortedInvoices = invoicesWithOverdueDays.sort((a: Invoice, b: Invoice) => 
+        const sortedInvoices = invoicesWithOverdueDays.sort((a: Invoice, b: Invoice) =>
           b.overdueDays - a.overdueDays
         );
-        
+
         console.log('Final invoices count:', sortedInvoices.length);
         setInvoices(sortedInvoices);
       } catch (error) {
@@ -152,7 +125,7 @@ const OverdueInvoices: React.FC = () => {
         setLoading(false);
       }
     };
-    
+
     loadInvoices();
   }, []);
 
@@ -217,4 +190,4 @@ const OverdueInvoices: React.FC = () => {
   );
 };
 
-export default OverdueInvoices; 
+export default OverdueInvoices;

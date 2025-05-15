@@ -1,0 +1,77 @@
+{
+  "name": "Unified API",
+  "version": "1.0.0",
+  "description": "Unified API for Het Nieuwe Werken",
+  "endpoints": [
+    {
+      "path": "/api/v1/employees",
+      "method": "GET",
+      "description": "Get all employees"
+    },
+    {
+      "path": "/api/v1/employees/:id",
+      "method": "GET",
+      "description": "Get employee by ID"
+    },
+    {
+      "path": "/api/v1/employee-stats",
+      "method": "GET",
+      "description": "Get employee statistics"
+    },
+    {
+      "path": "/api/v1/employee-month-stats",
+      "method": "GET",
+      "description": "Get employee monthly statistics"
+    },
+    {
+      "path": "/api/v1/projects",
+      "method": "GET",
+      "description": "Get all projects"
+    },
+    {
+      "path": "/api/v1/projects/:id",
+      "method": "GET",
+      "description": "Get project by ID"
+    },
+    {
+      "path": "/api/v1/invoices",
+      "method": "GET",
+      "description": "Get all invoices"
+    },
+    {
+      "path": "/api/v1/invoices/:id",
+      "method": "GET",
+      "description": "Get invoice by ID"
+    },
+    {
+      "path": "/api/v1/invoices/overdue",
+      "method": "GET",
+      "description": "Get overdue invoices"
+    },
+    {
+      "path": "/api/v1/sync",
+      "method": "POST",
+      "description": "Sync all data from Gripp"
+    },
+    {
+      "path": "/api/v1/sync/invoices",
+      "method": "POST",
+      "description": "Sync invoices from Gripp"
+    },
+    {
+      "path": "/api/v1/sync/projects",
+      "method": "POST",
+      "description": "Sync projects from Gripp"
+    },
+    {
+      "path": "/api/v1/sync/employees",
+      "method": "POST",
+      "description": "Sync employees from Gripp"
+    },
+    {
+      "path": "/api/v1/health",
+      "method": "GET",
+      "description": "Health check"
+    }
+  ]
+}

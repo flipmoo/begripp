@@ -1,0 +1,72 @@
+[
+  {
+    "id": 1,
+    "number": 3483,
+    "name": "Nood website",
+    "company_id": 1234,
+    "company_name": "Voorbeeld Bedrijf",
+    "tags": "[{\"id\": \"78\", \"searchname\": \"Verkeerde tag\"}]",
+    "status": "active",
+    "start_date": "2023-01-01",
+    "deadline": "2023-12-31",
+    "budget_hours": 100,
+    "budget_costs": 10000,
+    "invoice_method": "fixed_price"
+  },
+  {
+    "id": 2,
+    "number": 3484,
+    "name": "Website redesign",
+    "company_id": 1235,
+    "company_name": "Ander Bedrijf",
+    "tags": "[{\"id\": \"1\", \"searchname\": \"Vaste Prijs\"}]",
+    "status": "active",
+    "start_date": "2023-02-01",
+    "deadline": "2023-11-30",
+    "budget_hours": 200,
+    "budget_costs": 20000,
+    "invoice_method": "fixed_price"
+  },
+  {
+    "id": 3,
+    "number": 3485,
+    "name": "App development",
+    "company_id": 1236,
+    "company_name": "Derde Bedrijf",
+    "tags": "[{\"id\": \"2\", \"searchname\": \"Nacalculatie\"}]",
+    "status": "active",
+    "start_date": "2023-03-01",
+    "deadline": "2023-10-31",
+    "budget_hours": 300,
+    "budget_costs": 30000,
+    "invoice_method": "hourly_rate"
+  },
+  {
+    "id": 4,
+    "number": 3486,
+    "name": "Intern project",
+    "company_id": 1237,
+    "company_name": "Eigen Bedrijf",
+    "tags": "[{\"id\": \"3\", \"searchname\": \"Intern\"}]",
+    "status": "active",
+    "start_date": "2023-04-01",
+    "deadline": "2023-09-30",
+    "budget_hours": 400,
+    "budget_costs": 40000,
+    "invoice_method": "fixed_price"
+  },
+  {
+    "id": 5,
+    "number": 3487,
+    "name": "Contract project",
+    "company_id": 1238,
+    "company_name": "Contract Bedrijf",
+    "tags": "[{\"id\": \"4\", \"searchname\": \"Contract\"}]",
+    "status": "active",
+    "start_date": "2023-05-01",
+    "deadline": "2023-08-31",
+    "budget_hours": 500,
+    "budget_costs": 50000,
+    "invoice_method": "fixed_price"
+  }
+]

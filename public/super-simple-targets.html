@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Super Eenvoudige Targets</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    h1 {
+      color: #333;
+      margin-top: 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      padding: 10px;
+      border: 1px solid #ddd;
+      text-align: left;
+    }
+    th {
+      background-color: #f2f2f2;
+    }
+    input {
+      width: 100%;
+      padding: 8px;
+      box-sizing: border-box;
+    }
+    .message {
+      margin-top: 20px;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Super Eenvoudige Targets 2025</h1>
+    
+    <div id="message" style="display: none;"></div>
+    
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Maand</th>
+          <th>Target Bedrag</th>
+          <th>Actie</th>
+        </tr>
+      </thead>
+      <tbody id="targetsTable">
+        <tr>
+          <td colspan="4">Targets laden...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    // Maandnamen
+    const monthNames = [
+      'Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni',
+      'Juli', 'Augustus', 'September', 'Oktober', 'November', 'December'
+    ];
+    
+    // API URL
+    const API_URL = 'http://localhost:3004/api/v1/simple-targets';
+    
+    // DOM elementen
+    const targetsTable = document.getElementById('targetsTable');
+    const messageElement = document.getElementById('message');
+    
+    // Toon een bericht
+    function showMessage(text, isError = false) {
+      messageElement.textContent = text;
+      messageElement.className = isError ? 'message error' : 'message success';
+      messageElement.style.display = 'block';
+      
+      // Verberg het bericht na 5 seconden
+      setTimeout(() => {
+        messageElement.style.display = 'none';
+      }, 5000);
+    }
+    
+    // Update een target
+    async function updateTarget(id, value) {
+      try {
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            id: parseInt(id),
+            targetAmount: parseFloat(value)
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          showMessage(`Target succesvol bijgewerkt`);
+          return true;
+        } else {
+          showMessage('Fout bij het opslaan van target', true);
+          return false;
+        }
+      } catch (error) {
+        console.error('Error saving target:', error);
+        showMessage('Fout bij het opslaan van target: ' + error.message, true);
+        return false;
+      }
+    }
+    
+    // Laad targets
+    async function loadTargets() {
+      try {
+        targetsTable.innerHTML = '<tr><td colspan="4">Targets laden...</td></tr>';
+        
+        const response = await fetch(`${API_URL}?year=2025`);
+        const data = await response.json();
+        
+        if (data.success && data.data && data.data.data) {
+          const targets = data.data.data;
+          
+          targetsTable.innerHTML = '';
+          
+          targets.forEach(target => {
+            const row = document.createElement('tr');
+            
+            // ID cel
+            const idCell = document.createElement('td');
+            idCell.textContent = target.id;
+            
+            // Maand cel
+            const monthCell = document.createElement('td');
+            monthCell.textContent = monthNames[target.month - 1];
+            
+            // Target bedrag cel
+            const targetCell = document.createElement('td');
+            const targetInput = document.createElement('input');
+            targetInput.type = 'text';
+            targetInput.value = target.targetAmount;
+            targetInput.id = `target-${target.id}`;
+            targetCell.appendChild(targetInput);
+            
+            // Actie cel
+            const actionCell = document.createElement('td');
+            const saveButton = document.createElement('button');
+            saveButton.textContent = 'Opslaan';
+            saveButton.onclick = async () => {
+              const newValue = document.getElementById(`target-${target.id}`).value;
+              const success = await updateTarget(target.id, newValue);
+              if (success) {
+                // Ververs de tabel
+                loadTargets();
+              }
+            };
+            actionCell.appendChild(saveButton);
+            
+            // Voeg cellen toe aan de rij
+            row.appendChild(idCell);
+            row.appendChild(monthCell);
+            row.appendChild(targetCell);
+            row.appendChild(actionCell);
+            
+            // Voeg rij toe aan de tabel
+            targetsTable.appendChild(row);
+          });
+        } else {
+          showMessage('Fout bij het laden van targets', true);
+        }
+      } catch (error) {
+        console.error('Error loading targets:', error);
+        showMessage('Fout bij het laden van targets: ' + error.message, true);
+      }
+    }
+    
+    // Laad targets bij het laden van de pagina
+    loadTargets();
+  </script>
+</body>
+</html>

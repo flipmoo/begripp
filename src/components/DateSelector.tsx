@@ -40,21 +40,33 @@ export function DateSelector({ selectedDate, onDateChange, viewMode = 'week' }: 
     console.log('DateSelector - Week changed to:', value);
     const newDate = setWeek(selectedDate, parseInt(value), { weekStartsOn: 1, firstWeekContainsDate: 4 });
     console.log('DateSelector - New date after week change:', newDate, newDate.toISOString());
-    onDateChange(newDate);
+
+    // Trigger immediate data refresh
+    setTimeout(() => {
+      onDateChange(newDate);
+    }, 0);
   };
 
   const handleMonthChange = (value: string) => {
     console.log('DateSelector - Month changed to:', value);
     const newDate = setMonth(selectedDate, parseInt(value));
     console.log('DateSelector - New date after month change:', newDate, newDate.toISOString());
-    onDateChange(newDate);
+
+    // Trigger immediate data refresh
+    setTimeout(() => {
+      onDateChange(newDate);
+    }, 0);
   };
 
   const handleYearChange = (value: string) => {
     console.log('DateSelector - Year changed to:', value);
     const newDate = setYear(selectedDate, parseInt(value));
     console.log('DateSelector - New date after year change:', newDate, newDate.toISOString());
-    onDateChange(newDate);
+
+    // Trigger immediate data refresh
+    setTimeout(() => {
+      onDateChange(newDate);
+    }, 0);
   };
 
   return (
@@ -67,7 +79,7 @@ export function DateSelector({ selectedDate, onDateChange, viewMode = 'week' }: 
           <SelectContent>
             {weeks.map((week) => (
               <SelectItem key={week} value={week.toString()}>
-                Week {week}
+                {`Week ${week}`}
               </SelectItem>
             ))}
           </SelectContent>
@@ -103,4 +115,4 @@ export function DateSelector({ selectedDate, onDateChange, viewMode = 'week' }: 
       </Select>
     </div>
   );
-} 
+}

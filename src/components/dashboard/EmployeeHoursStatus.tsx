@@ -20,23 +20,23 @@ const syncHoursData = async (startDate: string, endDate: string) => {
       },
       body: JSON.stringify({ startDate, endDate }),
     });
-    
+
     if (!syncResponse.ok) {
       throw new Error('Failed to sync data');
     }
-    
+
     // Clear the cache
     const cacheResponse = await fetch('/api/cache/clear', {
       method: 'POST',
     });
-    
+
     if (!cacheResponse.ok) {
       throw new Error('Failed to clear cache');
     }
-    
+
     // Clear local cache
     clearEmployeeCache();
-    
+
     return true;
   } catch (error) {
     console.error('Error syncing hours data:', error);
@@ -57,14 +57,14 @@ const EmployeeHoursStatus: React.FC = () => {
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth() + 1; // JavaScript months are 0-indexed
-    
+
     // First day of current month
     const startDate = `${year}-${month.toString().padStart(2, '0')}-01`;
-    
+
     // Last day of current month
     const lastDay = new Date(year, month, 0).getDate();
     const endDate = `${year}-${month.toString().padStart(2, '0')}-${lastDay}`;
-    
+
     return { startDate, endDate };
   };
 
@@ -73,49 +73,55 @@ const EmployeeHoursStatus: React.FC = () => {
       try {
         setLoading(true);
         setError(null);
-        
+
         // Get current date
         const now = new Date();
         const currentYear = now.getFullYear();
-        
+
+        // Calculate current week number using the proper function
+        const getWeekNumber = (date: Date): number => {
+          const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+          const pastDaysOfYear = (date.getTime() - firstDayOfYear.getTime()) / 86400000;
+          return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+        };
+
         // Get previous week (we want data up until the previous week)
-        const prevWeek = now.getDay() === 0 ? 
-          now.getDate() >= 7 ? Math.floor((now.getDate() - 7) / 7) + 1 : 1 : 
-          Math.floor(now.getDate() / 7) + 1;
-        
+        const currentWeek = getWeekNumber(now);
+        const prevWeek = currentWeek > 1 ? currentWeek - 1 : 52; // Go to last week of previous year if we're in week 1
+
         // Always force refresh for dashboard components to make them more responsive
         const forceRefresh = true;
-        
+
         // Create a custom callback that will handle dashboard-specific processing
         const dashboardCallback = (data: EmployeeWithStats[]) => {
           // Filter and process data specifically for the dashboard view
           const incompleteEmployees = data
             .filter(employee => employee.active !== false)
             .filter(employee => {
-              const percentage = employee.expectedHours > 0 ? 
+              const percentage = employee.expectedHours > 0 ?
                 (employee.writtenHours / employee.expectedHours) * 100 : 100;
               return percentage < 100;
             })
             .map(employee => ({
               ...employee,
-              percentage: employee.expectedHours > 0 ? 
+              percentage: employee.expectedHours > 0 ?
                 (employee.writtenHours / employee.expectedHours) * 100 : 100
             }))
             .sort((a, b) => a.percentage - b.percentage);
-          
+
           setEmployees(incompleteEmployees);
         };
-        
+
         // Fetch employee data for the current year and previous week
         await getEmployeeStats(
-          currentYear, 
-          prevWeek, 
-          dashboardCallback, 
-          forceRefresh, 
+          currentYear,
+          prevWeek,
+          dashboardCallback,
+          forceRefresh,
           false, // Not preloading
           true   // Is dashboard request
         );
-        
+
         // Reset retry count after successful fetch
         if (retryCount > 0) {
           setRetryCount(0);
@@ -123,7 +129,7 @@ const EmployeeHoursStatus: React.FC = () => {
       } catch (err) {
         console.error('Error fetching employee hours:', err);
         setError('Er is een fout opgetreden bij het laden van de medewerker uren. Controleer of de API-server draait.');
-        
+
         // Retry after 5 seconds if the API server might be starting up
         if (retryCount < 3) {
           setTimeout(() => {
@@ -151,7 +157,7 @@ const EmployeeHoursStatus: React.FC = () => {
     try {
       const { startDate, endDate } = getCurrentMonthDates();
       const success = await syncHoursData(startDate, endDate);
-      
+
       if (success) {
         // Trigger a refetch after successful sync
         setRetryCount(prev => prev + 1);
@@ -170,10 +176,10 @@ const EmployeeHoursStatus: React.FC = () => {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle>Medewerkers met Onvolledige Uren</CardTitle>
-        <button 
+        <button
           onClick={handleSyncData}
           disabled={syncingData}
-          className="p-1 text-gray-500 hover:text-blue-500 focus:outline-none" 
+          className="p-1 text-gray-500 hover:text-blue-500 focus:outline-none"
           title="Refresh data from Gripp"
         >
           <RefreshCw className={`h-5 w-5 ${syncingData ? 'animate-spin text-blue-500' : ''}`} />
@@ -188,7 +194,7 @@ const EmployeeHoursStatus: React.FC = () => {
         ) : error ? (
           <div className="text-center py-4">
             <p className="text-red-500 mb-2">{error}</p>
-            <button 
+            <button
               onClick={handleRetry}
               className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 flex items-center mx-auto"
             >
@@ -203,8 +209,8 @@ const EmployeeHoursStatus: React.FC = () => {
         ) : (
           <div className="space-y-4">
             {employees.slice(0, 10).map(employee => (
-              <div 
-                key={employee.id} 
+              <div
+                key={employee.id}
                 className="space-y-1 cursor-pointer hover:bg-gray-50 p-2 rounded-md"
                 onClick={() => handleEmployeeClick(employee.id)}
               >
@@ -214,8 +220,8 @@ const EmployeeHoursStatus: React.FC = () => {
                     {Math.round(employee.percentage)}%
                   </span>
                 </div>
-                <Progress 
-                  value={employee.percentage} 
+                <Progress
+                  value={employee.percentage}
                   className={`h-2 ${employee.percentage < 75 ? "bg-red-100" : "bg-yellow-100"}`}
                 />
                 <div className="flex justify-between text-sm text-gray-500">
@@ -231,4 +237,4 @@ const EmployeeHoursStatus: React.FC = () => {
   );
 };
 
-export default EmployeeHoursStatus; 
+export default EmployeeHoursStatus;

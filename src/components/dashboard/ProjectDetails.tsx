@@ -20,18 +20,18 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
 
   // Format currency
   const formatCurrency = (value: number) => {
-    return value.toLocaleString('nl-NL', { 
-      style: 'currency', 
+    return value.toLocaleString('nl-NL', {
+      style: 'currency',
       currency: 'EUR',
-      minimumFractionDigits: 2, 
-      maximumFractionDigits: 2 
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
     });
   };
 
   // Handle sync button click
   const handleSync = async () => {
     if (syncing) return;
-    
+
     try {
       setSyncing(true);
       // If onRefresh is provided, call it to refresh the project data
@@ -47,12 +47,27 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
 
   // Bereken project voortgang
   const calculateProgress = () => {
-    if (!project.projectlines || !Array.isArray(project.projectlines)) return 0;
-    
+    if (!project.projectlines) return 0;
+
+    // Parse projectlines als het een string is
+    let projectLines = [];
+    if (typeof project.projectlines === 'string') {
+      try {
+        projectLines = JSON.parse(project.projectlines);
+      } catch (error) {
+        console.error('Error parsing projectlines:', error);
+        return 0;
+      }
+    } else if (Array.isArray(project.projectlines)) {
+      projectLines = project.projectlines;
+    } else {
+      return 0;
+    }
+
     try {
-      const written = project.projectlines.reduce((sum, line) => 
+      const written = projectLines.reduce((sum, line) =>
         sum + (line && line.amountwritten ? parseFloat(line.amountwritten) : 0), 0);
-      const budgeted = project.projectlines.reduce((sum, line) => 
+      const budgeted = projectLines.reduce((sum, line) =>
         sum + (line && line.amount ? line.amount : 0), 0);
       return budgeted > 0 ? (written / budgeted) * 100 : 0;
     } catch (error) {
@@ -62,7 +77,7 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
   };
 
   const progress = calculateProgress();
-  
+
   // Functie om progress bar kleur te bepalen op basis van voortgang
   const getProgressBarColor = (progressValue: number) => {
     if (progressValue > 100) return 'bg-red-500';
@@ -73,13 +88,13 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
   // Format deadline
   const formatDate = (dateObj: { date: string } | null) => {
     if (!dateObj) return 'Niet ingesteld';
-    
+
     try {
       const date = new Date(dateObj.date);
-      return date.toLocaleDateString('nl-NL', { 
-        day: 'numeric', 
-        month: 'long', 
-        year: 'numeric' 
+      return date.toLocaleDateString('nl-NL', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
       });
     } catch (error) {
       console.error('Error formatting date:', error);
@@ -87,41 +102,64 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
     }
   };
 
+  // Parse projectlines als het een string is
+  const parsedProjectLines = useMemo(() => {
+    if (!project) return [];
+
+    // Als projectlines een string is, probeer het te parsen
+    if (project.projectlines && typeof project.projectlines === 'string') {
+      try {
+        return JSON.parse(project.projectlines);
+      } catch (error) {
+        console.error('Error parsing projectlines:', error);
+        return [];
+      }
+    }
+
+    // Als projectlines al een array is, gebruik het direct
+    if (project.projectlines && Array.isArray(project.projectlines)) {
+      return project.projectlines;
+    }
+
+    // Anders, return een lege array
+    return [];
+  }, [project]);
+
   // Bereken voortgang per projectregel
   const projectLinesWithProgress = useMemo(() => {
-    if (!project.projectlines || !Array.isArray(project.projectlines)) return [];
-    
+    if (!parsedProjectLines || parsedProjectLines.length === 0) return [];
+
     try {
       // Calculate total budget from either sellingprice or totalexclvat
       const totalBudget = parseFloat(project.totalexclvat || '0');
-      
+
       // Calculate total budgeted hours
-      const totalBudgetedHours = project.projectlines.reduce((sum, line) => 
+      const totalBudgetedHours = parsedProjectLines.reduce((sum, line) =>
         sum + (line && line.amount ? line.amount : 0), 0);
-      
-      return project.projectlines
+
+      return parsedProjectLines
         .filter((line): line is NonNullable<typeof line> => line !== null && line !== undefined)
         .map(line => {
           const budgeted = line.amount || 0;
           const written = line.amountwritten ? parseFloat(line.amountwritten) : 0;
           const progress = budgeted > 0 ? (written / budgeted) * 100 : 0;
-          
+
           // Gebruik sellingprice als start uurtarief
-          const sellingPrice = line.sellingprice ? parseFloat(line.sellingprice) : 
+          const sellingPrice = line.sellingprice ? parseFloat(line.sellingprice) :
             (budgeted > 0 ? (budgeted / totalBudgetedHours) * totalBudget / budgeted : 0);
-          
+
           // Bereken het totale bedrag (sellingprice * budgeted hours)
           const totalAmount = sellingPrice * budgeted;
-          
+
           // Start uurtarief is nu direct het sellingprice
           const startHourlyRate = sellingPrice;
-          
+
           // Bereken gerealiseerd uurtarief (totaal bedrag / geschreven uren)
           // Maximaal het start uurtarief
-          const realizedHourlyRate = written > 0 
-            ? Math.min(totalAmount / written, startHourlyRate) 
+          const realizedHourlyRate = written > 0
+            ? Math.min(totalAmount / written, startHourlyRate)
             : 0;
-          
+
           return {
             ...line,
             progress,
@@ -141,42 +179,42 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
 
   // Bereken gecombineerde voortgang per discipline
   const combinedProjectLines = useMemo(() => {
-    if (!project.projectlines || !Array.isArray(project.projectlines)) return [];
-    
+    if (!parsedProjectLines || parsedProjectLines.length === 0) return [];
+
     try {
       const totalBudget = parseFloat(project.totalexclvat || '0');
-      const totalBudgetedHours = project.projectlines.reduce((sum, line) => 
+      const totalBudgetedHours = parsedProjectLines.reduce((sum, line) =>
         sum + (line && line.amount ? line.amount : 0), 0);
       const defaultHourlyRate = totalBudgetedHours > 0 ? totalBudget / totalBudgetedHours : 0;
-      
-      const disciplines = new Map<string, { 
-        budgeted: number, 
-        written: number, 
+
+      const disciplines = new Map<string, {
+        budgeted: number,
+        written: number,
         description: string,
         count: number,
         totalSellingPrice: number,
         totalAmount: number
       }>();
-      
+
       // Filter null/undefined lines eerst
-      const validLines = project.projectlines.filter((line): line is NonNullable<typeof line> => 
+      const validLines = parsedProjectLines.filter((line): line is NonNullable<typeof line> =>
         line !== null && line !== undefined
       );
-      
+
       validLines.forEach(line => {
         if (!line.amount) return; // Skip regels zonder budget
-        
+
         const discipline = line.product?.searchname || 'Overig';
         const budgeted = line.amount || 0;
         const written = line.amountwritten ? parseFloat(line.amountwritten) : 0;
-        
+
         // Gebruik sellingprice als uurtarief
-        const sellingPrice = line.sellingprice ? parseFloat(line.sellingprice) : 
+        const sellingPrice = line.sellingprice ? parseFloat(line.sellingprice) :
           (budgeted > 0 ? (budgeted / totalBudgetedHours) * totalBudget / budgeted : 0);
-        
+
         // Bereken het totale bedrag voor deze regel
         const totalAmount = sellingPrice * budgeted;
-        
+
         if (disciplines.has(discipline)) {
           const existing = disciplines.get(discipline)!;
           disciplines.set(discipline, {
@@ -198,18 +236,18 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
           });
         }
       });
-      
+
       return Array.from(disciplines.entries()).map(([discipline, data]) => {
         const progress = data.budgeted > 0 ? (data.written / data.budgeted) * 100 : 0;
-        
+
         // Gemiddeld uurtarief voor de discipline
         const startHourlyRate = data.budgeted > 0 ? data.totalAmount / data.budgeted : defaultHourlyRate;
-        
+
         // Bereken gerealiseerd uurtarief
-        const realizedHourlyRate = data.written > 0 
-          ? Math.min(data.totalAmount / data.written, startHourlyRate) 
+        const realizedHourlyRate = data.written > 0
+          ? Math.min(data.totalAmount / data.written, startHourlyRate)
           : 0;
-        
+
         return {
           discipline,
           budgeted: data.budgeted,
@@ -227,26 +265,26 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
       console.error('Error calculating combined project lines:', error);
       return [];
     }
-  }, [project.projectlines, project.totalexclvat]);
+  }, [parsedProjectLines, project.totalexclvat]);
 
   // Bereken totale start en gerealiseerd uurtarief voor het project
   const projectRates = useMemo(() => {
-    if (!project.projectlines || !Array.isArray(project.projectlines)) {
+    if (!parsedProjectLines || parsedProjectLines.length === 0) {
       return { startHourlyRate: 0, realizedHourlyRate: 0 };
     }
-    
+
     try {
       const totalBudget = parseFloat(project.totalexclvat || '0');
-      const totalBudgetedHours = project.projectlines.reduce((sum, line) => 
+      const totalBudgetedHours = parsedProjectLines.reduce((sum, line) =>
         sum + (line && line.amount ? line.amount : 0), 0);
-      const totalWrittenHours = project.projectlines.reduce((sum, line) => 
+      const totalWrittenHours = parsedProjectLines.reduce((sum, line) =>
         sum + (line && line.amountwritten ? parseFloat(line.amountwritten) : 0), 0);
-      
+
       const startHourlyRate = totalBudgetedHours > 0 ? totalBudget / totalBudgetedHours : 0;
-      const realizedHourlyRate = totalWrittenHours > 0 
-        ? Math.min(totalBudget / totalWrittenHours, startHourlyRate) 
+      const realizedHourlyRate = totalWrittenHours > 0
+        ? Math.min(totalBudget / totalWrittenHours, startHourlyRate)
         : 0;
-      
+
       return { startHourlyRate, realizedHourlyRate };
     } catch (error) {
       console.error('Error calculating project rates:', error);
@@ -258,7 +296,7 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-2">
-          <Button 
+          <Button
             onClick={onClose}
             variant="outline"
             size="icon"
@@ -292,19 +330,19 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
               <span className="font-medium">Klant:</span>
               <span>{project.company?.searchname || 'Onbekend'}</span>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <Tag className="h-4 w-4 text-gray-500" />
               <span className="font-medium">Fase:</span>
               <span>{project.phase?.searchname || 'Onbekend'}</span>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <FileText className="h-4 w-4 text-gray-500" />
               <span className="font-medium">Nummer:</span>
               <span>#{project.number}</span>
             </div>
-            
+
             {project.color && (
               <div className="flex items-center gap-2">
                 <div className="h-4 w-4 rounded-full" style={{ backgroundColor: project.color }}></div>
@@ -312,7 +350,7 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
                 <span>{project.color}</span>
               </div>
             )}
-            
+
             <div className="flex items-center gap-2">
               <Users className="h-4 w-4 text-gray-500" />
               <span className="font-medium">Teamleden:</span>
@@ -332,19 +370,19 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
               <span className="font-medium">Start datum:</span>
               <span>{formatDate(project.startdate)}</span>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <CalendarClock className="h-4 w-4 text-gray-500" />
               <span className="font-medium">Deadline:</span>
               <span>{formatDate(project.deadline)}</span>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <CalendarClock className="h-4 w-4 text-gray-500" />
               <span className="font-medium">Opleverdatum:</span>
               <span>{formatDate(project.deliverydate)}</span>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <CalendarClock className="h-4 w-4 text-gray-500" />
               <span className="font-medium">Einddatum:</span>
@@ -366,25 +404,25 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
               </div>
               <Progress value={progress} className="h-2" indicatorClassName={getProgressBarColor(progress)} />
             </div>
-            
+
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-gray-500" />
               <span className="font-medium">Geschreven uren:</span>
               <span>
-                {project.projectlines && Array.isArray(project.projectlines) ? 
-                  project.projectlines.reduce((sum, line) => 
-                    sum + (line && line.amountwritten ? parseFloat(line.amountwritten) : 0), 0).toFixed(2) 
+                {parsedProjectLines && parsedProjectLines.length > 0 ?
+                  parsedProjectLines.reduce((sum, line) =>
+                    sum + (line && line.amountwritten ? parseFloat(line.amountwritten) : 0), 0).toFixed(2)
                   : '0.00'}
               </span>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-gray-500" />
               <span className="font-medium">Gebudgetteerde uren:</span>
               <span>
-                {project.projectlines && Array.isArray(project.projectlines) ? 
-                  project.projectlines.reduce((sum, line) => 
-                    sum + (line && line.amount ? line.amount : 0), 0).toFixed(2) 
+                {project.projectlines && Array.isArray(project.projectlines) ?
+                  project.projectlines.reduce((sum, line) =>
+                    sum + (line && line.amount ? line.amount : 0), 0).toFixed(2)
                   : '0.00'}
               </span>
             </div>
@@ -400,28 +438,28 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
             <div className="flex items-center gap-2">
               <span className="font-medium">Totaal excl. BTW:</span>
               <span className="text-lg">
-                € {parseFloat(project.totalexclvat || '0').toLocaleString('nl-NL', { 
-                  minimumFractionDigits: 2, 
-                  maximumFractionDigits: 2 
+                € {parseFloat(project.totalexclvat || '0').toLocaleString('nl-NL', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2
                 })}
               </span>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <span className="font-medium">Totaal incl. BTW:</span>
               <span className="text-lg">
-                € {parseFloat(project.totalinclvat || '0').toLocaleString('nl-NL', { 
-                  minimumFractionDigits: 2, 
-                  maximumFractionDigits: 2 
+                € {parseFloat(project.totalinclvat || '0').toLocaleString('nl-NL', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2
                 })}
               </span>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <span className="font-medium">Start uurtarief:</span>
               <span>{formatCurrency(projectRates.startHourlyRate)}</span>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <span className="font-medium">Gerealiseerd uurtarief:</span>
               <span>{formatCurrency(projectRates.realizedHourlyRate)}</span>
@@ -447,7 +485,7 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
                 <span>Gecombineerd</span>
               </TabsTrigger>
             </TabsList>
-            
+
             <TabsContent value="all" className="mt-4">
               <div className="space-y-6">
                 {projectLinesWithProgress.length === 0 ? (
@@ -465,8 +503,8 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
                       <div className="flex justify-between text-xs text-gray-500">
                         <span>{line.written.toFixed(2)} / {line.amount.toFixed(2)} uur</span>
                         <span>
-                          Start: {formatCurrency(line.startHourlyRate)} | 
-                          Gerealiseerd: {formatCurrency(line.realizedHourlyRate)} | 
+                          Start: {formatCurrency(line.startHourlyRate)} |
+                          Gerealiseerd: {formatCurrency(line.realizedHourlyRate)} |
                           Waarde: {formatCurrency(line.totalAmount)}
                         </span>
                       </div>
@@ -476,7 +514,7 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
                 )}
               </div>
             </TabsContent>
-            
+
             <TabsContent value="combined" className="mt-4">
               <div className="space-y-6">
                 {combinedProjectLines.length === 0 ? (
@@ -493,8 +531,8 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
                       <div className="flex justify-between text-xs text-gray-500">
                         <span>{line.written.toFixed(2)} / {line.budgeted.toFixed(2)} uur</span>
                         <span>
-                          Start: {formatCurrency(line.startHourlyRate)} | 
-                          Gerealiseerd: {formatCurrency(line.realizedHourlyRate)} | 
+                          Start: {formatCurrency(line.startHourlyRate)} |
+                          Gerealiseerd: {formatCurrency(line.realizedHourlyRate)} |
                           Waarde: {formatCurrency(line.totalAmount)}
                         </span>
                       </div>
@@ -525,4 +563,4 @@ const ProjectDetails: React.FC<ProjectDetailsProps> = ({ project, onClose, onRef
   );
 };
 
-export default ProjectDetails; 
+export default ProjectDetails;

@@ -49,8 +49,12 @@ if (typeof process !== 'undefined' && process.env) {
         console.error('Error loading dotenv:', error);
     }
 }
-const API_URL = 'https://api.gripp.com/public/api3.php';
+// Import API port from config
+const { API_PORT } = require('../../../../config/ports');
+
+const API_URL = `http://localhost:${API_PORT}/api/v1`;
 const API_KEY = 'mi3Pq0Pfw6CtuFAtEoQ6gXIT7cra2c';
+console.log('Using API server:', API_URL);
 console.log('Using API key:', API_KEY);
 // Rate limiting configuration
 const MIN_REQUEST_INTERVAL = 500; // Minimum time between requests in ms

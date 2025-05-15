@@ -129,7 +129,11 @@ export class InvoiceAdapter extends BaseApiAdapter {
 
       // Prepare pagination options
       const page = Number(parsedQuery.page) || 1;
-      const limit = Number(parsedQuery.limit) || 50; // Default to 50 invoices per page
+      // Increase default limit to handle more invoices per page
+      const limit = Number(parsedQuery.limit) || 100; // Default to 100 invoices per page
+      // Set a maximum limit to prevent performance issues
+      const maxLimit = 500;
+      const effectiveLimit = Math.min(limit, maxLimit);
 
       // Prepare sorting options
       let orderBy = 'date';
@@ -219,10 +223,11 @@ export class InvoiceAdapter extends BaseApiAdapter {
       console.log(`Total invoices in database with filters: ${total}`);
 
       // Get paginated invoices with filters
-      const offset = (page - 1) * limit;
-      const sqlQuery = `SELECT * FROM invoices ${whereClause} ORDER BY ${orderBy} ${orderDirection} LIMIT ${limit} OFFSET ${offset}`;
+      const offset = (page - 1) * effectiveLimit;
+      const sqlQuery = `SELECT * FROM invoices ${whereClause} ORDER BY ${orderBy} ${orderDirection} LIMIT ${effectiveLimit} OFFSET ${offset}`;
       console.log('SQL Query:', sqlQuery);
       console.log('SQL Params:', queryParams);
+      console.log(`Pagination: page=${page}, limit=${effectiveLimit}, offset=${offset}`);
 
       const rows = await this.unitOfWork.getDatabase().all(sqlQuery, ...queryParams);
       console.log(`Found ${rows.length} invoices using direct query`);
@@ -288,8 +293,10 @@ export class InvoiceAdapter extends BaseApiAdapter {
           timestamp: new Date().toISOString(),
           total: total,
           page: page,
-          limit: limit,
-          pages: Math.ceil(total / limit)
+          limit: effectiveLimit,
+          pages: Math.ceil(total / effectiveLimit),
+          hasNextPage: page < Math.ceil(total / effectiveLimit),
+          hasPreviousPage: page > 1
         }
       };
 

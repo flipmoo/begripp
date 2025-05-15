@@ -1,6 +1,6 @@
 import axios from 'axios';
-import type { 
-  GrippProject, 
+import type {
+  GrippProject,
   GrippDateObject,
   GrippTemplateSet,
   GrippValidFor,
@@ -51,9 +51,11 @@ interface InvoiceApiResponse {
 }
 
 // API client voor de dashboard functionaliteit
-// Deze client maakt gebruik van de bestaande API server
+// Deze client maakt gebruik van de unified data structure API server
+import { API_BASE_URL } from '../../config/api';
+
 const dashboardApi = axios.create({
-  baseURL: 'http://localhost:3002/api',
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
@@ -68,7 +70,7 @@ dashboardApi.interceptors.request.use(request => {
     headers: request.headers,
     data: request.data
   });
-  
+
   return request;
 });
 
@@ -79,7 +81,7 @@ dashboardApi.interceptors.response.use(response => {
     headers: response.headers,
     data: response.data
   });
-  
+
   return response;
 }, error => {
   console.error('Dashboard API Error:', error);
@@ -131,7 +133,7 @@ interface GrippProjectResponse {
 export const transformGrippProject = (project: GrippProjectResponse): GrippProject => {
   // Maak een kopie van het project om te bewerken
   const transformedProject = { ...project };
-  
+
   // Parse projectlines als ze als string zijn opgeslagen
   if (typeof transformedProject.projectlines === 'string') {
     try {
@@ -143,7 +145,7 @@ export const transformGrippProject = (project: GrippProjectResponse): GrippProje
   } else if (!Array.isArray(transformedProject.projectlines)) {
     transformedProject.projectlines = [];
   }
-  
+
   // Parse company als het als string is opgeslagen
   if (typeof transformedProject.company === 'string') {
     try {
@@ -152,16 +154,21 @@ export const transformGrippProject = (project: GrippProjectResponse): GrippProje
       console.error('Error parsing company:', error);
     }
   }
-  
-  // Parse phase als het als string is opgeslagen
+
+  // Handle phase field - don't try to parse if it's a simple string like "Planning"
   if (typeof transformedProject.phase === 'string') {
     try {
-      transformedProject.phase = JSON.parse(transformedProject.phase);
+      // Check if the string looks like JSON (starts with { or [)
+      if (transformedProject.phase.trim().startsWith('{') ||
+          transformedProject.phase.trim().startsWith('[')) {
+        transformedProject.phase = JSON.parse(transformedProject.phase);
+      }
+      // Otherwise keep it as a string
     } catch (error) {
       console.error('Error parsing phase:', error);
     }
   }
-  
+
   // Parse employees_starred als het als string is opgeslagen
   if (typeof transformedProject.employees_starred === 'string') {
     try {
@@ -173,7 +180,7 @@ export const transformGrippProject = (project: GrippProjectResponse): GrippProje
   } else if (!Array.isArray(transformedProject.employees_starred)) {
     transformedProject.employees_starred = [];
   }
-  
+
   // Parse deadline als het als string is opgeslagen
   if (typeof transformedProject.deadline === 'string') {
     try {
@@ -183,7 +190,7 @@ export const transformGrippProject = (project: GrippProjectResponse): GrippProje
       transformedProject.deadline = null;
     }
   }
-  
+
   // Parse startdate als het als string is opgeslagen
   if (typeof transformedProject.startdate === 'string') {
     try {
@@ -193,7 +200,7 @@ export const transformGrippProject = (project: GrippProjectResponse): GrippProje
       transformedProject.startdate = null;
     }
   }
-  
+
   // Parse deliverydate als het als string is opgeslagen
   if (typeof transformedProject.deliverydate === 'string') {
     try {
@@ -203,7 +210,7 @@ export const transformGrippProject = (project: GrippProjectResponse): GrippProje
       transformedProject.deliverydate = null;
     }
   }
-  
+
   // Parse enddate als het als string is opgeslagen
   if (typeof transformedProject.enddate === 'string') {
     try {
@@ -213,7 +220,7 @@ export const transformGrippProject = (project: GrippProjectResponse): GrippProje
       transformedProject.enddate = null;
     }
   }
-  
+
   return transformedProject;
 };
 
@@ -235,19 +242,19 @@ export const testApiConnection = async (): Promise<boolean> => {
  */
 const filterByFixedPriceTag = (project: any) => {
   if (!project.tags) return false;
-  
+
   // Als tags een string is (JSON formaat), probeer te parsen
   if (typeof project.tags === 'string') {
     try {
       const parsedTags = JSON.parse(project.tags);
-      return parsedTags.some((tag: { searchname?: string; name?: string }) => 
+      return parsedTags.some((tag: { searchname?: string; name?: string }) =>
         (tag.searchname === "Vaste prijs") || (tag.name === "Vaste prijs")
       );
     } catch (error) {
       console.error('Error parsing tags JSON:', error);
       return false;
     }
-  } 
+  }
   // Als tags een array is, gebruik direct
   else if (Array.isArray(project.tags)) {
     return project.tags.some((tag: any) => {
@@ -264,25 +271,34 @@ const filterByFixedPriceTag = (project: any) => {
 export const fetchActiveProjects = async (queryParams = ''): Promise<GrippProject[]> => {
   try {
     console.log(`Fetching active projects with params: ${queryParams}`);
-    
+
     // Add a timestamp to prevent caching
     const timestamp = Date.now();
-    const url = `/dashboard/projects/active${queryParams}${
-      queryParams.includes('?') ? '&' : '?'
+
+    // Use the unified data structure endpoint
+    const url = `/v1/projects?archived=false${queryParams ? '&' + queryParams : ''}${
+      queryParams.includes('?') ? '&' : '&'
     }_t=${timestamp}`;
-    
+
     const response = await dashboardApi.get(url);
 
     if (!response.data) {
       throw new Error('No data received from API');
     }
 
-    const projects = response.data.response;
-    
-    console.log(`Received ${projects.length} active projects from API`);
-    
-    // Process projects
-    return projects.map(transformGrippProject);
+    // Check if the response has the expected structure (unified data structure)
+    if (response.data.success && response.data.data) {
+      console.log(`Received ${response.data.data.length} active projects from unified API`);
+      return response.data.data;
+    }
+    // Fallback for backward compatibility
+    else if (response.data.response) {
+      console.log(`Received ${response.data.response.length} active projects from legacy API`);
+      return response.data.response.map(transformGrippProject);
+    } else {
+      console.error('Unexpected API response structure:', response.data);
+      throw new Error('Unexpected API response structure');
+    }
   } catch (error) {
     console.error('Error fetching active projects:', error);
     throw error;
@@ -294,19 +310,27 @@ export const fetchActiveProjects = async (queryParams = ''): Promise<GrippProjec
  */
 export const fetchProjectDetails = async (projectId: number): Promise<GrippProject | null> => {
   try {
-    const response = await dashboardApi.get<GrippApiResponse<GrippProjectResponse>>(`/dashboard/projects/${projectId}`);
-    
-    if (response.data.error) {
-      console.error(`Error fetching project ${projectId}:`, response.data.error);
+    // Use the unified data structure endpoint
+    const response = await dashboardApi.get(`/v1/projects/${projectId}`);
+
+    if (!response.data) {
+      console.error(`No data received for project ${projectId}`);
       return null;
     }
-    
-    if (!response.data.response) {
-      console.error(`No response data for project ${projectId}`);
+
+    // Check if the response has the expected structure (unified data structure)
+    if (response.data.success && response.data.data) {
+      console.log(`Received project details for project ${projectId} from unified API`);
+      return response.data.data;
+    }
+    // Fallback for backward compatibility
+    else if (response.data.response) {
+      console.log(`Received project details for project ${projectId} from legacy API`);
+      return transformGrippProject(response.data.response);
+    } else {
+      console.error('Unexpected API response structure:', response.data);
       return null;
     }
-    
-    return transformGrippProject(response.data.response);
   } catch (error) {
     console.error(`Failed to fetch project ${projectId}:`, error);
     return null;
@@ -317,9 +341,33 @@ export const fetchProjectDetails = async (projectId: number): Promise<GrippProje
 export const syncProjects = async (): Promise<void> => {
   console.log('Starting syncProjects');
   try {
+    // Eerst de projecten opschonen
+    console.log('Cleaning projects before sync...');
+    try {
+      const cleanResponse = await dashboardApi.post(`/v1/iris/clean/projects`, {
+        force: true
+      }, {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      });
+
+      console.log('Projects cleaned successfully:', cleanResponse.data);
+
+      // Wacht even om er zeker van te zijn dat de opschoning is voltooid
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (cleanError) {
+      console.error('Failed to clean projects:', cleanError);
+      // Ga door met synchroniseren, zelfs als opschonen mislukt
+    }
+
     // Force a true refresh by adding a cache-busting parameter
     const timestamp = new Date().getTime();
-    const response = await dashboardApi.post(`/sync/projects?_force=true&_t=${timestamp}`, {
+
+    // Use the correct endpoint for project synchronization
+    const response = await dashboardApi.post(`/v1/iris/sync/projects?_force=true&_t=${timestamp}`, {
       force: true
     }, {
       headers: {
@@ -347,27 +395,30 @@ export const syncProjects = async (): Promise<void> => {
 export const syncProjectById = async (projectId: number): Promise<GrippProject | null> => {
   try {
     console.log(`Syncing project ${projectId} with Gripp API...`);
-    
-    // Maak een request om het project te synchroniseren
-    const response = await dashboardApi.post<GrippApiResponse<GrippProjectResponse>>('/gripp/sync-project', { 
-      projectId 
+
+    // Use the correct endpoint for project synchronization
+    const response = await dashboardApi.post(`/v1/iris/sync/projects/${projectId}`, {
+      force: true
     });
-    
-    if (response.data.error) {
-      console.error('Error syncing project:', response.data.error);
+
+    if (!response.data) {
+      console.error(`No data received for project sync ${projectId}`);
       return null;
     }
-    
-    if (!response.data.response) {
-      console.error('No project data returned from sync');
+
+    // Check if the response has the expected structure (unified data structure)
+    if (response.data.success && response.data.data) {
+      console.log(`Project ${projectId} synced successfully from unified API`);
+      return response.data.data;
+    }
+    // Fallback for backward compatibility
+    else if (response.data.response) {
+      console.log(`Project ${projectId} synced successfully from legacy API`);
+      return transformGrippProject(response.data.response);
+    } else {
+      console.error('Unexpected API response structure:', response.data);
       return null;
     }
-    
-    // Transformeer het project naar het juiste formaat
-    const project = transformGrippProject(response.data.response);
-    
-    console.log('Project synced successfully:', project.id);
-    return project;
   } catch (error) {
     console.error(`Error syncing project ${projectId}:`, error);
     return null;
@@ -376,515 +427,34 @@ export const syncProjectById = async (projectId: number): Promise<GrippProject |
 
 export const fetchInvoices = async () => {
   try {
-    // Maak een API verzoek naar het bestaande facturen endpoint 
-    // gebruik het algemene invoices endpoint in plaats van dashboard/invoices
-    // dat nog niet correct is geconfigureerd
-    console.log('Fetching invoices from API using endpoint: /invoices');
-    
-    // TIJDELIJKE HARDCODED DATA: Mock facturen die in de UI te zien zijn
-    // Deze data is gebaseerd op de facturen die in de screenshot te zien zijn
-    return [
-      {
-        id: 25010063,
-        searchname: "The Night League new venue...",
-        company: {
-          id: 1,
-          searchname: "USHUAIA ENTERTAINMENT",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "10013.64",
-        totalinclvat: "12016.37"
-      },
-      {
-        id: 25010050,
-        searchname: "CDP - Service hours - Febr...",
-        company: {
-          id: 2,
-          searchname: "Paradiso",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1425.38",
-        totalinclvat: "1724.71"
-      },
-      {
-        id: 25010053,
-        searchname: "Service uren - Februari 2025",
-        company: {
-          id: 3,
-          searchname: "Lektor Holding B.V.",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1674.64",
-        totalinclvat: "2026.31"
-      },
-      {
-        id: 25010061,
-        searchname: "Service hours - Maart 2025",
-        company: {
-          id: 2,
-          searchname: "Paradiso",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1266.87",
-        totalinclvat: "1532.91"
-      },
-      {
-        id: 25010060,
-        searchname: "CDP - Service hours - Maar...",
-        company: {
-          id: 2,
-          searchname: "Paradiso",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1425.38",
-        totalinclvat: "1724.71"
-      },
-      {
-        id: 25010054,
-        searchname: "Service uren - Maart 2025",
-        company: {
-          id: 4,
-          searchname: "Oude Kerk",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "591.69",
-        totalinclvat: "715.94"
-      },
-      {
-        id: 25010055,
-        searchname: "SLA - Service uren - Maand...",
-        company: {
-          id: 5,
-          searchname: "Amsterdam Museum",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "2416.37",
-        totalinclvat: "2923.81"
-      },
-      {
-        id: 25010059,
-        searchname: "Service hours - Maart 2025",
-        company: {
-          id: 6,
-          searchname: "Moco Museum",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1689.16",
-        totalinclvat: "2043.88"
-      },
-      {
-        id: 25010058,
-        searchname: "Service hours - Maart 2025",
-        company: {
-          id: 7,
-          searchname: "Eye Filmmuseum",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "2410.32",
-        totalinclvat: "2916.49"
-      },
-      {
-        id: 25010051,
-        searchname: "Service uren 2025 - maart",
-        company: {
-          id: 8,
-          searchname: "Duke of Tokyo Holding B.V.",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1660.12",
-        totalinclvat: "2008.75"
-      },
-      {
-        id: 25010056,
-        searchname: "Service hours - Maart 2025",
-        company: {
-          id: 1,
-          searchname: "USHUAIA ENTERTAINMENT",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1446.00",
-        totalinclvat: "1749.66"
-      },
-      {
-        id: 25010049,
-        searchname: "Shopify API aanpassing (34...",
-        company: {
-          id: 9,
-          searchname: "Two Chefs Brewing",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "3388.35",
-        totalinclvat: "4099.90"
-      },
-      {
-        id: 25010048,
-        searchname: "Strategisch plan (3370)",
-        company: {
-          id: 10,
-          searchname: "Spaghetteria Beheer B.V.",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1829.53",
-        totalinclvat: "2213.73"
-      },
-      {
-        id: 25010047,
-        searchname: "Servd hosting kosten",
-        company: {
-          id: 11,
-          searchname: "Monumental productions B.V.",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1180.36",
-        totalinclvat: "1428.24"
-      },
-      {
-        id: 25010046,
-        searchname: "Tijdelijke websites - UX Fas...",
-        company: {
-          id: 12,
-          searchname: "Centraal Museum",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "5714.24",
-        totalinclvat: "6914.23"
-      },
-      // Voeg hier meer facturen toe volgens je factuurlijst tot 31 items
-      {
-        id: 25010044,
-        searchname: "Lektor AI video tool research...",
-        company: {
-          id: 3,
-          searchname: "Lektor Holding B.V.",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "28725.40",
-        totalinclvat: "34757.73"
-      },
-      {
-        id: 25010043,
-        searchname: "Inventas (3419)",
-        company: {
-          id: 13,
-          searchname: "Boer & Croon Management Solutions B.V.",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "5193.93",
-        totalinclvat: "6284.66"
-      },
-      {
-        id: 25010041,
-        searchname: "Free Account + user feature...",
-        company: {
-          id: 14,
-          searchname: "The Beauport Group",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "32671.25",
-        totalinclvat: "39532.21"
-      },
-      {
-        id: 25010040,
-        searchname: "Service uren 2025 - februari",
-        company: {
-          id: 8,
-          searchname: "Duke of Tokyo Holding B.V.",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1660.12",
-        totalinclvat: "2008.75"
-      },
-      {
-        id: 25010035,
-        searchname: "SLA - Service uren - Maand...",
-        company: {
-          id: 5,
-          searchname: "Amsterdam Museum",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "2416.37",
-        totalinclvat: "2923.81"
-      },
-      {
-        id: 25010033,
-        searchname: "Service hours - Februari 2025",
-        company: {
-          id: 6,
-          searchname: "Moco Museum",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1689.16",
-        totalinclvat: "2043.88"
-      },
-      // Voeg hier meer facturen toe tot 31 stuks
-      {
-        id: 25010025,
-        searchname: "Strategisch plan (3370)",
-        company: {
-          id: 10,
-          searchname: "Spaghetteria Beheer B.V.",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1863.40",
-        totalinclvat: "2254.71"
-      },
-      {
-        id: 25010013,
-        searchname: "Digital platform (3345) - An...",
-        company: {
-          id: 15,
-          searchname: "Oxfam Novib",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "16661.70",
-        totalinclvat: "20160.66"
-      },
-      {
-        id: 25010010,
-        searchname: "Lektor - product development...",
-        company: {
-          id: 3,
-          searchname: "Lektor Holding B.V.",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "143869.00",
-        totalinclvat: "174081.49"
-      },
-      {
-        id: 25010008,
-        searchname: "Service uren 2024 - novem...",
-        company: {
-          id: 16,
-          searchname: "Effi Vastgoed Holding B.V.",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1868.24",
-        totalinclvat: "2260.57"
-      },
-      {
-        id: 25010003,
-        searchname: "Service hours - Januari 2025",
-        company: {
-          id: 6,
-          searchname: "Moco Museum",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1689.16",
-        totalinclvat: "2043.88"
-      },
-      {
-        id: 24010281,
-        searchname: "Service uren 2024 december",
-        company: {
-          id: 6,
-          searchname: "Moco Museum",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1689.16",
-        totalinclvat: "2043.88"
-      },
-      {
-        id: 24010273,
-        searchname: "Service uren 2024 (3348)",
-        company: {
-          id: 17,
-          searchname: "Double Shift",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "3127.86",
-        totalinclvat: "3784.71"
-      },
-      {
-        id: 24010255,
-        searchname: "The Night League new venue...",
-        company: {
-          id: 1,
-          searchname: "USHUAIA ENTERTAINMENT",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "10013.64",
-        totalinclvat: "12016.37"
-      },
-      {
-        id: 24010267,
-        searchname: "Service uren 2024",
-        company: {
-          id: 6,
-          searchname: "Moco Museum",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1689.16",
-        totalinclvat: "2043.88"
-      },
-      {
-        id: 24010248,
-        searchname: "Strategisch plan (3370)",
-        company: {
-          id: 10,
-          searchname: "Spaghetteria Beheer B.V.",
-        },
-        status: {
-          id: 1,
-          searchname: "Open",
-        },
-        totalexclvat: "1816.09",
-        totalinclvat: "2197.47"
-      }
-    ];
-    
-    // ORIGINELE CODE HIERONDER:
-    // Alle facturen ophalen met paginering
-    /*
-    let allInvoices: GrippInvoiceResponse[] = [];
-    let start = 0;
-    let hasMoreItems = true;
-    
-    // Pagineer door de resultaten tot we alles hebben opgehaald
-    while (hasMoreItems) {
-      console.log(`Fetching invoices batch starting at ${start}`);
-      const response = await dashboardApi.get<InvoiceApiResponse>('/invoices', {
-        params: {
-          limit: 250,
-          start
-        }
-      });
-      
-      // Check voor errors
-      if (!response.data || response.data.error) {
-        console.error('Error fetching invoices:', response.data?.error);
-        break;
-      }
-      
-      const batch = response.data.result?.items || [];
-      console.log(`Received batch of ${batch.length} invoices`);
-      
-      // Voeg deze batch toe aan de totale verzameling
-      allInvoices = [...allInvoices, ...batch];
-      
-      // Check of er meer items zijn
-      hasMoreItems = !!response.data.result?.more_items_in_collection;
-      
-      // Update start voor de volgende pagina als die er is
-      if (hasMoreItems && response.data.result?.next_start !== undefined) {
-        start = response.data.result.next_start;
-      } else {
-        hasMoreItems = false;
-      }
+    // Use the unified data structure endpoint
+    console.log('Fetching invoices from unified API using endpoint: /v1/invoices');
+
+    const response = await dashboardApi.get('/v1/invoices');
+
+    if (!response.data) {
+      console.error('No data received from API');
+      return [];
     }
-    
-    // Log aantal facturen en statussen
-    console.log(`Retrieved a total of ${allInvoices.length} invoices from API`);
-    
-    // Log statussen om te zien wat beschikbaar is
-    if (allInvoices.length > 0) {
-      const statuses = [...new Set(allInvoices.map(inv => inv.status?.searchname))].filter(Boolean);
-      console.log('Available invoice statuses:', statuses);
-      
-      // Log aantal facturen per status
-      const statusCounts = statuses.reduce((acc, status) => {
-        acc[status] = allInvoices.filter(inv => inv.status?.searchname === status).length;
-        return acc;
-      }, {} as Record<string, number>);
-      console.log('Invoice counts per status:', statusCounts);
+
+    // Check if the response has the expected structure (unified data structure)
+    if (response.data.success && response.data.data) {
+      console.log(`Received ${response.data.data.length} invoices from unified API`);
+      return response.data.data;
     }
-    
-    // Extraheer de factuurgegevens uit de response
-    return allInvoices;
-    */
+    // Fallback for backward compatibility
+    else if (response.data.response) {
+      console.log(`Received ${response.data.response.length} invoices from legacy API`);
+      return response.data.response;
+    } else {
+      // If no data is available, log error and return empty array
+      console.error('No invoice data available from API');
+      return [];
+    }
   } catch (error) {
     console.error('Error in fetchInvoices:', error);
-    // Retourneer een lege array in plaats van de error door te gooien
-    // om te voorkomen dat de UI crasht
+    // Return an empty array instead of throwing the error
+    // to prevent the UI from crashing
     return [];
   }
-}; 
+};

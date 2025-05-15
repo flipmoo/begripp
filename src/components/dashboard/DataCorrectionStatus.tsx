@@ -18,45 +18,8 @@ interface DataCorrection {
   description: string;
 }
 
-// Mock data for demo purposes
-const initialCorrections: DataCorrection[] = [
-  {
-    id: '1',
-    source: 'Nmbrs',
-    target: 'Werknemer #1021',
-    field: 'contracturen',
-    status: 'completed',
-    timestamp: Date.now() - 3600000, // 1 hour ago
-    description: 'Contract uren gewijzigd van 32 naar 40 uur'
-  },
-  {
-    id: '2',
-    source: 'Exact',
-    target: 'Project #P-2023-042',
-    field: 'budget',
-    status: 'pending',
-    timestamp: Date.now() - 7200000, // 2 hours ago
-    description: 'Budget aanpassing van €10.000 naar €15.000'
-  },
-  {
-    id: '3',
-    source: 'Nmbrs',
-    target: 'Werknemer #1045',
-    field: 'verlofuren',
-    status: 'in_progress',
-    timestamp: Date.now() - 86400000, // 1 day ago
-    description: 'Verlofuren correctie: 24 uur toegevoegd'
-  },
-  {
-    id: '4',
-    source: 'TMetrix',
-    target: 'Project #P-2023-039',
-    field: 'uren',
-    status: 'failed',
-    timestamp: Date.now() - 172800000, // 2 days ago
-    description: 'Uren correctie kon niet worden doorgevoerd'
-  }
-];
+// Initialize with empty data - we'll fetch real data from the API
+const initialCorrections: DataCorrection[] = [];
 
 const DataCorrectionStatus: React.FC = () => {
   const [corrections, setCorrections] = useState<DataCorrection[]>(initialCorrections);
@@ -98,19 +61,19 @@ const DataCorrectionStatus: React.FC = () => {
   // Helper function to retry failed corrections
   const retryCorrection = (id: string) => {
     setCorrections(
-      corrections.map(correction => 
-        correction.id === id 
-          ? { ...correction, status: 'in_progress' as CorrectionStatus } 
+      corrections.map(correction =>
+        correction.id === id
+          ? { ...correction, status: 'in_progress' as CorrectionStatus }
           : correction
       )
     );
-    
+
     // Simulate that the retry would succeed after 2 seconds
     setTimeout(() => {
       setCorrections(
-        corrections.map(correction => 
-          correction.id === id 
-            ? { ...correction, status: 'completed' as CorrectionStatus } 
+        corrections.map(correction =>
+          correction.id === id
+            ? { ...correction, status: 'completed' as CorrectionStatus }
             : correction
         )
       );
@@ -162,9 +125,9 @@ const DataCorrectionStatus: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     {correction.status === 'failed' && (
-                      <Button 
-                        size="sm" 
-                        variant="ghost" 
+                      <Button
+                        size="sm"
+                        variant="ghost"
                         onClick={() => retryCorrection(correction.id)}
                       >
                         Opnieuw
@@ -181,4 +144,4 @@ const DataCorrectionStatus: React.FC = () => {
   );
 };
 
-export default DataCorrectionStatus; 
+export default DataCorrectionStatus;

@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import { GrippProject } from '../types/gripp';
 import { fetchActiveProjects, fetchProjectDetails, syncProjects, syncProjectById } from '../api/dashboard/grippApi';
-import { dbService } from '../api/dashboard/dbService';
+import { apiService } from '../api/dashboard/apiService';
 import { useToast } from '../components/ui/use-toast';
+import { API_BASE_URL } from '../config/api';
 
 // Define the context type
 interface ProjectsContextType {
@@ -187,72 +188,17 @@ export const ProjectsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setLoadingMessage('Projecten worden geladen...');
     setError(null);
 
-    // Try to load projects from IndexedDB first, unless forcing refresh
-    if (!forceRefresh) {
-      try {
-        console.log('Attempting to load projects from IndexedDB...');
-        const localProjects = await dbService.getAllProjects();
-
-        if (localProjects && localProjects.length > 0) {
-          console.log(`Loaded ${localProjects.length} projects from IndexedDB`);
-          // Use projects directly from the database
-          setProjects(localProjects);
-          setLoadingState('complete');
-          setLoadingMessage(`${localProjects.length} projecten geladen uit lokale cache`);
-        } else {
-          console.log('No projects in IndexedDB or empty response, fetching from API');
-
-          // Load directly from API if no projects in local database
-          console.log('API call to: /dashboard/projects/active');
-          setLoadingMessage('Projecten worden geladen vanaf API...');
-
-          const activeProjects = await fetchActiveProjects();
-          console.log(`Loaded ${activeProjects.length} projects from API`);
-
-          // Use projects directly from the API
-          setProjects(activeProjects);
-          setLoadingState('complete');
-          setLoadingMessage(`${activeProjects.length} projecten geladen vanaf API`);
-
-          // Update IndexedDB cache
-          try {
-            await dbService.saveProjects(activeProjects);
-            console.log('Projects saved to IndexedDB cache');
-          } catch (dbError) {
-            console.error('Error saving projects to IndexedDB:', dbError);
-          }
-        }
-      } catch (apiError) {
-        console.error('Error calling API:', apiError);
-        const errorMessage = apiError instanceof Error ? apiError.message : 'Onbekende fout';
-        setError('API fout: ' + errorMessage);
-        setLoadingState('error');
-        setLoadingMessage('Er is een fout opgetreden bij het API verzoek. Probeer het later opnieuw.');
-      }
-
-      return;
-    }
-
-    // If we're here, we're loading projects directly from the API (forceRefresh=true)
     try {
-      console.log('API call to: /dashboard/projects/active');
+      console.log('Loading projects from API...');
       setLoadingMessage('Projecten worden geladen vanaf API...');
 
-      const activeProjects = await fetchActiveProjects();
+      const activeProjects = await apiService.getAllProjects();
       console.log(`Loaded ${activeProjects.length} projects from API`);
 
       // Use projects directly from the API
       setProjects(activeProjects);
       setLoadingState('complete');
       setLoadingMessage(`${activeProjects.length} projecten geladen vanaf API`);
-
-      // Update IndexedDB cache
-      try {
-        await dbService.saveProjects(activeProjects);
-        console.log('Projects saved to IndexedDB cache');
-      } catch (dbError) {
-        console.error('Error saving projects to IndexedDB:', dbError);
-      }
     } catch (error) {
       console.error('Error fetching active projects:', error);
       setLoadingState('error');
@@ -275,8 +221,12 @@ export const ProjectsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         description: "Projecten worden gesynchroniseerd met Gripp...",
       });
 
-      // First sync Gripp projects
-      await syncProjects();
+      // Sync projects via API
+      const syncResult = await apiService.syncProjects();
+
+      if (!syncResult) {
+        throw new Error('Synchronisatie mislukt');
+      }
 
       toast({
         title: "Data gesynchroniseerd",
@@ -286,20 +236,15 @@ export const ProjectsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       // Wait a second to make sure the database is updated
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Clear IndexedDB cache
-      setLoadingMessage("Cache wordt leeggemaakt...");
-      await dbService.clearProjects();
-
       toast({
         title: "Data ophalen",
         description: "Bijgewerkte project gegevens worden opgehaald...",
       });
 
-      console.log('Forcing projects refresh');
+      console.log('Loading refreshed projects');
 
-      // Force a direct refresh from the API
-      const timestamp = new Date().getTime();
-      const refreshedProjects = await fetchActiveProjects(`?refresh=true&_t=${timestamp}`);
+      // Load the refreshed projects
+      const refreshedProjects = await apiService.getAllProjects();
 
       if (refreshedProjects && refreshedProjects.length > 0) {
         console.log(`Successfully loaded ${refreshedProjects.length} projects after sync`);
@@ -308,15 +253,6 @@ export const ProjectsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setProjects(refreshedProjects);
         setLoadingState('complete');
         setLoadingMessage(`${refreshedProjects.length} projecten succesvol gesynchroniseerd.`);
-
-        // Also update IndexedDB for future load cycles
-        try {
-          console.log('Saving projects to IndexedDB cache');
-          await dbService.saveProjects(refreshedProjects);
-          console.log('Projects saved to IndexedDB cache');
-        } catch (dbError) {
-          console.error('Error saving projects to IndexedDB:', dbError);
-        }
 
         toast({
           title: "Synchronisatie voltooid",
@@ -372,7 +308,7 @@ export const ProjectsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       // If the project is not found locally, fetch it from the API
-      const projectDetails = await fetchProjectDetails(id);
+      const projectDetails = await apiService.getProjectDetails(id);
       if (projectDetails) {
         setSelectedProject(projectDetails);
       } else {
@@ -397,7 +333,7 @@ export const ProjectsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     try {
       setLoadingDetails(true);
-      const refreshedProject = await syncProjectById(selectedProject.id);
+      const refreshedProject = await apiService.syncProjectById(selectedProject.id);
 
       if (refreshedProject) {
         // Update the project in the state
@@ -407,14 +343,6 @@ export const ProjectsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setProjects(prev =>
           prev.map(p => p.id === refreshedProject.id ? refreshedProject : p)
         );
-
-        // Update the project in the cache
-        try {
-          await dbService.saveProject(refreshedProject);
-          console.log('Project cached successfully:', refreshedProject.id);
-        } catch (error) {
-          console.error('Error caching project:', error);
-        }
 
         toast({
           title: 'Project bijgewerkt',
@@ -445,14 +373,6 @@ export const ProjectsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setLoadingState('loading');
       setLoadingMessage('Cache wordt leeggemaakt...');
 
-      // Clear the cache
-      await dbService.clearCache();
-      console.log('Cache cleared');
-
-      // Remove projects from IndexedDB
-      await dbService.clearProjects();
-      console.log('Projects cleared from IndexedDB');
-
       // Load projects directly from the API
       await loadProjects(true);
 
@@ -475,12 +395,27 @@ export const ProjectsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Calculate project progress
   const calculateProjectProgress = useCallback((project: GrippProject) => {
-    if (!project.projectlines || !Array.isArray(project.projectlines)) return 0;
+    // Parse projectlines als het een string is
+    let projectLines = [];
+    if (project.projectlines) {
+      if (typeof project.projectlines === 'string') {
+        try {
+          projectLines = JSON.parse(project.projectlines);
+        } catch (error) {
+          console.error('Error parsing projectlines:', error);
+          return 0;
+        }
+      } else if (Array.isArray(project.projectlines)) {
+        projectLines = project.projectlines;
+      }
+    }
+
+    if (!projectLines || projectLines.length === 0) return 0;
 
     try {
-      const written = project.projectlines.reduce((sum, line) =>
+      const written = projectLines.reduce((sum, line) =>
         sum + (line && line.amountwritten ? parseFloat(line.amountwritten) : 0), 0);
-      const budgeted = project.projectlines.reduce((sum, line) =>
+      const budgeted = projectLines.reduce((sum, line) =>
         sum + (line && line.amount ? line.amount : 0), 0);
       return budgeted > 0 ? (written / budgeted) * 100 : 0;
     } catch (error) {
@@ -551,7 +486,65 @@ export const ProjectsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // Log first few projects to see what we have
     console.log('First few projects:', projects.slice(0, 3).map(p => ({ id: p.id, name: p.name })));
 
-    return projects
+    // Maak een kopie van de projecten en zorg ervoor dat alle eigenschappen correct zijn geparsed
+    const processedProjects = projects.map(project => {
+      // Maak een kopie van het project
+      const processedProject = { ...project };
+
+      // Parse projectlines als het een string is
+      if (typeof project.projectlines === 'string') {
+        try {
+          processedProject.projectlines = JSON.parse(project.projectlines);
+        } catch (error) {
+          console.error(`Error parsing projectlines for project ${project.id}:`, error);
+          processedProject.projectlines = [];
+        }
+      }
+
+      // Parse tags als het een string is
+      if (typeof project.tags === 'string') {
+        try {
+          processedProject.tags = JSON.parse(project.tags);
+        } catch (error) {
+          console.error(`Error parsing tags for project ${project.id}:`, error);
+          processedProject.tags = [];
+        }
+      }
+
+      // Parse deadline als het een string is
+      if (typeof project.deadline === 'string') {
+        try {
+          processedProject.deadline = JSON.parse(project.deadline);
+        } catch (error) {
+          console.error(`Error parsing deadline for project ${project.id}:`, error);
+          processedProject.deadline = null;
+        }
+      }
+
+      // Parse company als het een string is
+      if (typeof project.company === 'string') {
+        try {
+          processedProject.company = JSON.parse(project.company);
+        } catch (error) {
+          console.error(`Error parsing company for project ${project.id}:`, error);
+          processedProject.company = null;
+        }
+      }
+
+      // Parse phase als het een string is
+      if (typeof project.phase === 'string') {
+        try {
+          processedProject.phase = JSON.parse(project.phase);
+        } catch (error) {
+          console.error(`Error parsing phase for project ${project.id}:`, error);
+          processedProject.phase = null;
+        }
+      }
+
+      return processedProject;
+    });
+
+    return processedProjects
       .filter(project => {
         // Filter by search term
         if (searchQuery && !project.name?.toLowerCase().includes(searchQuery.toLowerCase())) {
@@ -625,17 +618,21 @@ export const ProjectsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           case 'name-desc':
             return (b.name || '').localeCompare(a.name || '');
           case 'budget-asc': {
-            const aBudget = a.projectlines?.reduce((sum, line) =>
-              sum + (line?.amount || 0), 0) || 0;
-            const bBudget = b.projectlines?.reduce((sum, line) =>
-              sum + (line?.amount || 0), 0) || 0;
+            const aBudget = Array.isArray(a.projectlines)
+              ? a.projectlines.reduce((sum, line) => sum + (line?.amount || 0), 0)
+              : 0;
+            const bBudget = Array.isArray(b.projectlines)
+              ? b.projectlines.reduce((sum, line) => sum + (line?.amount || 0), 0)
+              : 0;
             return aBudget - bBudget;
           }
           case 'budget-desc': {
-            const aBudget = a.projectlines?.reduce((sum, line) =>
-              sum + (line?.amount || 0), 0) || 0;
-            const bBudget = b.projectlines?.reduce((sum, line) =>
-              sum + (line?.amount || 0), 0) || 0;
+            const aBudget = Array.isArray(a.projectlines)
+              ? a.projectlines.reduce((sum, line) => sum + (line?.amount || 0), 0)
+              : 0;
+            const bBudget = Array.isArray(b.projectlines)
+              ? b.projectlines.reduce((sum, line) => sum + (line?.amount || 0), 0)
+              : 0;
             return bBudget - aBudget;
           }
           case 'progress-asc': {

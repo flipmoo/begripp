@@ -45,6 +45,10 @@ import { useProjectsStore } from '../../stores/projects';
 
 // Utilities
 import { formatDate } from '../../utils/date-utils';
+import { API_BASE_URL } from '../../config/api';
+
+// Permissions
+import { usePermission } from '../../hooks/usePermission';
 
 /**
  * DashboardPage Component
@@ -75,6 +79,29 @@ const DashboardPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [hasShownToast, setHasShownToast] = useState(false);
+
+  // Permissie checks
+  // Algemene permissies
+  const canViewProjects = usePermission('view_projects');
+  const canViewEmployees = usePermission('view_employees');
+  const canViewInvoices = usePermission('view_invoices');
+  const canSyncData = usePermission('sync_data');
+  const canManageCache = usePermission('manage_cache');
+
+  // Dashboard-specifieke permissies
+  const canViewDashboardProjects = usePermission('view_dashboard_projects');
+  const canViewDashboardEmployees = usePermission('view_dashboard_employees');
+  const canViewDashboardInvoices = usePermission('view_dashboard_invoices');
+  const canViewDashboardIris = usePermission('view_dashboard_iris');
+  const canViewDashboardStats = usePermission('view_dashboard_stats');
+
+  // Gebruik alleen dashboard-specifieke permissies voor dashboard secties
+  // Dit maakt het mogelijk om onderdelen op het dashboard te tonen zonder toegang tot de volledige pagina's
+  const canShowProjectsSection = canViewDashboardProjects;
+  const canShowEmployeesSection = canViewDashboardEmployees;
+  const canShowInvoicesSection = canViewDashboardInvoices;
+  const canShowIrisSection = canViewDashboardIris;
+  const canShowStatsSection = canViewDashboardStats;
 
   // Refs
   const unifiedIncompleteHoursFilterRef = useRef<UnifiedIncompleteHoursFilterRef>(null);
@@ -311,7 +338,7 @@ const DashboardPage: React.FC = () => {
       console.log('Syncing all data from Gripp API...');
 
       // Call the sync endpoint to sync all data from Gripp
-      const response = await fetch('/api/v1/sync', {
+      const response = await fetch(`${API_BASE_URL}/api/v1/sync`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -520,14 +547,16 @@ const DashboardPage: React.FC = () => {
         {/* Header with title and sync button */}
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold">Dashboard</h1>
-          <Button
-            onClick={handleSync}
-            className="flex items-center gap-2"
-            disabled={syncing}
-          >
-            <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Synchroniseren...' : 'Synchroniseren met Gripp'}
-          </Button>
+          {canSyncData ? (
+            <Button
+              onClick={handleSync}
+              className="flex items-center gap-2"
+              disabled={syncing}
+            >
+              <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Synchroniseren...' : 'Synchroniseren met Gripp'}
+            </Button>
+          ) : null}
         </div>
 
         {/* Error message display */}
@@ -546,51 +575,59 @@ const DashboardPage: React.FC = () => {
         ) : (
           <>
             {/* Dashboard statistics */}
-            <div className="mb-6">
-              <h3 className="text-lg font-medium mb-3">Dashboard Statistieken</h3>
-              <UnifiedDashboardStats />
-            </div>
+            {canShowStatsSection && (
+              <div className="mb-6">
+                <h3 className="text-lg font-medium mb-3">Dashboard Statistieken</h3>
+                <UnifiedDashboardStats />
+              </div>
+            )}
 
             {/* Project monitoring components */}
-            <div className="mb-6">
-              <h3 className="text-lg font-medium mb-3">Project Monitoring</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <UnifiedOverBudgetProjects />
-                <UnifiedOverBudgetProjectLines />
-                <UnifiedIncompleteHoursFilter ref={unifiedIncompleteHoursFilterRef} />
+            {canShowProjectsSection && (
+              <div className="mb-6">
+                <h3 className="text-lg font-medium mb-3">Project Monitoring</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <UnifiedOverBudgetProjects />
+                  <UnifiedOverBudgetProjectLines />
+                  <UnifiedIncompleteHoursFilter ref={unifiedIncompleteHoursFilterRef} />
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Invoice Summary */}
-            <div className="mt-6 mb-6">
-              <InvoiceSummary />
-            </div>
+            {canShowInvoicesSection && (
+              <div className="mt-6 mb-6">
+                <InvoiceSummary />
+              </div>
+            )}
 
             {/* Deadlines by month visualization */}
-            <Card className="w-full">
-              <CardHeader>
-                <CardTitle>Deadlines per Maand</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                  {Object.entries(stats.deadlinesByMonth)
-                    .sort(([, countA], [, countB]) => countB - countA)
-                    .map(([month, count]) => (
-                      <div key={month} className="space-y-1">
-                        <div className="flex justify-between">
-                          <span>{month}</span>
-                          <span>{count}</span>
+            {canShowProjectsSection && (
+              <Card className="w-full">
+                <CardHeader>
+                  <CardTitle>Deadlines per Maand</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {Object.entries(stats.deadlinesByMonth)
+                      .sort(([, countA], [, countB]) => countB - countA)
+                      .map(([month, count]) => (
+                        <div key={month} className="space-y-1">
+                          <div className="flex justify-between">
+                            <span>{month}</span>
+                            <span>{count}</span>
+                          </div>
+                          <Progress
+                            value={(count / stats.projectsWithDeadlineCount) * 100}
+                            className="h-2"
+                          />
                         </div>
-                        <Progress
-                          value={(count / stats.projectsWithDeadlineCount) * 100}
-                          className="h-2"
-                        />
-                      </div>
-                    ))
-                  }
-                </div>
-              </CardContent>
-            </Card>
+                      ))
+                    }
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </>
         )}
       </div>

@@ -9,7 +9,7 @@
  */
 export function formatDate(dateString: string): string {
   if (!dateString) return 'Onbekend';
-  
+
   try {
     const date = new Date(dateString);
     return date.toLocaleDateString('nl-NL', {
@@ -26,16 +26,28 @@ export function formatDate(dateString: string): string {
 /**
  * Format a number as currency (Euro)
  * @param value Number to format
+ * @param compact Whether to use compact notation for large numbers
  * @returns Formatted currency string
  */
-export function formatCurrency(value: number): string {
+export function formatCurrency(value: number, compact: boolean = false): string {
   if (value === undefined || value === null) return '€ 0,00';
-  
+
   try {
-    return new Intl.NumberFormat('nl-NL', {
-      style: 'currency',
-      currency: 'EUR'
-    }).format(value);
+    if (compact && Math.abs(value) >= 10000) {
+      // Voor grote bedragen, gebruik compacte notatie (bijv. € 1,2 mln)
+      return new Intl.NumberFormat('nl-NL', {
+        style: 'currency',
+        currency: 'EUR',
+        notation: 'compact',
+        maximumFractionDigits: 1
+      }).format(value);
+    } else {
+      // Voor normale bedragen, gebruik standaard notatie
+      return new Intl.NumberFormat('nl-NL', {
+        style: 'currency',
+        currency: 'EUR'
+      }).format(value);
+    }
   } catch (error) {
     console.error('Error formatting currency:', error);
     return `€ ${value.toFixed(2)}`;
@@ -49,7 +61,7 @@ export function formatCurrency(value: number): string {
  */
 export function formatHours(hours: number): string {
   if (hours === undefined || hours === null) return '0 uur';
-  
+
   try {
     return `${hours.toFixed(1)} uur`;
   } catch (error) {
@@ -65,7 +77,7 @@ export function formatHours(hours: number): string {
  */
 export function formatPercentage(value: number): string {
   if (value === undefined || value === null) return '0%';
-  
+
   try {
     return `${value.toFixed(1)}%`;
   } catch (error) {

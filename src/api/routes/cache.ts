@@ -1,24 +1,25 @@
 /**
  * Cache Routes
- * 
+ *
  * Dit bestand bevat routes voor het beheren van de cache.
  */
 import express, { Request, Response, NextFunction } from 'express';
 import { cacheService } from '../gripp/cache-service';
+import { enhancedCache } from '../../lib/enhanced-cache';
 import { successResponse } from '../utils/response';
 
 const router = express.Router();
 
 /**
  * GET /api/v1/cache/status
- * 
+ *
  * Haal de status van de cache op
  */
 router.get('/status', async (req: Request, res: Response, next: NextFunction) => {
   try {
     // Haal cache keys op
     const keys = cacheService.keys();
-    
+
     // Bereken statistieken
     const stats = {
       total: keys.length,
@@ -28,7 +29,7 @@ router.get('/status', async (req: Request, res: Response, next: NextFunction) =>
       invoices: keys.filter(key => key.startsWith('invoices_')).length,
       keys: keys
     };
-    
+
     // Stuur response
     res.json(successResponse(stats));
   } catch (error) {
@@ -38,17 +39,26 @@ router.get('/status', async (req: Request, res: Response, next: NextFunction) =>
 
 /**
  * POST /api/v1/cache/clear
- * 
+ *
  * Leeg de hele cache
  */
 router.post('/clear', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    console.log('Clearing all cache...');
+
     // Leeg de cache
     cacheService.clear();
-    
+
+    // Leeg ook de enhanced cache
+    enhancedCache.clear();
+
+    // Leeg ook de browser cache door een timestamp toe te voegen aan de response
+    const timestamp = Date.now();
+
     // Stuur response
     res.json(successResponse({
-      message: 'Cache cleared successfully'
+      message: 'Cache cleared successfully',
+      timestamp
     }));
   } catch (error) {
     next(error);
@@ -57,14 +67,14 @@ router.post('/clear', async (req: Request, res: Response, next: NextFunction) =>
 
 /**
  * POST /api/v1/cache/clear/employees
- * 
+ *
  * Leeg de employee cache
  */
 router.post('/clear/employees', async (req: Request, res: Response, next: NextFunction) => {
   try {
     // Leeg de employee cache
     cacheService.clearEmployeeData();
-    
+
     // Stuur response
     res.json(successResponse({
       message: 'Employee cache cleared successfully'
@@ -76,14 +86,14 @@ router.post('/clear/employees', async (req: Request, res: Response, next: NextFu
 
 /**
  * POST /api/v1/cache/clear/projects
- * 
+ *
  * Leeg de project cache
  */
 router.post('/clear/projects', async (req: Request, res: Response, next: NextFunction) => {
   try {
     // Leeg de project cache
     cacheService.clearProjectData();
-    
+
     // Stuur response
     res.json(successResponse({
       message: 'Project cache cleared successfully'
@@ -95,14 +105,14 @@ router.post('/clear/projects', async (req: Request, res: Response, next: NextFun
 
 /**
  * POST /api/v1/cache/clear/invoices
- * 
+ *
  * Leeg de invoice cache
  */
 router.post('/clear/invoices', async (req: Request, res: Response, next: NextFunction) => {
   try {
     // Leeg de invoice cache
     cacheService.clearInvoiceData();
-    
+
     // Stuur response
     res.json(successResponse({
       message: 'Invoice cache cleared successfully'

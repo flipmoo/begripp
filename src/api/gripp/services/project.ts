@@ -26,9 +26,9 @@ export class ProjectService {
       // - Geen namen beginnend met #0 of #1
       // - Geen projecten met nummer 0 of 1
       const projects = await db.all<GrippProject[]>(`
-        SELECT * FROM projects 
-        WHERE archived = 0 
-        AND name NOT LIKE '#0%' 
+        SELECT * FROM projects
+        WHERE archived = 0
+        AND name NOT LIKE '#0%'
         AND name NOT LIKE '#1%'
         AND number != 0
         AND number != 1
@@ -36,11 +36,11 @@ export class ProjectService {
       `);
 
       console.log(`Retrieved ${projects.length} active projects (excluding template projects)`);
-      
+
       // Log eerste 5 projecten om te zien wat er in de database staat
       const firstProjects = projects.slice(0, 5);
       console.log('First 5 projects:', firstProjects.map(p => ({ id: p.id, name: p.name, number: p.number })));
-      
+
       return projects;
     } catch (error) {
       console.error('Error fetching active projects:', error);
@@ -77,15 +77,15 @@ export class ProjectService {
    */
   async syncProjects(db: Database): Promise<void> {
     let transactionStarted = false;
-    
+
     try {
       console.log('Starting project synchronization');
-      
+
       // Controleer of de database verbinding geldig is
       if (!db) {
         throw new Error('Database connection is not valid');
       }
-      
+
       // Test de database verbinding met een eenvoudige query
       try {
         await db.get('SELECT 1');
@@ -94,11 +94,11 @@ export class ProjectService {
         console.error('Database connection test failed:', dbTestError);
         throw new Error(`Database connection test failed: ${dbTestError instanceof Error ? dbTestError.message : String(dbTestError)}`);
       }
-      
+
       // Controleer of de projects tabel bestaat
       const tableExists = await this.ensureProjectsTableExists(db);
       console.log('Projects table exists:', tableExists);
-      
+
       if (!tableExists) {
         console.log('Creating projects table...');
         await this.createProjectsTable(db);
@@ -113,7 +113,7 @@ export class ProjectService {
         console.log(`Retrieved ${projects.length} projects from Gripp API`);
       } catch (grippError) {
         console.error('Error fetching projects from Gripp API:', grippError);
-        
+
         // Log gedetailleerde informatie over de fout
         let errorDetails = 'Unknown error';
         if (grippError instanceof Error) {
@@ -131,15 +131,15 @@ export class ProjectService {
           };
           console.error('Gripp API error details:', errorDetails);
         }
-        
+
         throw new Error(`Failed to fetch projects from Gripp API: ${grippError instanceof Error ? grippError.message : String(grippError)}`);
       }
-      
+
       if (!projects || projects.length === 0) {
         console.warn('No projects retrieved from Gripp API');
         return;
       }
-      
+
       // Begin een transactie - markeer dat we een transactie hebben gestart
       console.log('Starting database transaction');
       await db.run('BEGIN TRANSACTION');
@@ -160,7 +160,7 @@ export class ProjectService {
       let savedCount = 0;
       let errorCount = 0;
       const errors = [];
-      
+
       for (const project of projects) {
         try {
           // Valideer project
@@ -169,10 +169,10 @@ export class ProjectService {
             errorCount++;
             continue;
           }
-          
+
           await this.saveProject(db, project);
           savedCount++;
-          
+
           if (savedCount % 10 === 0) {
             console.log(`Saved ${savedCount}/${projects.length} projects`);
           }
@@ -193,9 +193,9 @@ export class ProjectService {
         console.log('Committing transaction');
         await db.run('COMMIT');
         transactionStarted = false;
-        
+
         console.log(`Successfully synchronized ${savedCount}/${projects.length} projects (${errorCount} errors)`);
-        
+
         if (errors.length > 0) {
           console.error('Errors during project synchronization:', errors);
         }
@@ -208,7 +208,7 @@ export class ProjectService {
       }
     } catch (error) {
       console.error('Error in syncProjects:', error);
-      
+
       // Gedetailleerde logging van fout
       if (error instanceof Error) {
         console.error('Error details:', {
@@ -221,7 +221,7 @@ export class ProjectService {
           cause: error.cause
         });
       }
-      
+
       // Rollback bij een fout indien nodig
       if (transactionStarted && db) {
         try {
@@ -233,7 +233,7 @@ export class ProjectService {
           // We voegen deze fout niet toe aan de originele fout omdat we de originele fout willen behouden
         }
       }
-      
+
       throw error;
     }
   }
@@ -247,13 +247,13 @@ export class ProjectService {
       console.warn('Project missing required ID');
       return false;
     }
-    
+
     // Controleer of verplichte velden aanwezig zijn
     if (project.name === null || project.name === undefined) {
       console.warn(`Project ${project.id} missing required name field`);
       // We zetten name op een lege string in saveProject, dus dit is niet fataal
     }
-    
+
     // Controleer of complexe objecten correct geformatteerd zijn
     // Dit helpt voorkomen dat er null-waarden worden geserialiseerd
     const objectFields = ['company', 'contact', 'accountmanager', 'phase'];
@@ -265,8 +265,47 @@ export class ProjectService {
         }
       }
     }
-    
+
+    // Controleer of vaste prijs projecten een budget hebben
+    if (this.hasFixedPriceTag(project) && (!project.totalexclvat || project.totalexclvat === '0')) {
+      console.warn(`Fixed price project ${project.id} (${project.name}) has no budget (totalexclvat). This should be fixed in Gripp.`);
+      // Dit is niet fataal, maar we loggen het wel als waarschuwing
+    }
+
     return true;
+  }
+
+  /**
+   * Controleer of een project de "Vaste prijs" tag heeft
+   */
+  private hasFixedPriceTag(project: GrippProject): boolean {
+    if (!project.tags) return false;
+
+    // Als tags een string is (JSON formaat), probeer te parsen
+    if (typeof project.tags === 'string') {
+      try {
+        const parsedTags = JSON.parse(project.tags);
+        return parsedTags.some((tag: { searchname?: string; name?: string; id?: string }) =>
+          (tag.searchname === "Vaste prijs") ||
+          (tag.name === "Vaste prijs") ||
+          (tag.id === "28")
+        );
+      } catch (error) {
+        console.error(`Error parsing tags JSON for project ${project.id}:`, error);
+        return false;
+      }
+    }
+    // Als tags een array is, gebruik direct
+    else if (Array.isArray(project.tags)) {
+      return project.tags.some(tag => {
+        if (typeof tag === 'string') return tag === "Vaste prijs";
+        return (tag.searchname === "Vaste prijs") ||
+               (tag.name === "Vaste prijs") ||
+               (tag.id === "28");
+      });
+    }
+
+    return false;
   }
 
   /**
@@ -279,7 +318,16 @@ export class ProjectService {
         console.warn('Skipping project without ID');
         return;
       }
-      
+
+      // Controleer of dit een vaste prijs project is
+      const isFixedPriceProject = this.hasFixedPriceTag(project);
+
+      // Als dit een vaste prijs project is, controleer of er een budget is
+      if (isFixedPriceProject && (!project.totalexclvat || project.totalexclvat === '0')) {
+        console.warn(`Fixed price project ${project.id} (${project.name}) has no budget (totalexclvat). This should be fixed in Gripp.`);
+        // We loggen alleen een waarschuwing, maar gebruiken de echte data uit Gripp
+      }
+
       // Converteer complexe objecten naar JSON strings, alleen als ze bestaan
       const serializedProject = {
         ...project,
@@ -329,67 +377,68 @@ export class ProjectService {
             ?, ?, ?
           )
         `);
-      
+
         await stmt.run(
-          project.id, 
-          project.name || '', 
-          project.number || 0, 
-          project.color, 
+          project.id,
+          project.name || '',
+          project.number || 0,
+          project.color,
           serializedProject.archivedon,
-          project.clientreference || '', 
-          project.isbasis ? 1 : 0, 
+          project.clientreference || '',
+          project.isbasis ? 1 : 0,
           project.archived ? 1 : 0,
           project.workdeliveraddress || '',
-          serializedProject.createdon, 
+          serializedProject.createdon,
           serializedProject.updatedon,
           project.searchname || '',
           serializedProject.extendedproperties,
-          project.totalinclvat || '0', 
-          project.totalexclvat || '0', 
+          project.totalinclvat || '0',
+          // Gebruik de echte data uit Gripp
+          project.totalexclvat || '0',
           serializedProject.startdate,
-          serializedProject.deadline, 
-          serializedProject.deliverydate, 
+          serializedProject.deadline,
+          serializedProject.deliverydate,
           serializedProject.enddate,
-          project.addhoursspecification ? 1 : 0, 
+          project.addhoursspecification ? 1 : 0,
           project.description || '',
-          project.filesavailableforclient ? 1 : 0, 
+          project.filesavailableforclient ? 1 : 0,
           project.discr || '',
-          serializedProject.templateset, 
-          serializedProject.validfor, 
+          serializedProject.templateset,
+          serializedProject.validfor,
           serializedProject.accountmanager,
-          serializedProject.phase, 
-          serializedProject.company, 
+          serializedProject.phase,
+          serializedProject.company,
           serializedProject.contact,
-          serializedProject.identity, 
-          serializedProject.extrapdf1, 
+          serializedProject.identity,
+          serializedProject.extrapdf1,
           serializedProject.extrapdf2,
-          serializedProject.umbrellaproject, 
-          serializedProject.tags, 
+          serializedProject.umbrellaproject,
+          serializedProject.tags,
           serializedProject.employees,
-          serializedProject.employees_starred, 
-          serializedProject.files, 
+          serializedProject.employees_starred,
+          serializedProject.files,
           serializedProject.projectlines,
           project.viewonlineurl || ''
         );
-      
+
         await stmt.finalize();
       } catch (sqlError) {
         // Log details about the SQL error
         console.error(`SQL Error saving project ${project.id}:`, sqlError);
-        
+
         // Handle specific SQLite errors
         if (sqlError instanceof Error) {
           const errMsg = sqlError.message;
           const errCode = (sqlError as any).code;
           const errErrno = (sqlError as any).errno;
-          
+
           console.error('SQL Error details:', {
             message: errMsg,
             code: errCode,
             errno: errErrno,
             stack: sqlError.stack
           });
-          
+
           // Better error categorization
           if (errMsg.includes('SQLITE_CONSTRAINT') || errCode === 'SQLITE_CONSTRAINT') {
             throw new Error(`Constraint violation saving project ${project.id}. Possible duplicate key or invalid reference.`);
@@ -421,7 +470,7 @@ export class ProjectService {
   private async ensureProjectsTableExists(db: Database): Promise<boolean> {
     try {
       const result = await db.get(`
-        SELECT name FROM sqlite_master 
+        SELECT name FROM sqlite_master
         WHERE type='table' AND name='projects'
       `);
       return !!result;
@@ -487,4 +536,4 @@ export class ProjectService {
   }
 }
 
-export const projectService = new ProjectService(); 
+export const projectService = new ProjectService();

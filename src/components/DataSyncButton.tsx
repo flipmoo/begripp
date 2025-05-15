@@ -15,8 +15,8 @@ interface DataSyncButtonProps {
   month?: number;
 }
 
-export function DataSyncButton({ 
-  onSync, 
+export function DataSyncButton({
+  onSync,
   viewMode = 'week',
   selectedDate,
   year,
@@ -31,7 +31,7 @@ export function DataSyncButton({
   useEffect(() => {
     let startDate: Date | undefined;
     let endDate: Date | undefined;
-    
+
     if (selectedDate) {
       startDate = viewMode === 'week'
         ? startOfWeek(selectedDate, { weekStartsOn: 1 })
@@ -51,7 +51,7 @@ export function DataSyncButton({
         endDate = endOfMonth(monthDate);
       }
     }
-    
+
     if (startDate && endDate) {
       setCurrentPeriod({ startDate, endDate });
     }
@@ -60,26 +60,26 @@ export function DataSyncButton({
   // Function to handle sync operation
   const handleSync = async () => {
     if (!currentPeriod) return;
-    
+
     const { startDate, endDate } = currentPeriod;
     const formattedStartDate = format(startDate, 'yyyy-MM-dd');
     const formattedEndDate = format(endDate, 'yyyy-MM-dd');
-    
+
     setSyncStatus('Synchronisatie gestart...');
     console.log(`Starting sync with date range: ${formattedStartDate} to ${formattedEndDate}`);
-    
+
     try {
       // First step: Sync data with Gripp
       setSyncStatus('Data synchroniseren...');
       await sync(formattedStartDate, formattedEndDate);
-      
+
       // Second step: Clear cache
       setSyncStatus('Cache leegmaken...');
       try {
-        const clearCacheResponse = await fetch('http://localhost:3002/api/cache/clear', {
+        const clearCacheResponse = await fetch('http://localhost:3002/api/clear-cache', {
           method: 'POST',
         });
-        
+
         if (!clearCacheResponse.ok) {
           const errorData = await clearCacheResponse.text();
           console.error('Failed to clear cache after sync:', errorData);
@@ -91,12 +91,12 @@ export function DataSyncButton({
         console.error('Error clearing cache:', cacheError);
         throw cacheError;
       }
-      
+
       // Final step: Trigger callback
       if (onSync) {
         onSync();
       }
-      
+
       setSyncStatus('Synchronisatie voltooid');
       setTimeout(() => setSyncStatus(''), 3000);
     } catch (error) {
@@ -125,7 +125,7 @@ export function DataSyncButton({
           {syncStatus}
         </Badge>
       )}
-      
+
       <div className="flex items-center gap-2">
         <Button
           variant="outline"
@@ -137,16 +137,16 @@ export function DataSyncButton({
           <ReloadIcon className={cn("h-4 w-4", isSyncing && "animate-spin")} />
           {isSyncing ? "Synchroniseren..." : "Sync huidige periode"}
         </Button>
-        
+
         <div className="text-xs text-gray-700">
           {getPeriodText()}
         </div>
       </div>
-      
+
       <div className="text-xs text-gray-500 mt-1">
         {getLastSyncText()}
       </div>
-      
+
       {syncError && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded text-xs mt-2">
           {syncError}

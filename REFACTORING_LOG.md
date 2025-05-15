@@ -355,3 +355,50 @@ Dit logboek bevat alle wijzigingen die zijn gemaakt tijdens het opschonen en opt
   - Behouden backward compatibility met oude API endpoints
 - **Getest**: Ja, de nieuwe API server start succesvol en de oude functionaliteit blijft werken
 - **Status**: ✅ Succesvol
+
+### Wijziging #27 - Opschonen van codebase voor merge (Datum: 23-04-2025)
+- **Bestanden**:
+  - package.json
+  - README.md
+  - src/db/unified/init-database.ts (nieuw)
+  - docs/DATABASE_STRUCTURE.md (nieuw)
+  - CLEANUP_PLAN.md
+  - GECONSOLIDEERD_OPSCHOONPLAN.md (nieuw)
+- **Doel**: Opschonen van de codebase om een schone basis te creëren voor het samenvoegen met een ander project
+- **Wijzigingen**:
+  - Script `simple-api` bijgewerkt om te verwijzen naar `src/api/gripp/simple-api-server.ts` in plaats van het niet-bestaande `src/simple-api.ts`
+  - Script `db:init:unified` bijgewerkt om te verwijzen naar `src/db/unified/init-database.ts` in plaats van het niet-bestaande `src/db/unified/test-database.ts`
+  - Gemaakt nieuw bestand `src/db/unified/init-database.ts` voor database initialisatie
+  - README.md bijgewerkt om de correcte database locatie te vermelden (`./src/db/database.sqlite`)
+  - README.md bijgewerkt om de correcte API server informatie te vermelden
+  - README.md bijgewerkt om de correcte scripts te vermelden
+  - README.md bijgewerkt om te verwijzen naar de correcte documentatie bestanden
+  - Gemaakt nieuw document `docs/DATABASE_STRUCTURE.md` met geconsolideerde informatie over de database structuur
+  - CLEANUP_PLAN.md bijgewerkt met nieuwe fase voor codebase opschonen voor merge
+  - Gemaakt nieuw document `GECONSOLIDEERD_OPSCHOONPLAN.md` met geconsolideerde informatie over het opschoonplan
+- **Getest**: Ja, alle scripts werken correct en de documentatie is bijgewerkt
+- **Status**: ✅ Succesvol
+
+### Wijziging #28 - Verwijderen van ongebruikte bestanden (Datum: 23-04-2025)
+- **Bestanden**:
+  - src/test-api.ts (verwijderd)
+  - src/db/unified/repositories/employee-repository-mock.ts (verwijderd)
+  - src/db/unified/repositories/invoice-repository-mock.ts (verwijderd)
+  - src/api/gripp/debug-hours.ts (verwijderd)
+  - debug-scripts/ (directory verwijderd)
+  - temp-dashboard/ (directory verwijderd)
+  - temp-dashboard-clone/ (directory verwijderd)
+  - Diverse backup bestanden (verwijderd)
+  - Diverse redundante documentatie bestanden (verwijderd)
+  - package.json (bijgewerkt)
+- **Doel**: Verwijderen van ongebruikte bestanden om de codebase schoner en overzichtelijker te maken
+- **Wijzigingen**:
+  - Verwijderd test bestanden die niet essentieel zijn voor de productie code
+  - Verwijderd debug bestanden die niet essentieel zijn voor de productie code
+  - Verwijderd backup bestanden die niet meer nodig zijn
+  - Verwijderd tijdelijke bestanden die niet meer nodig zijn
+  - Verwijderd redundante documentatie bestanden
+  - Bijgewerkt package.json om verwijzingen naar verwijderde bestanden te verwijderen
+  - Alle verwijderde bestanden zijn gearchiveerd in de backup directory
+- **Getest**: Ja, de applicatie start zonder errors en alle functionaliteit werkt correct
+- **Status**: ✅ Succesvol

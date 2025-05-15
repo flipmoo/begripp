@@ -1,11 +1,15 @@
 /**
  * Central port configuration for the application
- * IMPORTANT: Changing these ports may break application functionality
+ * IMPORTANT: These are the FIXED ports for the application
+ * DO NOT CHANGE THESE PORTS unless absolutely necessary
+ *
+ * Frontend: 3002
+ * API: 3004
  */
 
-// Main application ports
-export const FRONTEND_PORT = 3000;
-export const API_PORT = 3002;
+// Main application ports - FIXED VALUES
+export const FRONTEND_PORT = 8080; // Frontend port - ALWAYS use this port
+export const API_PORT = 8081; // API port - ALWAYS use this port
 
 // Maximum retry attempts when port is in use
 export const MAX_PORT_RETRY_ATTEMPTS = 3;
@@ -36,4 +40,4 @@ export function getPortKillCommand(port: number): string {
   } else {
     return `lsof -t -i:${port} | xargs kill -9 2>/dev/null || echo "No process on port ${port}"`;
   }
-} 
+}

@@ -521,6 +521,15 @@ app.get('/api/employee-month-stats', async (req, res) => {
       // Bereken het aantal werkdagen in de maand
       const workingDaysInMonth = getWorkingDaysInMonth(year, month);
 
+      // Haal feestdagen op voor deze maand
+      const holidays = await db.all(`
+        SELECT date, name
+        FROM holidays
+        WHERE date >= ? AND date <= ?
+      `, [startDate, endDate]);
+
+      console.log(`Found ${holidays.length} holidays in period ${startDate} to ${endDate}`);
+
       // Verzamel de data per medewerker (om duplicaten te voorkomen)
       const employeeMap = new Map();
 
@@ -558,8 +567,22 @@ app.get('/api/employee-month-stats', async (req, res) => {
         // Bereken totale uren (geschreven + verlof)
         const totalActualHours = totalWrittenHours + leaveHours;
 
-        // Bereken vakantie-uren (jaarlijks)
-        const holidayHours = contractHours * 5; // Ongeveer 5 weken vakantie per jaar
+        // Bereken feestdaguren voor deze periode op basis van het contract
+        const holidayHours = calculateHolidayHoursForPeriod(
+          holidays,
+          {
+            hours_monday_even: emp.hours_monday_even || 0,
+            hours_monday_odd: emp.hours_monday_odd || 0,
+            hours_tuesday_even: emp.hours_tuesday_even || 0,
+            hours_tuesday_odd: emp.hours_tuesday_odd || 0,
+            hours_wednesday_even: emp.hours_wednesday_even || 0,
+            hours_wednesday_odd: emp.hours_wednesday_odd || 0,
+            hours_thursday_even: emp.hours_thursday_even || 0,
+            hours_thursday_odd: emp.hours_thursday_odd || 0,
+            hours_friday_even: emp.hours_friday_even || 0,
+            hours_friday_odd: emp.hours_friday_odd || 0
+          }
+        );
 
         const employeeData = {
           id: emp.id,
@@ -622,6 +645,68 @@ function getWorkingDaysInMonth(year: number, month: number): number {
   }
 
   return workingDays;
+}
+
+/**
+ * Bereken feestdaguren voor een periode op basis van het contract van een medewerker
+ *
+ * @param holidays - Array van feestdagen in de periode
+ * @param contract - Contract uren van de medewerker
+ * @returns Totaal aantal feestdaguren in de periode
+ */
+function calculateHolidayHoursForPeriod(
+  holidays: { date: string; name: string }[],
+  contract: {
+    hours_monday_even: number;
+    hours_monday_odd: number;
+    hours_tuesday_even: number;
+    hours_tuesday_odd: number;
+    hours_wednesday_even: number;
+    hours_wednesday_odd: number;
+    hours_thursday_even: number;
+    hours_thursday_odd: number;
+    hours_friday_even: number;
+    hours_friday_odd: number;
+  }
+): number {
+  let totalHolidayHours = 0;
+
+  // Loop door alle feestdagen
+  for (const holiday of holidays) {
+    const holidayDate = new Date(holiday.date);
+    const dayOfWeek = holidayDate.getDay(); // 0 = zondag, 1 = maandag, etc.
+
+    // Sla weekenden over
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      continue;
+    }
+
+    // Voor nationale feestdagen tellen we standaard 8 uur per dag voor alle medewerkers,
+    // ongeacht of ze fulltime of parttime werken
+    totalHolidayHours += 8;
+  }
+
+  return totalHolidayHours;
+}
+
+/**
+ * Bereken het weeknummer voor een datum volgens ISO-8601
+ *
+ * @param date - De datum waarvoor het weeknummer berekend moet worden
+ * @returns Het ISO weeknummer (1-53)
+ */
+function getWeekNumber(date: Date): number {
+  // Kopieer de datum om de originele niet te wijzigen
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+
+  // Stel in op 1 januari van het jaar
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+
+  // Bereken dagen sinds 1 januari
+  const daysSinceYearStart = Math.floor((d.getTime() - yearStart.getTime()) / 86400000);
+
+  // Bereken weeknummer
+  return Math.ceil((daysSinceYearStart + 1 + yearStart.getUTCDay()) / 7);
 }
 
 
@@ -915,8 +1000,9 @@ app.use(errorHandler);
  * Start the server
  */
 const startServer = () => {
-  app.listen(port, () => {
+  app.listen(port, '0.0.0.0', () => {
     console.log(`API server v2 running at http://localhost:${port}`);
+    console.log(`API server v2 is also accessible on the network at http://192.168.2.41:${port}`);
   }).on('error', async (error: any) => {
     if (error.code === 'EADDRINUSE') {
       console.error(`Port ${port} is already in use`);

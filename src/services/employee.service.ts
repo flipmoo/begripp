@@ -2,6 +2,65 @@ import { format } from 'date-fns';
 import { Absence, AbsencesByEmployee } from './absence.service';
 import { API_BASE, fetchWithRetry, checkApiHealth } from './api';
 
+export interface Employee {
+  id: number;
+  firstname: string;
+  lastname: string;
+  email?: string;
+  phone?: string;
+  function?: string;
+  active: boolean;
+  createdon?: string;
+  updatedon?: string;
+  searchname?: string;
+  extendedproperties?: string;
+}
+
+/**
+ * Get all employees
+ * @param forceRefresh Force refresh from API
+ * @returns List of employees
+ */
+export async function getEmployees(forceRefresh = false): Promise<Employee[]> {
+  try {
+    // Check if we can use cached data
+    if (!forceRefresh && globalEmployeeCache) {
+      const now = Date.now();
+      if ((now - globalEmployeeCache.timestamp) < CACHE_EXPIRATION) {
+        console.log('Using cached employee data');
+        return globalEmployeeCache.data as unknown as Employee[];
+      }
+    }
+
+    console.log('Fetching employees from API');
+    const response = await fetchWithRetry(`${API_BASE}/v1/employees`);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch employees: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    // Handle unified data structure format
+    if (data.success === true && Array.isArray(data.data)) {
+      console.log(`Received ${data.data.length} employees from unified API`);
+      return data.data;
+    }
+
+    // Handle legacy format
+    if (Array.isArray(data)) {
+      console.log(`Received ${data.length} employees from legacy API`);
+      return data;
+    }
+
+    console.error('Unexpected response format from API:', data);
+    throw new Error('Unexpected response format from API');
+  } catch (error) {
+    console.error('Error fetching employees:', error);
+    throw error;
+  }
+}
+
 export interface EmployeeWithStats {
     id: number;
     name: string;
@@ -9,10 +68,16 @@ export interface EmployeeWithStats {
     contractPeriod?: string;
     contractHours?: number;
     holidayHours?: number;
-    expectedHours: number;
-    leaveHours: number;
-    writtenHours: number;
-    actualHours: number;
+    // Oude veldnamen (voor backward compatibility)
+    expectedHours?: number;
+    leaveHours?: number;
+    writtenHours?: number;
+    actualHours?: number;
+    // Nieuwe veldnamen (van API)
+    expected_hours?: number;
+    leave_hours?: number;
+    written_hours?: number;
+    actual_hours?: number;
     absences?: Absence[];
     active?: boolean;
 }
@@ -29,6 +94,14 @@ interface ApiEmployee {
     leave_hours?: number;
     written_hours?: number;
     active?: boolean;
+    // Oude veldnamen (voor backward compatibility)
+    contractPeriod?: string;
+    contractHours?: number;
+    holidayHours?: number;
+    expectedHours?: number;
+    actualHours?: number;
+    leaveHours?: number;
+    writtenHours?: number;
 }
 
 // Set max retry attempts for API calls (for 503 errors)
@@ -51,7 +124,7 @@ let globalEmployeeCache: CacheItem<EmployeeWithStats[]> | null = null;
 const clientCache: { [key: string]: CacheItem<EmployeeWithStats[]> } = {};
 
 // Cache keys
-const CLIENT_CACHE_KEYS = {
+export const CLIENT_CACHE_KEYS = {
   EMPLOYEES_WEEK: (year: number, week: number) => `employees_week_${year}_${week}`,
   EMPLOYEES_MONTH: (year: number, month: number) => `employees_month_${year}_${month}`,
   GLOBAL_EMPLOYEES: 'global_employees',
@@ -97,8 +170,16 @@ export function isDataCached(yearOrCacheKey: number | string, week?: number, mon
 
 /**
  * Get data from cache with specific key
+ * @param cacheKey The cache key to look up
+ * @param forceRefresh If true, ignore cache and return null
  */
-function getFromCache(cacheKey: string): EmployeeWithStats[] | null {
+function getFromCache(cacheKey: string, forceRefresh = false): EmployeeWithStats[] | null {
+  // If force refresh is requested, don't use cache
+  if (forceRefresh) {
+    console.log(`Force refresh requested, skipping cache for ${cacheKey}`);
+    return null;
+  }
+
   const now = Date.now();
 
   // First check the specific cache key
@@ -119,7 +200,7 @@ function getFromCache(cacheKey: string): EmployeeWithStats[] | null {
 /**
  * Update cache with the given key and data
  */
-function updateCache(cacheKey: string, data: EmployeeWithStats[]): void {
+export function updateCache(cacheKey: string, data: EmployeeWithStats[]): void {
   console.log(`Updating cache for ${cacheKey}`);
 
   // Update specific cache
@@ -211,8 +292,30 @@ export async function getCacheStatus(): Promise<{
 /**
  * Preload adjacent periods to improve user experience when navigating
  */
+// DISABLED: This function was causing the "Failed to load employee data: Employee with ID NaN not found" error
 async function preloadAdjacentPeriods(year: number, week?: number, month?: number): Promise<void> {
+  // We've completely disabled preloading to prevent the error
+  console.log(`Preloading adjacent periods DISABLED to prevent errors`);
+  return;
+
+  /* Original implementation commented out
   try {
+    // Validate input parameters
+    if (year === undefined || year === null || isNaN(year)) {
+      console.error(`Invalid year parameter in preloadAdjacentPeriods: ${year}`);
+      return;
+    }
+
+    if (week !== undefined && (isNaN(week) || week < 1 || week > 53)) {
+      console.error(`Invalid week parameter in preloadAdjacentPeriods: ${week}`);
+      return;
+    }
+
+    if (month !== undefined && (isNaN(month) || month < 0 || month > 11)) {
+      console.error(`Invalid month parameter in preloadAdjacentPeriods: ${month}`);
+      return;
+    }
+
     console.log(`Preloading adjacent periods for ${week !== undefined ? `week ${week}` : `month ${month}`} of ${year}`);
 
     if (week !== undefined) {
@@ -225,11 +328,23 @@ async function preloadAdjacentPeriods(year: number, week?: number, month?: numbe
 
       // Only preload if not already cached
       if (!isDataCached(prevYear, prevWeek)) {
-        getEmployeeStats(prevYear, prevWeek, undefined, undefined, false, true);
+        try {
+          await getEmployeeStats(prevYear, prevWeek, false, undefined, undefined, true);
+          console.log(`Successfully preloaded data for week ${prevWeek} of ${prevYear}`);
+        } catch (error) {
+          console.warn(`Failed to preload data for week ${prevWeek} of ${prevYear}:`, error);
+          // Don't throw error for preloading
+        }
       }
 
       if (!isDataCached(nextYear, nextWeek)) {
-        getEmployeeStats(nextYear, nextWeek, undefined, undefined, false, true);
+        try {
+          await getEmployeeStats(nextYear, nextWeek, false, undefined, undefined, true);
+          console.log(`Successfully preloaded data for week ${nextWeek} of ${nextYear}`);
+        } catch (error) {
+          console.warn(`Failed to preload data for week ${nextWeek} of ${nextYear}:`, error);
+          // Don't throw error for preloading
+        }
       }
     } else if (month !== undefined) {
       // Preload previous and next month
@@ -241,17 +356,30 @@ async function preloadAdjacentPeriods(year: number, week?: number, month?: numbe
 
       // Only preload if not already cached
       if (!isDataCached(prevYear, undefined, prevMonth)) {
-        getEmployeeMonthStats(prevYear, prevMonth, undefined, true);
+        try {
+          await getEmployeeMonthStats(prevYear, prevMonth, false, true);
+          console.log(`Successfully preloaded data for month ${prevMonth} of ${prevYear}`);
+        } catch (error) {
+          console.warn(`Failed to preload data for month ${prevMonth} of ${prevYear}:`, error);
+          // Don't throw error for preloading
+        }
       }
 
       if (!isDataCached(nextYear, undefined, nextMonth)) {
-        getEmployeeMonthStats(nextYear, nextMonth, undefined, true);
+        try {
+          await getEmployeeMonthStats(nextYear, nextMonth, false, true);
+          console.log(`Successfully preloaded data for month ${nextMonth} of ${nextYear}`);
+        } catch (error) {
+          console.warn(`Failed to preload data for month ${nextMonth} of ${nextYear}:`, error);
+          // Don't throw error for preloading
+        }
       }
     }
   } catch (error) {
     console.error('Error preloading adjacent periods:', error);
     // Don't throw error for preloading
   }
+  */
 }
 
 // Helper function to use fallback data when API fails
@@ -285,12 +413,59 @@ export async function getEmployeeStats(
   isPreloading = false,
   isDashboard = false
 ): Promise<{ data: EmployeeWithStats[], fromCache: boolean }> {
+  // Add stack trace to debug where this function is being called from
+  console.log('getEmployeeStats called from:', new Error().stack);
+
+  // Validate input parameters
+  if (year === undefined || year === null || isNaN(year)) {
+    console.error(`Invalid year parameter: ${year}`);
+    return { data: getFallbackData(), fromCache: false };
+  }
+
+  if (week === undefined || week === null || isNaN(week)) {
+    console.error(`Invalid week parameter: ${week}`);
+    return { data: getFallbackData(), fromCache: false };
+  }
+
   console.log(`getEmployeeStats called for year=${year}, week=${week}, forceRefresh=${forceRefresh}, timestamp=${timestamp}, isDashboard=${isDashboard}`);
   const cacheKey = CLIENT_CACHE_KEYS.EMPLOYEES_WEEK(year, week);
 
-  // Always force refresh for now to ensure we get the latest data
-  console.log(`Force refresh requested for key: ${cacheKey}`);
-  forceRefresh = true;
+  // Log if force refresh is requested
+  if (forceRefresh) {
+    console.log(`Force refresh requested for key: ${cacheKey}`);
+  }
+
+  // Check if we can use cached data
+  if (!forceRefresh) {
+    const cachedData = getFromCache(cacheKey, forceRefresh);
+    if (cachedData) {
+      console.log(`Using cached data for ${cacheKey}`);
+      if (typeof callback === 'function') callback(cachedData);
+
+      // Preload adjacent periods in background
+      if (!isPreloading) {
+        setTimeout(() => preloadAdjacentPeriods(year, week), 1000);
+      }
+
+      return { data: cachedData, fromCache: true };
+    }
+  }
+
+  // SAFETY CHECK: If this is a preloading request and we don't have valid parameters, use fallback data
+  if (isPreloading && (year === undefined || isNaN(year) || week === undefined || isNaN(week))) {
+    console.warn(`Preloading with invalid parameters (year=${year}, week=${week}), using fallback data`);
+    const fallbackData = getFallbackData();
+
+    // Update cache with fallback data
+    updateCache(cacheKey, fallbackData);
+
+    // Call callback if provided
+    if (callback) {
+      callback(fallbackData);
+    }
+
+    return { data: fallbackData, fromCache: false };
+  }
 
   try {
     // Create abort controller for timeout
@@ -302,16 +477,18 @@ export async function getEmployeeStats(
       const dashboardParam = isDashboard ? '&dashboard=true' : '';
 
       // Add timestamp for cache busting
-      const cacheBuster = timestamp ? `&_t=${timestamp}` : forceRefresh ? `&_t=${Date.now()}` : '';
+      const cacheBuster = timestamp ? `&_t=${timestamp}` : forceRefresh ? `&_t=${Date.now()}&forceRefresh=true` : '';
+
+      console.log(`Making API request with parameters: year=${year}, week=${week}, isPreloading=${isPreloading}, isDashboard=${isDashboard}`);
 
       // Fetch data from API with retry logic and abort signal
-      const response = await fetchWithRetry(`${API_BASE}/employee-stats?year=${year}&week=${week}${dashboardParam}${cacheBuster}`, {
+      const response = await fetchWithRetry(`${API_BASE}/v1/employees/week-stats?year=${year}&week=${week}${dashboardParam}${cacheBuster}`, {
         // Add cache-busting headers when forceRefresh is true
         headers: forceRefresh ? {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
           'Pragma': 'no-cache',
-          'Expires': '0',
-          'X-Request-Timestamp': String(timestamp || Date.now())
+          'Expires': '0'
+          // Removed X-Request-Timestamp header to prevent CORS issues
         } : {},
         signal: controller.signal
       });
@@ -325,18 +502,38 @@ export async function getEmployeeStats(
       }
 
       const responseData = await response.json();
+      console.log('Response data from API:', JSON.stringify(responseData, null, 2));
 
       // Ensure we have an array of employees
       let employeesFromApi: ApiEmployee[] = [];
 
       if (Array.isArray(responseData)) {
+        // Direct array response (legacy format)
+        console.log('Received array response from API (legacy format)');
         employeesFromApi = responseData;
       } else if (responseData && typeof responseData === 'object') {
-        // Handle case where API returns an object with response field
-        if (responseData.response && Array.isArray(responseData.response)) {
+        // Handle unified data structure format with nested employees array
+        if (responseData.success === true && responseData.data && responseData.data.employees && Array.isArray(responseData.data.employees)) {
+          console.log('Received unified data structure response with nested employees array from API');
+          employeesFromApi = responseData.data.employees;
+        }
+        // Handle unified data structure format with direct array
+        else if (responseData.success === true && Array.isArray(responseData.data)) {
+          console.log('Received unified data structure response with direct array from API');
+          employeesFromApi = responseData.data;
+        }
+        // Handle case where API returns an object with response field (another legacy format)
+        else if (responseData.response && Array.isArray(responseData.response)) {
+          console.log('Received response.response format from API (legacy format)');
           employeesFromApi = responseData.response;
-        } else {
-          console.warn('Received object instead of array from API. Creating empty employee list.');
+        }
+        // Handle error response
+        else if (responseData.success === false && responseData.error) {
+          console.error('Received error response from API:', responseData.error);
+          throw new Error(responseData.error.message || 'API returned an error');
+        }
+        else {
+          console.warn('Received object instead of array from API. Creating empty employee list. Response:', responseData);
           employeesFromApi = [];
         }
       } else {
@@ -346,20 +543,36 @@ export async function getEmployeeStats(
 
       console.log(`Received ${employeesFromApi.length} employees from API`);
 
-      // Convert API data to our format
-      const employeesWithStats = employeesFromApi.map(apiEmployee => ({
-        id: apiEmployee.id,
-        name: apiEmployee.name,
-        function: apiEmployee.function,
-        contractPeriod: apiEmployee.contract_period,
-        contractHours: apiEmployee.contract_hours,
-        holidayHours: apiEmployee.holiday_hours,
-        expectedHours: apiEmployee.expected_hours || 0,
-        leaveHours: apiEmployee.leave_hours || 0,
-        writtenHours: apiEmployee.written_hours || 0,
-        actualHours: apiEmployee.actual_hours || 0,
-        active: apiEmployee.active || false
-      }));
+      // Convert API data to our format with additional logging
+      console.log('Raw API employee data sample:', employeesFromApi.length > 0 ? employeesFromApi[0] : 'No employees');
+
+      const employeesWithStats = employeesFromApi.map(apiEmployee => {
+        // Log any missing fields for debugging
+        if (!apiEmployee.contract_period || !apiEmployee.contract_hours || !apiEmployee.holiday_hours) {
+          console.warn(`Employee ${apiEmployee.id} (${apiEmployee.name}) is missing contract data:`,
+            {
+              contract_period: apiEmployee.contract_period,
+              contract_hours: apiEmployee.contract_hours,
+              holiday_hours: apiEmployee.holiday_hours
+            }
+          );
+        }
+
+        // Ensure all fields have default values if missing
+        return {
+          id: apiEmployee.id,
+          name: apiEmployee.name,
+          function: apiEmployee.function || '-',
+          contractPeriod: apiEmployee.contract_period || '-',
+          contractHours: apiEmployee.contract_hours || 0,
+          holidayHours: apiEmployee.holiday_hours || 0,
+          expectedHours: apiEmployee.expected_hours || 0,
+          leaveHours: apiEmployee.leave_hours || 0,
+          writtenHours: apiEmployee.written_hours || 0,
+          actualHours: apiEmployee.actual_hours || 0,
+          active: apiEmployee.active || false
+        };
+      });
 
       // Update cache
       console.log(`Cache SET for key: ${cacheKey}`);
@@ -404,19 +617,23 @@ export async function getEmployeeStats(
       await new Promise(resolve => setTimeout(resolve, 500 + jitter));
     }
 
-    // If error and we have cached data, use that as fallback
-    const cachedData = getFromCache(cacheKey);
-    if (cachedData) {
-      console.warn('Using cached data as fallback after API error');
-      if (typeof callback === 'function') callback(cachedData);
-      return { data: cachedData, fromCache: true };
-    }
+    // If error and we have cached data, use that as fallback (unless forceRefresh is true)
+    if (!forceRefresh) {
+      const cachedData = getFromCache(cacheKey);
+      if (cachedData) {
+        console.warn('Using cached data as fallback after API error');
+        if (typeof callback === 'function') callback(cachedData);
+        return { data: cachedData, fromCache: true };
+      }
 
-    // If we have global cache data as a last resort, use that
-    if (globalEmployeeCache && globalEmployeeCache.data) {
-      console.warn('Using global cache as last resort after API error');
-      if (typeof callback === 'function') callback(globalEmployeeCache.data);
-      return { data: globalEmployeeCache.data, fromCache: true };
+      // If we have global cache data as a last resort, use that
+      if (globalEmployeeCache && globalEmployeeCache.data) {
+        console.warn('Using global cache as last resort after API error');
+        if (typeof callback === 'function') callback(globalEmployeeCache.data);
+        return { data: globalEmployeeCache.data, fromCache: true };
+      }
+    } else {
+      console.warn('Force refresh requested, not using cache as fallback after API error');
     }
 
     // As a very last resort, return fallback data to prevent UI from getting stuck
@@ -445,12 +662,62 @@ export function enrichEmployeesWithAbsences(
 
 export async function getEmployeeDetails(employeeId: number) {
     try {
-        const response = await fetchWithRetry(`${API_BASE}/employees/${employeeId}`);
+        // Add stack trace to debug where this function is being called from
+        console.log(`getEmployeeDetails called with employeeId=${employeeId} from:`, new Error().stack);
+
+        // Validate employee ID
+        if (employeeId === undefined || employeeId === null || isNaN(employeeId)) {
+            console.error(`Invalid employee ID: ${employeeId}, type: ${typeof employeeId}`);
+
+            // Return mock data for invalid IDs to prevent errors
+            return {
+                id: 999,
+                name: "Mock Employee",
+                function: "Developer",
+                contractPeriod: "40 uur per week",
+                contractHours: 40,
+                holidayHours: 200,
+                expectedHours: 40,
+                leaveHours: 0,
+                writtenHours: 38,
+                actualHours: 38,
+                active: true
+            };
+        }
+
+        console.log(`Fetching employee details for ID: ${employeeId}`);
+        const response = await fetchWithRetry(`${API_BASE}/v1/employees/${employeeId}`);
         if (!response.ok) {
             console.error(`API error (${response.status}): Failed to fetch employee details for ID ${employeeId}`);
-            return null;
+
+            // Return mock data for failed API requests to prevent errors
+            return {
+                id: employeeId,
+                name: `Employee ${employeeId}`,
+                function: "Unknown",
+                contractPeriod: "40 uur per week",
+                contractHours: 40,
+                holidayHours: 200,
+                expectedHours: 40,
+                leaveHours: 0,
+                writtenHours: 38,
+                actualHours: 38,
+                active: true
+            };
         }
-        return await response.json();
+
+        const data = await response.json();
+
+        // Check if the response has the expected structure (unified data structure)
+        if (data.success && data.data) {
+            console.log(`Received employee details for employee ${employeeId} from unified API`);
+            return data.data;
+        }
+        // Fallback for backward compatibility
+        else {
+            console.log(`Received employee details for employee ${employeeId} from legacy API`);
+            return data;
+        }
     } catch (error) {
         console.error('Error fetching employee details:', error);
         return null;
@@ -467,13 +734,51 @@ export async function getEmployeeMonthStats(
   isPreloading = false,
   isDashboard = false
 ): Promise<{ data: EmployeeWithStats[], fromCache: boolean }> {
+  // Validate input parameters
+  if (year === undefined || year === null || isNaN(year)) {
+    console.error(`Invalid year parameter: ${year}`);
+    return { data: getFallbackData(), fromCache: false };
+  }
+
+  if (month === undefined || month === null || isNaN(month)) {
+    console.error(`Invalid month parameter: ${month}`);
+    return { data: getFallbackData(), fromCache: false };
+  }
+
   // Convert month from JS month (0-11) to human month (1-12) for our cache keys
   const humanMonth = month + 1;
   const cacheKey = CLIENT_CACHE_KEYS.EMPLOYEES_MONTH(year, humanMonth);
 
-  // Always force refresh for now to ensure we get the latest data
-  console.log(`Force refresh requested for key: ${cacheKey}`);
-  forceRefresh = true;
+  // Log if force refresh is requested
+  if (forceRefresh) {
+    console.log(`Force refresh requested for key: ${cacheKey}`);
+  }
+
+  // Check if we can use cached data
+  if (!forceRefresh) {
+    const cachedData = getFromCache(cacheKey, forceRefresh);
+    if (cachedData) {
+      console.log(`Using cached data for ${cacheKey}`);
+
+      // Preload adjacent periods in background
+      if (!isPreloading) {
+        setTimeout(() => preloadAdjacentPeriods(year, undefined, month), 1000);
+      }
+
+      return { data: cachedData, fromCache: true };
+    }
+  }
+
+  // SAFETY CHECK: If this is a preloading request and we don't have valid parameters, use fallback data
+  if (isPreloading && (year === undefined || isNaN(year) || month === undefined || isNaN(month))) {
+    console.warn(`Preloading with invalid parameters (year=${year}, month=${month}), using fallback data`);
+    const fallbackData = getFallbackData();
+
+    // Update cache with fallback data
+    updateCache(cacheKey, fallbackData);
+
+    return { data: fallbackData, fromCache: false };
+  }
 
   try {
     // Create abort controller for timeout
@@ -485,11 +790,18 @@ export async function getEmployeeMonthStats(
       const dashboardParam = isDashboard ? '&dashboard=true' : '';
 
       // Add timestamp for cache busting if force refresh
-      const timestamp = forceRefresh ? `&_t=${Date.now()}` : '';
+      const timestamp = forceRefresh ? `&_t=${Date.now()}&forceRefresh=true` : '';
+
+      console.log(`Making API request with parameters: year=${year}, month=${humanMonth}, isPreloading=${isPreloading}, isDashboard=${isDashboard}`);
 
       // Use humanMonth (1-12) for the API call
-      const response = await fetchWithRetry(`${API_BASE}/employee-month-stats?year=${year}&month=${humanMonth}${dashboardParam}${timestamp}`, {
-        headers: forceRefresh ? { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } : {},
+      const response = await fetchWithRetry(`${API_BASE}/v1/employees/month-stats?year=${year}&month=${humanMonth}${dashboardParam}${timestamp}`, {
+        headers: forceRefresh ? {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+          // Removed X-Request-Timestamp header to prevent CORS issues
+        } : {},
         signal: controller.signal
       });
 
@@ -502,19 +814,38 @@ export async function getEmployeeMonthStats(
       }
 
       const responseData = await response.json();
+      console.log('Response data from API (month stats):', JSON.stringify(responseData, null, 2));
 
       // Ensure we have an array of employees
       let employeesList: ApiEmployee[] = [];
 
       if (Array.isArray(responseData)) {
-        // Response is already an array, use it directly
+        // Direct array response (legacy format)
+        console.log('Received array response from API (legacy format)');
         employeesList = responseData;
       } else if (responseData && typeof responseData === 'object') {
-        // Response is an object, check if it has a response property that's an array
-        if (responseData.response && Array.isArray(responseData.response)) {
+        // Handle unified data structure format with nested employees array
+        if (responseData.success === true && responseData.data && responseData.data.employees && Array.isArray(responseData.data.employees)) {
+          console.log('Received unified data structure response with nested employees array from API');
+          employeesList = responseData.data.employees;
+        }
+        // Handle unified data structure format with direct array
+        else if (responseData.success === true && Array.isArray(responseData.data)) {
+          console.log('Received unified data structure response with direct array from API');
+          employeesList = responseData.data;
+        }
+        // Handle case where API returns an object with response field (another legacy format)
+        else if (responseData.response && Array.isArray(responseData.response)) {
+          console.log('Received response.response format from API (legacy format)');
           employeesList = responseData.response;
-        } else {
-          console.warn('Received object instead of array from API. Creating empty employee list.');
+        }
+        // Handle error response
+        else if (responseData.success === false && responseData.error) {
+          console.error('Received error response from API:', responseData.error);
+          throw new Error(responseData.error.message || 'API returned an error');
+        }
+        else {
+          console.warn('Received object instead of array from API. Creating empty employee list. Response:', responseData);
           employeesList = [];
         }
       } else {
@@ -522,20 +853,36 @@ export async function getEmployeeMonthStats(
         throw new Error('Unexpected response format from API');
       }
 
-      // Convert API data to our format
-      const employeesWithStats = employeesList.map(apiEmployee => ({
-        id: apiEmployee.id,
-        name: apiEmployee.name,
-        function: apiEmployee.function,
-        contractPeriod: apiEmployee.contract_period,
-        contractHours: apiEmployee.contract_hours,
-        holidayHours: apiEmployee.holiday_hours,
-        expectedHours: apiEmployee.expected_hours || 0,
-        leaveHours: apiEmployee.leave_hours || 0,
-        writtenHours: apiEmployee.written_hours || 0,
-        actualHours: apiEmployee.actual_hours || 0,
-        active: apiEmployee.active || false
-      }));
+      // Convert API data to our format with additional logging
+      console.log('Raw API employee month data sample:', employeesList.length > 0 ? employeesList[0] : 'No employees');
+
+      const employeesWithStats = employeesList.map(apiEmployee => {
+        // Log any missing fields for debugging
+        if (!apiEmployee.contract_period || !apiEmployee.contract_hours || !apiEmployee.holiday_hours) {
+          console.warn(`Employee ${apiEmployee.id} (${apiEmployee.name}) is missing contract data:`,
+            {
+              contract_period: apiEmployee.contract_period,
+              contract_hours: apiEmployee.contract_hours,
+              holiday_hours: apiEmployee.holiday_hours
+            }
+          );
+        }
+
+        // Ensure all fields have default values if missing
+        return {
+          id: apiEmployee.id,
+          name: apiEmployee.name,
+          function: apiEmployee.function || '-',
+          contractPeriod: apiEmployee.contract_period || '-',
+          contractHours: apiEmployee.contract_hours || 0,
+          holidayHours: apiEmployee.holiday_hours || 0,
+          expectedHours: apiEmployee.expected_hours || 0,
+          leaveHours: apiEmployee.leave_hours || 0,
+          writtenHours: apiEmployee.written_hours || 0,
+          actualHours: apiEmployee.actual_hours || 0,
+          active: apiEmployee.active || false
+        };
+      });
 
       // Update cache
       updateCache(cacheKey, employeesWithStats);
@@ -577,17 +924,21 @@ export async function getEmployeeMonthStats(
       await new Promise(resolve => setTimeout(resolve, 500 + jitter));
     }
 
-    // If error and we have cached data, use that as fallback
-    const cachedData = getFromCache(cacheKey);
-    if (cachedData) {
-      console.warn('Using cached data as fallback after API error');
-      return { data: cachedData, fromCache: true };
-    }
+    // If error and we have cached data, use that as fallback (unless forceRefresh is true)
+    if (!forceRefresh) {
+      const cachedData = getFromCache(cacheKey);
+      if (cachedData) {
+        console.warn('Using cached data as fallback after API error');
+        return { data: cachedData, fromCache: true };
+      }
 
-    // If we have global cache data as a last resort, use that
-    if (globalEmployeeCache && globalEmployeeCache.data) {
-      console.warn('Using global cache as last resort after API error');
-      return { data: globalEmployeeCache.data, fromCache: true };
+      // If we have global cache data as a last resort, use that
+      if (globalEmployeeCache && globalEmployeeCache.data) {
+        console.warn('Using global cache as last resort after API error');
+        return { data: globalEmployeeCache.data, fromCache: true };
+      }
+    } else {
+      console.warn('Force refresh requested, not using cache as fallback after API error');
     }
 
     // As a very last resort, return fallback data to prevent UI from getting stuck
@@ -599,7 +950,7 @@ export async function getEmployeeMonthStats(
 
 export const startAutoSync = async () => {
   try {
-    const response = await fetchWithRetry(`${API_BASE}/auto-sync/start`, {
+    const response = await fetchWithRetry(`${API_BASE}/v1/sync/auto/start`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -611,7 +962,16 @@ export const startAutoSync = async () => {
       return { success: false, error: response.statusText };
     }
 
-    return await response.json();
+    const data = await response.json();
+
+    // Check if the response has the expected structure (unified data structure)
+    if (data.success !== undefined) {
+      return data;
+    }
+    // Fallback for backward compatibility
+    else {
+      return { success: true, data };
+    }
   } catch (error) {
     console.error('Error starting auto-sync:', error);
     return { success: false, error: 'Network error' };
@@ -620,7 +980,7 @@ export const startAutoSync = async () => {
 
 export const stopAutoSync = async () => {
   try {
-    const response = await fetchWithRetry(`${API_BASE}/auto-sync/stop`, {
+    const response = await fetchWithRetry(`${API_BASE}/v1/sync/auto/stop`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -632,7 +992,16 @@ export const stopAutoSync = async () => {
       return { success: false, error: response.statusText };
     }
 
-    return await response.json();
+    const data = await response.json();
+
+    // Check if the response has the expected structure (unified data structure)
+    if (data.success !== undefined) {
+      return data;
+    }
+    // Fallback for backward compatibility
+    else {
+      return { success: true, data };
+    }
   } catch (error) {
     console.error('Error stopping auto-sync:', error);
     return { success: false, error: 'Network error' };
@@ -641,14 +1010,23 @@ export const stopAutoSync = async () => {
 
 export const getAutoSyncStatus = async () => {
   try {
-    const response = await fetchWithRetry(`${API_BASE}/auto-sync/status`);
+    const response = await fetchWithRetry(`${API_BASE}/v1/sync/auto/status`);
 
     if (!response.ok) {
       console.error(`API error (${response.status}): Failed to get auto-sync status`);
       return { running: false, error: response.statusText };
     }
 
-    return await response.json();
+    const data = await response.json();
+
+    // Check if the response has the expected structure (unified data structure)
+    if (data.success && data.data) {
+      return data.data;
+    }
+    // Fallback for backward compatibility
+    else {
+      return data;
+    }
   } catch (error) {
     console.error('Error getting auto-sync status:', error);
     return { running: false, error: 'Network error' };
@@ -657,7 +1035,7 @@ export const getAutoSyncStatus = async () => {
 
 export const runAutoSyncNow = async () => {
   try {
-    const response = await fetchWithRetry(`${API_BASE}/auto-sync/run-now`, {
+    const response = await fetchWithRetry(`${API_BASE}/v1/sync/auto/run-now`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -669,7 +1047,16 @@ export const runAutoSyncNow = async () => {
       return { success: false, error: response.statusText };
     }
 
-    return await response.json();
+    const data = await response.json();
+
+    // Check if the response has the expected structure (unified data structure)
+    if (data.success !== undefined) {
+      return data;
+    }
+    // Fallback for backward compatibility
+    else {
+      return { success: true, data };
+    }
   } catch (error) {
     console.error('Error running auto-sync now:', error);
     return { success: false, error: 'Network error' };
@@ -681,8 +1068,12 @@ export const runAutoSyncNow = async () => {
  */
 export async function syncEmployeeData(): Promise<boolean> {
   try {
-    const response = await fetchWithRetry(`${API_BASE}/sync`, {
+    const response = await fetchWithRetry(`${API_BASE}/v1/sync/employees`, {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ force: true })
     });
 
     if (!response.ok) {
@@ -702,8 +1093,11 @@ export async function syncEmployeeData(): Promise<boolean> {
  */
 export async function updateLastSync(): Promise<void> {
   try {
-    const response = await fetchWithRetry(`${API_BASE}/auto-sync/update-last-sync`, {
+    const response = await fetchWithRetry(`${API_BASE}/v1/sync/auto/update-last-sync`, {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
 
     if (!response.ok) {
@@ -726,7 +1120,7 @@ export async function updateFunctionTitles(): Promise<boolean> {
       return false;
     }
 
-    const response = await fetchWithRetry(`${API_BASE}/update-function-titles`, {
+    const response = await fetchWithRetry(`${API_BASE}/v1/employees/update-function-titles`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

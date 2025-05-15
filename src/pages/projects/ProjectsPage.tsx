@@ -20,10 +20,10 @@ const ProjectsPageContent: React.FC = () => {
   const { loadingState, loadingMessage, error, filteredProjects } = useProjects();
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Projecten</h1>
+          <h2 className="text-2xl font-bold tracking-tight">Projecten</h2>
           <p className="text-muted-foreground">
             Bekijk en beheer alle projecten
           </p>

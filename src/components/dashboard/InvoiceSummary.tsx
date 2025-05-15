@@ -7,7 +7,7 @@ import { Button } from '../ui/button';
 import { useToast } from '../ui/use-toast';
 import { Banknote, AlertTriangle, CheckCircle, Clock, RotateCw } from 'lucide-react';
 import axios from 'axios';
-import { API_ENDPOINTS, AXIOS_CONFIG } from '../../config/api';
+import { API_ENDPOINTS, AXIOS_CONFIG, API_BASE_URL } from '../../config/api';
 
 // Configureer axios instance
 const apiClient = axios.create(AXIOS_CONFIG);
@@ -131,6 +131,69 @@ const InvoiceSummary: React.FC = () => {
     }
   };
 
+  // Calculate total overdue amount
+  const calculateOverdueAmount = (invoices: Invoice[]): number => {
+    return invoices.reduce((sum, invoice) => {
+      const amount = invoice.totalExclVat || invoice.totalInclVat || (invoice.totalAmount ? invoice.totalAmount * 0.826 : 0);
+      return sum + amount;
+    }, 0);
+  };
+
+  // Fetch invoice statistics
+  const fetchInvoiceStats = async (): Promise<{
+    total: number;
+    paid: number;
+    pending: number;
+    overdue: number;
+    totalAmount: number;
+    avgAmount: number;
+  }> => {
+    try {
+      // Fetch total count
+      const totalResponse = await fetch(`${API_BASE_URL}/api/v1/db-invoices?limit=1&page=1`);
+      const totalData = await totalResponse.json();
+      const total = totalData.data?.meta?.total || 0;
+
+      // Fetch paid count
+      const paidResponse = await fetch(`${API_BASE_URL}/api/v1/db-invoices?isPaid=1&limit=1&page=1`);
+      const paidData = await paidResponse.json();
+      const paid = paidData.data?.meta?.total || 0;
+
+      // Fetch pending count
+      const pendingResponse = await fetch(`${API_BASE_URL}/api/v1/db-invoices?isPaid=0&isOverdue=0&limit=1&page=1`);
+      const pendingData = await pendingResponse.json();
+      const pending = pendingData.data?.meta?.total || 0;
+
+      // Fetch overdue count
+      const overdueResponse = await fetch(`${API_BASE_URL}/api/v1/db-invoices?isOverdue=1&limit=1&page=1`);
+      const overdueData = await overdueResponse.json();
+      const overdue = overdueData.data?.meta?.total || 0;
+
+      // Calculate average amount (approximation)
+      const totalAmount = 0; // We don't have this information without fetching all invoices
+      const avgAmount = 0;
+
+      return {
+        total,
+        paid,
+        pending,
+        overdue,
+        totalAmount,
+        avgAmount
+      };
+    } catch (error) {
+      console.error('Error fetching invoice statistics:', error);
+      return {
+        total: 0,
+        paid: 0,
+        pending: 0,
+        overdue: 0,
+        totalAmount: 0,
+        avgAmount: 0
+      };
+    }
+  };
+
   // Get status badge
   const getStatusBadge = (invoice: InvoiceWithCompany) => {
     // Convert status to lowercase for case-insensitive comparison
@@ -156,19 +219,65 @@ const InvoiceSummary: React.FC = () => {
         description: "Facturen worden gesynchroniseerd met Gripp...",
       });
 
-      // Call the sync endpoint to sync invoices from Gripp
-      const response = await axios.post(API_ENDPOINTS.SYNC.INVOICES, {
-        forceRefresh: true
-      });
+      console.log('Starting invoice sync...');
 
-      if (!response.data || !response.data.success) {
-        throw new Error('Synchronisatie mislukt');
+      // Use the direct endpoint
+      try {
+        console.log('Syncing invoices using endpoint: http://localhost:3004/api/v1/sync/invoices');
+
+        const response = await fetch('http://localhost:3004/api/v1/sync/invoices', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null);
+          console.error('Sync response error:', errorData);
+          throw new Error(`Failed to sync data: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        console.log('Sync response:', data);
+
+        if (!data.success) {
+          throw new Error('Sync failed: ' + (data.error || 'Unknown error'));
+        }
+
+        console.log('Sync successful');
+      } catch (error) {
+        console.error('Error syncing invoices:', error);
+        throw error;
+      }
+
+      // Clear the cache
+      try {
+        console.log('Clearing cache using endpoint: http://localhost:3004/api/v1/cache/clear');
+
+        const cacheResponse = await fetch('http://localhost:3004/api/v1/cache/clear', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        });
+
+        if (!cacheResponse.ok) {
+          const errorData = await cacheResponse.json().catch(() => null);
+          console.error('Cache clear response error:', errorData);
+          throw new Error(`Failed to clear cache: ${cacheResponse.status} ${cacheResponse.statusText}`);
+        }
+
+        const cacheData = await cacheResponse.json();
+        console.log('Cache clear response:', cacheData);
+      } catch (error) {
+        console.error('Error clearing cache:', error);
+        // Continue even if cache clear fails
       }
 
       toast({
         title: "Synchronisatie voltooid",
-        description: `${response.data.data.created} nieuwe facturen toegevoegd, ${response.data.data.updated} facturen bijgewerkt.`,
-        variant: "default",
+        description: "Facturen zijn gesynchroniseerd met Gripp.",
       });
 
       // Refresh the data
@@ -179,7 +288,7 @@ const InvoiceSummary: React.FC = () => {
 
       toast({
         title: "Synchronisatie mislukt",
-        description: "Er is een fout opgetreden bij het synchroniseren van facturen. De Gripp API key is mogelijk niet correct geconfigureerd.",
+        description: "Er is een fout opgetreden bij het synchroniseren van facturen.",
         variant: "destructive",
       });
     } finally {
@@ -193,51 +302,137 @@ const InvoiceSummary: React.FC = () => {
       setLoading(true);
       setError(null);
 
+      console.log('Fetching invoice data...');
+
       // Fetch all invoices for statistics
-      const statsResponse = await axios.get(`${API_ENDPOINTS.INVOICES.GET_ALL}`, {
-        params: {
-          limit: 1, // We need just the meta data for stats
-          page: 1
-        }
-      });
-
-      // Fetch overdue invoices for display
-      const response = await axios.get(`${API_ENDPOINTS.INVOICES.GET_ALL}`, {
-        params: {
-          limit: 2500, // Verhoog de limiet om alle facturen op te halen
-          isOverdue: 1, // Filter op verlopen facturen
-          page: 1 // Begin bij pagina 1
-        }
-      });
-      console.log('Invoices response:', response.data);
-
+      let statsData = null;
       let invoicesData: Invoice[] = [];
+      let statsResponse = null;
 
-      if (response.data && response.data.success && response.data.data) {
-        // Filter out invoices with invalid data
-        invoicesData = response.data.data.filter((invoice: Invoice) => {
-          return invoice.dueDate &&
-                 invoice.dueDate !== 'null' &&
-                 invoice.dueDate !== '[object Object]' &&
-                 typeof invoice.dueDate === 'string';
+      try {
+        // Haal statistieken op uit de database
+        statsResponse = await fetch(`${API_ENDPOINTS.INVOICES.GET_ALL}?limit=1&page=1`, {
+          signal: AbortSignal.timeout(5000) // 5 second timeout
         });
-      } else if (response.data && response.data.result && response.data.result.rows) {
-        // Fallback for backward compatibility
-        invoicesData = response.data.result.rows;
+
+        if (statsResponse.ok) {
+          statsData = await statsResponse.json();
+          console.log('Stats response:', statsData);
+        } else {
+          console.error('Failed to fetch invoice stats:', statsResponse.status);
+        }
+      } catch (statsError) {
+        console.error('Error fetching stats:', statsError);
+      }
+
+      try {
+        // Haal verlopen facturen op uit de database voor weergave
+        // Gebruik direct de API endpoint voor verlopen facturen
+        const overdueUrl = `${API_BASE_URL}/api/v1/db-invoices?isOverdue=1&limit=50&page=1`;
+        console.log('Fetching overdue invoices from URL:', overdueUrl);
+
+        const response = await fetch(overdueUrl, {
+          signal: AbortSignal.timeout(10000) // 10 second timeout
+        });
+
+        if (response.ok) {
+          const responseData = await response.json();
+          console.log('Overdue invoices response:', responseData);
+
+          // Log the entire response structure to debug
+          console.log('Response data structure:', JSON.stringify(responseData, null, 2));
+
+          // Process response data
+          if (responseData.data && responseData.data.rows && Array.isArray(responseData.data.rows)) {
+            invoicesData = responseData.data.rows;
+            console.log(`Found ${invoicesData.length} overdue invoices from data.rows array`);
+
+            // Set invoices
+            setInvoices(invoicesData);
+
+            // Set companies data
+            const companyData: Record<number, Company> = {};
+            invoicesData.forEach(invoice => {
+              if (invoice.company) {
+                companyData[invoice.company] = {
+                  id: invoice.company,
+                  name: invoice.company_name || `Company ${invoice.company}`
+                };
+              }
+            });
+            setCompanies(companyData);
+
+            // Update statistics
+            if (responseData.data && responseData.data.meta) {
+              const meta = responseData.data.meta;
+              const total = meta.total || 0;
+
+              // Fetch additional statistics
+              fetchInvoiceStats().then(stats => {
+                setStats({
+                  total: stats.total || 0,
+                  paid: stats.paid || 0,
+                  pending: stats.pending || 0,
+                  overdue: stats.overdue || 0,
+                  totalAmount: stats.totalAmount || 0,
+                  avgAmount: stats.avgAmount || 0,
+                  overdueAmount: calculateOverdueAmount(invoicesData)
+                });
+              }).catch(error => {
+                console.error('Error fetching invoice stats:', error);
+              });
+            }
+
+            // Return early to skip further processing
+            return;
+          } else if (responseData.data && Array.isArray(responseData.data)) {
+            invoicesData = responseData.data;
+            console.log(`Found ${invoicesData.length} overdue invoices from data array`);
+          } else if (responseData.result && responseData.result.rows) {
+            // Fallback for backward compatibility
+            invoicesData = responseData.result.rows;
+            console.log(`Found ${invoicesData.length} overdue invoices from result.rows`);
+          }
+
+          // Log the structure of invoicesData
+          console.log('invoicesData structure:', JSON.stringify(invoicesData.slice(0, 1), null, 2));
+        } else {
+          console.error('Failed to fetch overdue invoices:', response.status);
+        }
+      } catch (invoicesError) {
+        console.error('Error fetching overdue invoices:', invoicesError);
+      }
+
+      // If we couldn't get data from either request, show error
+      if (!statsData && invoicesData.length === 0) {
+        setError('Failed to load invoice data. Please try again later.');
+        return;
       }
 
       // Log if no invoice data found
       if (!invoicesData || invoicesData.length === 0) {
         console.log('No invoice data found from API');
-        setError('Geen factuurgegevens gevonden. Synchroniseer eerst facturen via de Gripp API.');
+        // Alleen een waarschuwing tonen, geen error, zodat de component blijft werken
+        console.warn('Geen factuurgegevens gevonden in de database.');
       }
 
       if (invoicesData.length > 0) {
         // Process invoices
+        console.log('Processing invoices:', invoicesData);
         const processedInvoices = invoicesData.map((invoice: Invoice) => {
-          const daysOverdue = calculateDaysOverdue(invoice.dueDate);
+          // Log each invoice to debug
+          console.log('Processing invoice:', invoice);
+
+          // Make sure dueDate is a string
+          let dueDateStr = invoice.dueDate || invoice.due_date || '';
+          if (typeof dueDateStr === 'object' && dueDateStr !== null) {
+            dueDateStr = JSON.stringify(dueDateStr);
+          }
+
+          const daysOverdue = calculateDaysOverdue(dueDateStr);
           return {
             ...invoice,
+            dueDate: dueDateStr,
             daysOverdue
           };
         });
@@ -249,26 +444,27 @@ const InvoiceSummary: React.FC = () => {
           return bDaysOverdue - aDaysOverdue;
         });
 
+        console.log('Setting invoices:', processedInvoices);
         setInvoices(processedInvoices);
 
-        // Get accurate statistics from API
-        // Fetch counts for different invoice statuses
-        const paidResponse = await axios.get(`${API_ENDPOINTS.INVOICES.GET_ALL}`, {
+        // Haal nauwkeurige statistieken op uit de database
+        // Haal aantallen op voor verschillende factuurstatussen
+        const paidResponse = await axios.get(API_ENDPOINTS.INVOICES.GET_ALL, {
           params: { isPaid: 1, limit: 1 }
         });
 
-        const unpaidResponse = await axios.get(`${API_ENDPOINTS.INVOICES.GET_ALL}`, {
+        const unpaidResponse = await axios.get(API_ENDPOINTS.INVOICES.GET_ALL, {
           params: { isPaid: 0, isOverdue: 0, limit: 1 }
         });
 
-        const overdueResponse = await axios.get(`${API_ENDPOINTS.INVOICES.GET_ALL}`, {
+        const overdueResponse = await axios.get(API_ENDPOINTS.INVOICES.GET_ALL, {
           params: { isOverdue: 1, limit: 1 }
         });
 
-        // Get total from statsResponse
-        const total = statsResponse.data.meta?.total || 0;
+        // Haal totaal aantal op uit statsData
+        const total = statsData?.meta?.total || 0;
 
-        // Get counts from responses
+        // Haal aantallen op uit de responses
         const paid = paidResponse.data.meta?.total || 0;
         const overdue = overdueResponse.data.meta?.total || 0;
         const pending = unpaidResponse.data.meta?.total || 0;
@@ -462,13 +658,9 @@ const InvoiceSummary: React.FC = () => {
         {/* All overdue invoices */}
         <div>
           <h3 className="text-lg font-medium mb-3">Alle Verlopen Facturen</h3>
-          {invoices.filter(inv => {
-            const status = inv.status?.toLowerCase() || '';
-            const isPaid = status === 'paid' || status === 'betaald' || inv.isPaid === 1;
-            // Gebruik de isOverdue vlag in plaats van daysOverdue berekening
-            return inv.isOverdue === 1 && !isPaid;
-          }).length === 0 ? (
-            <p className="text-sm text-gray-500">Geen verlopen facturen gevonden.</p>
+          {console.log('Rendering invoices:', invoices)}
+          {invoices.length === 0 ? (
+            <p className="text-sm text-gray-500">Geen verlopen facturen gevonden. Probeer te synchroniseren.</p>
           ) : (
             <Table>
               <TableHeader>
@@ -481,14 +673,8 @@ const InvoiceSummary: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {console.log('Rendering invoices in table:', invoices)}
                 {invoices
-                  .filter(inv => {
-                    // Alleen verlopen facturen die NIET betaald zijn
-                    const status = inv.status?.toLowerCase() || '';
-                    const isPaid = status === 'paid' || status === 'betaald' || inv.isPaid === 1;
-                    // Gebruik de isOverdue vlag in plaats van daysOverdue berekening
-                    return inv.isOverdue === 1 && !isPaid;
-                  })
                   // Sorteer op vervaldatum (oudste eerst)
                   .sort((a, b) => {
                     const dateA = new Date(a.dueDate || a.due_date || '');

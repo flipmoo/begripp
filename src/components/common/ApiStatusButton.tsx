@@ -7,6 +7,7 @@ import { FRONTEND_PORT, API_PORT } from '../../config/ports';
 import axios from 'axios';
 import { toast } from '../ui/use-toast';
 import { MdRefresh } from 'react-icons/md';
+import { API_ENDPOINTS } from '../../config/api';
 
 interface ServerStatus {
   online: boolean;
@@ -31,20 +32,25 @@ const ApiStatusButton: React.FC = () => {
     try {
       setIsChecking(true);
       setApiStatus(prev => ({ ...prev, checking: true }));
-      
+
       const start = Date.now();
-      
-      // Gebruik relatieve URL in plaats van hardcoded localhost
-      const response = await fetch('/api/health', {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      
-      const end = Date.now();
-      const responseTime = end - start;
-      
-      if (response.ok) {
-        const data = await response.json();
+
+      // Use the health endpoint to check API status with a timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
+
+      try {
+        const response = await fetch(API_ENDPOINTS.HEALTH.CHECK, {
+          method: 'GET',
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        const end = Date.now();
+        const responseTime = end - start;
+
+        // If we get any response, the API is online
         setApiStatus({
           online: true,
           port: API_PORT,
@@ -52,14 +58,9 @@ const ApiStatusButton: React.FC = () => {
           lastChecked: new Date(),
           checking: false
         });
-      } else {
-        setApiStatus({
-          online: false,
-          port: API_PORT,
-          responseTime,
-          lastChecked: new Date(),
-          checking: false
-        });
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        throw fetchError; // Re-throw to be caught by the outer catch
       }
     } catch (error) {
       console.error('Error checking API status:', error);
@@ -76,12 +77,18 @@ const ApiStatusButton: React.FC = () => {
 
   // Check API status when component mounts
   useEffect(() => {
-    checkApiStatus();
-    
-    // Set up periodic check every 30 seconds
-    const intervalId = setInterval(checkApiStatus, 30000);
-    
-    return () => clearInterval(intervalId);
+    // Delay the initial check to allow the app to load first
+    const initialCheckTimeout = setTimeout(() => {
+      checkApiStatus();
+    }, 5000);
+
+    // Set up periodic check every 5 minutes to reduce load
+    const intervalId = setInterval(checkApiStatus, 300000);
+
+    return () => {
+      clearTimeout(initialCheckTimeout);
+      clearInterval(intervalId);
+    };
   }, []);
 
   const handleManualCheck = () => {
@@ -90,39 +97,42 @@ const ApiStatusButton: React.FC = () => {
 
   const handleRestartApi = () => {
     setRestartingApi(true);
-    
-    // Gebruik relatieve URL in plaats van hardcoded localhost
-    fetch('/api/restart', {
+
+    // Show a toast message
+    toast({
+      title: 'API Server status check',
+      description: 'Checking API server status...',
+    });
+
+    // Check the API status using the health endpoint with a timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
+
+    fetch(API_ENDPOINTS.HEALTH.CHECK, {
       method: 'GET',
+      signal: controller.signal
     })
-      .then(response => {
-        if (response.ok) {
-          toast({
-            title: 'API Server wordt herstart',
-            description: 'Dit kan enkele momenten duren...',
-          });
-          
-          // Wacht even en check dan opnieuw de status
-          setTimeout(() => {
-            checkApiStatus();
-            setRestartingApi(false);
-          }, 10000);
-        } else {
-          toast({
-            variant: 'destructive',
-            title: 'Fout bij herstarten',
-            description: 'De API server kon niet worden herstart.',
-          });
-          setRestartingApi(false);
-        }
-      })
-      .catch(error => {
-        console.error('Error restarting API:', error);
+      .then(() => {
+        clearTimeout(timeoutId);
+        // Success - API is responding
         toast({
-          variant: 'destructive',
-          title: 'Fout bij herstarten',
-          description: 'De API server kon niet worden herstart.',
+          title: 'API Server is Online',
+          description: 'The API server is responding correctly.',
         });
+      })
+      .catch((error) => {
+        clearTimeout(timeoutId);
+        // Error - API is not responding
+        console.error('API health check error:', error);
+        toast({
+          title: 'API Server is Offline',
+          description: 'The API server is not responding.',
+          variant: 'destructive',
+        });
+      })
+      .finally(() => {
+        // Always update the status and reset the loading state
+        checkApiStatus();
         setRestartingApi(false);
       });
   };
@@ -164,7 +174,7 @@ const ApiStatusButton: React.FC = () => {
               <X className="h-4 w-4" />
             </Button>
           </DialogHeader>
-          
+
           <div className="space-y-4 pt-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="font-semibold">Status:</div>
@@ -175,10 +185,10 @@ const ApiStatusButton: React.FC = () => {
                   <><AlertCircle className="h-4 w-4 mr-2 text-red-500" /> Offline</>
                 )}
               </div>
-              
+
               <div className="font-semibold">Poort:</div>
               <div>{apiStatus.port}</div>
-              
+
               {apiStatus.responseTime && (
                 <>
                   <div className="font-semibold">Responstijd:</div>
@@ -187,26 +197,26 @@ const ApiStatusButton: React.FC = () => {
                   </div>
                 </>
               )}
-              
+
               <div className="font-semibold">Laatst gecontroleerd:</div>
               <div>{apiStatus.lastChecked.toLocaleTimeString()}</div>
-              
+
               <div className="font-semibold">Frontend poort:</div>
               <div>{FRONTEND_PORT}</div>
             </div>
-            
+
             <div className="flex justify-between pt-4">
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 disabled={isChecking}
                 onClick={handleManualCheck}
               >
                 {isChecking ? 'Controleren...' : 'Controleer opnieuw'}
               </Button>
-              
-              <Button 
-                variant="destructive" 
+
+              <Button
+                variant="destructive"
                 size="sm"
                 disabled={isChecking || apiStatus.online}
                 onClick={handleRestartApi}
@@ -221,4 +231,4 @@ const ApiStatusButton: React.FC = () => {
   );
 };
 
-export default ApiStatusButton; 
+export default ApiStatusButton;

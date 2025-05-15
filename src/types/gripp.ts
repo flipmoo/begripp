@@ -131,6 +131,7 @@ export interface GrippProjectLine {
   amount: number;
   hidefortimewriting: boolean;
   sellingprice: string;
+  sellingrate?: string; // Toegevoegd veld voor uurtarief
   discount: number;
   buyingprice: string;
   additionalsubject: string;
@@ -232,6 +233,7 @@ export interface GrippProject {
   projectlines: GrippProjectLine[];
   viewonlineurl: string;
   invoices?: GrippInvoice[];
+  type?: string; // Toegevoegd veld voor projecttype
 }
 
 export interface ProjectMilestone {
@@ -247,4 +249,4 @@ export interface ProjectBudget {
   budget_hours: number;
   spent_hours: number;
   percentage: number;
-} 
+}

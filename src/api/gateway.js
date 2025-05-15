@@ -5,9 +5,10 @@ import projectsRouter from './domains/projects/router.js';
 import absencesRouter from './domains/absences/router.js';
 import holidaysRouter from './domains/holidays/router.js';
 import { requestLogger, logger } from './shared/logging.js';
+import { API_PORT } from '../config/ports.js';
 
 const app = express();
-const port = 3003;
+const port = API_PORT;
 
 // Request parsing middleware
 app.use(express.json());
@@ -18,12 +19,12 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  
+
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
-  
+
   next();
 });
 
@@ -68,8 +69,8 @@ app.get('/api/docs', (req, res) => {
 });
 
 // Route alle overige requests naar huidige API server (transparant fallback)
-app.use('/', createProxyMiddleware({ 
-  target: 'http://localhost:3003',
+app.use('/', createProxyMiddleware({
+  target: `http://localhost:${API_PORT}`,
   changeOrigin: true,
   // Debug logging
   onProxyReq: (proxyReq, req) => {
@@ -80,13 +81,13 @@ app.use('/', createProxyMiddleware({
 // Error handling middleware
 app.use((err, req, res, next) => {
   logger.error('Unhandled error in request', err);
-  res.status(500).json({ 
+  res.status(500).json({
     error: 'Internal server error',
-    message: err.message 
+    message: err.message
   });
 });
 
 // Start de server
 app.listen(port, () => {
   logger.info(`API Gateway running on port ${port}`);
-}); 
+});

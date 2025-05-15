@@ -1,0 +1,32 @@
+{
+  "repositories": [
+    {
+      "name": "EmployeeRepository",
+      "description": "Repository for employee data"
+    },
+    {
+      "name": "ProjectRepository",
+      "description": "Repository for project data"
+    },
+    {
+      "name": "InvoiceRepository",
+      "description": "Repository for invoice data"
+    },
+    {
+      "name": "HoursRepository",
+      "description": "Repository for hours data"
+    },
+    {
+      "name": "AbsenceRepository",
+      "description": "Repository for absence data"
+    },
+    {
+      "name": "HolidayRepository",
+      "description": "Repository for holiday data"
+    },
+    {
+      "name": "SyncRepository",
+      "description": "Repository for sync status data"
+    }
+  ]
+}
